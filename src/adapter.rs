@@ -2,7 +2,6 @@
 
 use libc::{c_void, c_char, uint8_t, uint32_t, uint64_t, c_double, memcpy};
 use std::ffi::{CStr, CString};
-use std::mem::{forget, size_of};
 use std::slice::from_raw_parts;
 
 #[link(name = "njsc")]
@@ -495,7 +494,7 @@ impl JSType {
     }
 
     //回收指定的Buffer
-	pub fn from_vec(&self, mut vec: Vec<u8>) {
+	pub fn from_vec(&self, vec: Vec<u8>) {
         unsafe {
             let length = njsc_get_buffer_length(self.value) as usize;
             let buffer = njsc_get_buffer(self.value);
