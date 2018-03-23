@@ -22,12 +22,16 @@ fn base_test() {
     assert!(val.is_number() && val.get_i16() == 65535i16);
     let val = copy.new_i32(0xffffffffi32);
     assert!(val.is_number() && val.get_i32() == 0xffffffffi32);
+    let val = copy.new_i64(0xffffffffffffffffi64);
+    assert!(val.is_number() && val.get_i64() == 0xffffffffffffffffi64);
     let val = copy.new_u8(255u8);
     assert!(val.is_number() && val.get_u8() == 255u8);
     let val = copy.new_u16(65535u16);
     assert!(val.is_number() && val.get_u16() == 65535u16);
     let val = copy.new_u32(0xffffffffu32);
     assert!(val.is_number() && val.get_u32() == 0xffffffffu32);
+    let val = copy.new_u64(9007199254740992u64);
+    assert!(val.is_number() && val.get_u64() == 9007199254740992u64);
     let val = copy.new_f32(0.0173136f32);
     assert!(val.is_number() && val.get_f32() == 0.0173136f32);
     let val = copy.new_f64(921.1356737853f64);
