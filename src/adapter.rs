@@ -145,6 +145,17 @@ impl JS {
         }
     }
 
+    //构建i64
+    pub fn new_i64(&self, num: i64) -> JSType {
+        let ptr: *const c_void;
+        unsafe { ptr = njsc_new_number(self.vm, num as c_double) }
+        JSType {
+            type_id: JSValueType::Number as u8,
+            js: JS {vm: self.vm},
+            value: ptr,
+        }
+    }
+
     //构建u8
     pub fn new_u8(&self, num: u8) -> JSType {
         let ptr: *const c_void;
@@ -169,6 +180,17 @@ impl JS {
 
     //构建u32
     pub fn new_u32(&self, num: u32) -> JSType {
+        let ptr: *const c_void;
+        unsafe { ptr = njsc_new_number(self.vm, num as c_double) }
+        JSType {
+            type_id: JSValueType::Number as u8,
+            js: JS {vm: self.vm},
+            value: ptr,
+        }
+    }
+
+    //构建u64
+    pub fn new_u64(&self, num: u64) -> JSType {
         let ptr: *const c_void;
         unsafe { ptr = njsc_new_number(self.vm, num as c_double) }
         JSType {
@@ -432,6 +454,11 @@ impl JSType {
         unsafe { njsc_get_number(self.value) as i32 }
     }
 
+    //获取i64
+	pub fn get_i64(&self) -> i64 {
+        unsafe { njsc_get_number(self.value) as i64 }
+    }
+
     //获取u8
 	pub fn get_u8(&self) -> u8 {
         unsafe { njsc_get_number(self.value) as u8 }
@@ -445,6 +472,11 @@ impl JSType {
     //获取u32
 	pub fn get_u32(&self) -> u32 {
         unsafe { njsc_get_number(self.value) as u32 }
+    }
+
+    //获取u64
+	pub fn get_u64(&self) -> u64 {
+        unsafe { njsc_get_number(self.value) as u64 }
     }
 
     //获取f32
