@@ -3,6 +3,7 @@
 use libc::{c_void, c_char, uint8_t, uint32_t, uint64_t, c_double, memcpy};
 use std::ffi::{CStr, CString};
 use std::slice::from_raw_parts;
+use std::mem::transmute;
 
 #[link(name = "njsc")]
 extern "C" {
@@ -13,6 +14,7 @@ extern "C" {
     fn njsc_get_number(value: *const c_void) -> c_double;
     fn njsc_get_string(value: *const c_void) -> *const c_char;
     fn njsc_get_object_field(vm: *const c_void, object: *const c_void, key: *const c_char) -> *const c_void;
+    fn njsc_get_array_length(array: *const c_void) -> uint32_t;
     fn njsc_get_array_index(vm: *const c_void, array: *const c_void, index: uint32_t) -> *const c_void;
     fn njsc_get_buffer_length(value: *const c_void) -> uint32_t;
     fn njsc_get_buffer(value: *const c_void) -> *const c_void;
@@ -334,7 +336,7 @@ pub struct JSType {
 
 impl JSType {
     //获取指定类型的类型id
-    pub fn get_type_id(value: *const c_void) -> u8 {
+    fn get_type_id(value: *const c_void) -> u8 {
         unsafe { njsc_get_value_type(value) as u8 }
     }
 
@@ -505,6 +507,11 @@ impl JSType {
         }
     }
 
+    //获取数组长度
+    pub fn get_array_length(&self) -> usize {
+        unsafe { njsc_get_array_length(self.value) as usize }
+    }
+
     //获取数组指定偏移的值
 	pub fn get_index(&self, index: u32) -> JSType {
         let ptr: *const c_void;
@@ -516,16 +523,21 @@ impl JSType {
         }
     }
 
-    //获取指定Buffer
-	pub fn into_vec(&self) -> Vec<u8> {
+    //获取指定Buffer的引用
+    pub fn to_bytes(&self) -> &[u8] {
         unsafe {
             let length = njsc_get_buffer_length(self.value) as usize;
             let buffer = njsc_get_buffer(self.value);
-            from_raw_parts(buffer as *const u8, length).to_vec()
+            from_raw_parts(buffer as *const u8, length)
         }
     }
 
-    //回收指定的Buffer
+    //获取指定Buffer的复制
+	pub fn into_vec(&self) -> Vec<u8> {
+        self.to_bytes().to_vec()
+    }
+
+    //重置指定的Buffer
 	pub fn from_vec(&self, vec: Vec<u8>) {
         unsafe {
             let length = njsc_get_buffer_length(self.value) as usize;
@@ -534,8 +546,384 @@ impl JSType {
         }
     }
 
+    //获取指定的Buffer
+    pub fn into_buffer(&self) -> JSBuffer {
+        unsafe {
+            let length = njsc_get_buffer_length(self.value) as usize;
+            let buffer = njsc_get_buffer(self.value);
+            JSBuffer {
+                buffer: buffer as *mut c_void,
+                len: length,
+            }
+        }
+    }
+
     //获取NativeObject
 	pub fn get_native_object(&self) -> usize {
         unsafe { njsc_get_native_object_instance(self.value) as usize }
-    }	
+    }
+}
+
+/*
+* Js Buffer
+*/
+pub struct JSBuffer {
+    buffer: *mut c_void,
+    len: usize,
+}
+
+impl JSBuffer {
+    //获取buffer长度
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    //在指定位置读小端i8
+    pub fn read_i8(&self, offset: usize) -> i8 {
+        if offset >= self.len {
+            panic!("access out of range");
+        }
+        unsafe { i8::from_le(*(self.buffer.wrapping_offset(offset as isize) as *mut i8)) }
+    }
+
+    //在指定位置读小端i16
+    pub fn read_i16(&self, offset: usize) -> i16 {
+        if offset >= self.len {
+            panic!("access out of range");
+        }
+        unsafe { i16::from_le(*(self.buffer.wrapping_offset(offset as isize) as *mut i16)) }
+    }
+
+    //在指定位置读小端i32
+    pub fn read_i32(&self, offset: usize) -> i32 {
+        if offset >= self.len {
+            panic!("access out of range");
+        }
+        unsafe { i32::from_le(*(self.buffer.wrapping_offset(offset as isize) as *mut i32)) }
+    }
+
+    //在指定位置读小端i64
+    pub fn read_i64(&self, offset: usize) -> i64 {
+        if offset >= self.len {
+            panic!("access out of range");
+        }
+        unsafe { i64::from_le(*(self.buffer.wrapping_offset(offset as isize) as *mut i64)) }
+    }
+
+    //在指定位置读小端u8
+    pub fn read_u8(&self, offset: usize) -> u8 {
+        if offset >= self.len {
+            panic!("access out of range");
+        }
+        unsafe { u8::from_le(*(self.buffer.wrapping_offset(offset as isize) as *mut u8)) }
+    }
+
+    //在指定位置读小端u16
+    pub fn read_u16(&self, offset: usize) -> u16 {
+        if offset >= self.len {
+            panic!("access out of range");
+        }
+        unsafe { u16::from_le(*(self.buffer.wrapping_offset(offset as isize) as *mut u16)) }
+    }
+
+    //在指定位置读小端u32
+    pub fn read_u32(&self, offset: usize) -> u32 {
+        if offset >= self.len {
+            panic!("access out of range");
+        }
+        unsafe { u32::from_le(*(self.buffer.wrapping_offset(offset as isize) as *mut u32)) }
+    }
+
+    //在指定位置读小端u64
+    pub fn read_u64(&self, offset: usize) -> u64 {
+        if offset >= self.len {
+            panic!("access out of range");
+        }
+        unsafe { u64::from_le(*(self.buffer.wrapping_offset(offset as isize) as *mut u64)) }
+    }
+
+    //在指定位置读小端f32
+    pub fn read_f32(&self, offset: usize) -> f32 {
+        unsafe { transmute::<u32, f32>(self.read_u32(offset)) }
+    }
+
+    //在指定位置读小端f64
+    pub fn read_f64(&self, offset: usize) -> f64 {
+        unsafe { transmute::<u64, f64>(self.read_u64(offset)) }
+    }
+
+    //在指定位置读大端i8
+    pub fn read_i8_be(&self, offset: usize) -> i8 {
+        if offset >= self.len {
+            panic!("access out of range");
+        }
+        unsafe { i8::from_be(*(self.buffer.wrapping_offset(offset as isize) as *mut i8)) }
+    }
+
+    //在指定位置读大端i16
+    pub fn read_i16_be(&self, offset: usize) -> i16 {
+        if offset >= self.len {
+            panic!("access out of range");
+        }
+        unsafe { i16::from_be(*(self.buffer.wrapping_offset(offset as isize) as *mut i16)) }
+    }
+
+    //在指定位置读大端i32
+    pub fn read_i32_be(&self, offset: usize) -> i32 {
+        if offset >= self.len {
+            panic!("access out of range");
+        }
+        unsafe { i32::from_be(*(self.buffer.wrapping_offset(offset as isize) as *mut i32)) }
+    }
+
+    //在指定位置读大端i64
+    pub fn read_i64_be(&self, offset: usize) -> i64 {
+        if offset >= self.len {
+            panic!("access out of range");
+        }
+        unsafe { i64::from_be(*(self.buffer.wrapping_offset(offset as isize) as *mut i64)) }
+    }
+
+    //在指定位置读大端u8
+    pub fn read_u8_be(&self, offset: usize) -> u8 {
+        if offset >= self.len {
+            panic!("access out of range");
+        }
+        unsafe { u8::from_be(*(self.buffer.wrapping_offset(offset as isize) as *mut u8)) }
+    }
+
+    //在指定位置读大端u16
+    pub fn read_u16_be(&self, offset: usize) -> u16 {
+        if offset >= self.len {
+            panic!("access out of range");
+        }
+        unsafe { u16::from_be(*(self.buffer.wrapping_offset(offset as isize) as *mut u16)) }
+    }
+
+    //在指定位置读大端u32
+    pub fn read_u32_be(&self, offset: usize) -> u32 {
+        if offset >= self.len {
+            panic!("access out of range");
+        }
+        unsafe { u32::from_be(*(self.buffer.wrapping_offset(offset as isize) as *mut u32)) }
+    }
+
+    //在指定位置读大端u64
+    pub fn read_u64_be(&self, offset: usize) -> u64 {
+        if offset >= self.len {
+            panic!("access out of range");
+        }
+        unsafe { u64::from_be(*(self.buffer.wrapping_offset(offset as isize) as *mut u64)) }
+    }
+
+    //在指定位置读大端f32
+    pub fn read_f32_be(&self, offset: usize) -> f32 {
+        unsafe { transmute::<u32, f32>(self.read_u32_be(offset)) }
+    }
+
+    //在指定位置读小端f64
+    pub fn read_f64_be(&self, offset: usize) -> f64 {
+        unsafe { transmute::<u64, f64>(self.read_u64_be(offset)) }
+    }
+
+    //在指定位置读字节数组
+    pub fn read(&self, offset: usize, len: usize) -> &[u8] {
+        if offset + len > self.len {
+            panic!("access out of range");
+        }
+        unsafe {
+            from_raw_parts(self.buffer.wrapping_offset(offset as isize) as *const u8, len)
+        }
+    }
+
+    //在指定位置写小端i8
+    pub fn write_i8(&mut self, offset: usize, v: i8) -> isize {
+        let last = offset + 1;
+        if last > self.len {
+            return -1;
+        }
+        unsafe { *(self.buffer.wrapping_offset(offset as isize) as *mut i8) = v.to_le() }
+        last as isize
+    }
+
+    //在指定位置写小端i16
+    pub fn write_i16(&mut self, offset: usize, v: i16) -> isize {
+        let last = offset + 2;
+        if last > self.len {
+            return -1;
+        }
+        unsafe { *(self.buffer.wrapping_offset(offset as isize) as *mut i16) = v.to_le() }
+        last as isize
+    }
+
+    //在指定位置写小端i32
+    pub fn write_i32(&mut self, offset: usize, v: i32) -> isize {
+        let last = offset + 4;
+        if last > self.len {
+            return -1;
+        }
+        unsafe { *(self.buffer.wrapping_offset(offset as isize) as *mut i32) = v.to_le() }
+        last as isize
+    }
+
+    //在指定位置写小端i64
+    pub fn write_i64(&mut self, offset: usize, v: i64) -> isize {
+        let last = offset + 8;
+        if last > self.len {
+            return -1;
+        }
+        unsafe { *(self.buffer.wrapping_offset(offset as isize) as *mut i64) = v.to_le() }
+        last as isize
+    }
+
+    //在指定位置写小端u8
+    pub fn write_u8(&mut self, offset: usize, v: u8) -> isize {
+        let last = offset + 1;
+        if last > self.len {
+            return -1;
+        }
+        unsafe { *(self.buffer.wrapping_offset(offset as isize) as *mut u8) = v.to_le() }
+        last as isize
+    }
+
+    //在指定位置写小端u16
+    pub fn write_u16(&mut self, offset: usize, v: u16) -> isize {
+        let last = offset + 2;
+        if last > self.len {
+            return -1;
+        }
+        unsafe { *(self.buffer.wrapping_offset(offset as isize) as *mut u16) = v.to_le() }
+        last as isize
+    }
+
+    //在指定位置写小端u32
+    pub fn write_u32(&mut self, offset: usize, v: u32) -> isize {
+        let last = offset + 4;
+        if last > self.len {
+            return -1;
+        }
+        unsafe { *(self.buffer.wrapping_offset(offset as isize) as *mut u32) = v.to_le() }
+        last as isize
+    }
+
+    //在指定位置写小端u64
+    pub fn write_u64(&mut self, offset: usize, v: u64) -> isize {
+        let last = offset + 8;
+        if last > self.len {
+            return -1;
+        }
+        unsafe { *(self.buffer.wrapping_offset(offset as isize) as *mut u64) = v.to_le() }
+        last as isize
+    }
+
+    //在指定位置写小端f32
+    pub fn write_f32(&mut self, offset: usize, v: f32) -> isize {
+        self.write_u32(offset, unsafe { transmute::<f32, u32>(v) })
+    }
+
+    //在指定位置写小端f64
+    pub fn write_f64(&mut self, offset: usize, v: f64) -> isize {
+        self.write_u64(offset, unsafe { transmute::<f64, u64>(v) })
+    }
+
+    //在指定位置写大端i8
+    pub fn write_i8_be(&mut self, offset: usize, v: i8) -> isize {
+        let last = offset + 1;
+        if last > self.len {
+            return -1;
+        }
+        unsafe { *(self.buffer.wrapping_offset(offset as isize) as *mut i8) = v.to_be() }
+        last as isize
+    }
+
+    //在指定位置写大端i16
+    pub fn write_i16_be(&mut self, offset: usize, v: i16) -> isize {
+        let last = offset + 2;
+        if last > self.len {
+            return -1;
+        }
+        unsafe { *(self.buffer.wrapping_offset(offset as isize) as *mut i16) = v.to_be() }
+        last as isize
+    }
+
+    //在指定位置写大端i32
+    pub fn write_i32_be(&mut self, offset: usize, v: i32) -> isize {
+        let last = offset + 4;
+        if last > self.len {
+            return -1;
+        }
+        unsafe { *(self.buffer.wrapping_offset(offset as isize) as *mut i32) = v.to_be() }
+        last as isize
+    }
+
+    //在指定位置写大端i64
+    pub fn write_i64_be(&mut self, offset: usize, v: i64) -> isize {
+        let last = offset + 8;
+        if last > self.len {
+            return -1;
+        }
+        unsafe { *(self.buffer.wrapping_offset(offset as isize) as *mut i64) = v.to_be() }
+        last as isize
+    }
+
+    //在指定位置写大端u8
+    pub fn write_u8_be(&mut self, offset: usize, v: u8) -> isize {
+        let last = offset + 1;
+        if last > self.len {
+            return -1;
+        }
+        unsafe { *(self.buffer.wrapping_offset(offset as isize) as *mut u8) = v.to_be() }
+        last as isize
+    }
+
+    //在指定位置写大端u16
+    pub fn write_u16_be(&mut self, offset: usize, v: u16) -> isize {
+        let last = offset + 2;
+        if last > self.len {
+            return -1;
+        }
+        unsafe { *(self.buffer.wrapping_offset(offset as isize) as *mut u16) = v.to_be() }
+        last as isize
+    }
+
+    //在指定位置写大端u32
+    pub fn write_u32_be(&mut self, offset: usize, v: u32) -> isize {
+        let last = offset + 4;
+        if last > self.len {
+            return -1;
+        }
+        unsafe { *(self.buffer.wrapping_offset(offset as isize) as *mut u32) = v.to_be() }
+        last as isize
+    }
+
+    //在指定位置写大端u64
+    pub fn write_u64_be(&mut self, offset: usize, v: u64) -> isize {
+        let last = offset + 8;
+        if last > self.len {
+            return -1;
+        }
+        unsafe { *(self.buffer.wrapping_offset(offset as isize) as *mut u64) = v.to_be() }
+        last as isize
+    }
+
+    //在指定位置写大端f32
+    pub fn write_f32_be(&mut self, offset: usize, v: f32) -> isize {
+        self.write_u32_be(offset, unsafe { transmute::<f32, u32>(v) })
+    }
+
+    //在指定位置写大端f64
+    pub fn write_f64_be(&mut self, offset: usize, v: f64) -> isize {
+        self.write_u64_be(offset, unsafe { transmute::<f64, u64>(v) })
+    }
+
+    //从指定位置写字节数组
+    pub fn write(&mut self, offset: usize, v: &[u8]) -> isize {
+        let len = v.len();
+        let last = offset + len;
+        if  last > self.len {
+            return -1;
+        }
+        unsafe { memcpy(self.buffer.wrapping_offset(offset as isize), v.as_ptr() as *const c_void, len); }
+        last as isize
+    }
 }
