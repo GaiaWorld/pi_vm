@@ -1,12 +1,33 @@
 #![allow(dead_code, non_snake_case)]
 
-use libc::{c_void, c_char, uint8_t, uint32_t, uint64_t, c_double, memcpy};
+use libc::{c_void, c_char, uint8_t, c_int, uint32_t, uint64_t, c_double, memcpy};
 use std::ffi::{CStr, CString};
 use std::slice::from_raw_parts;
+use std::os::raw::c_uchar;
 use std::mem::transmute;
+use std::ptr::null;
+
+use data_view_impl::*;
 
 #[link(name = "njsc")]
 extern "C" {
+    fn njsc_register_data_view_get_int8(func: extern fn(*mut c_void, uint64_t, uint64_t) -> c_double);
+    fn njsc_register_data_view_get_int16(func: extern fn(*mut c_void, uint64_t, uint64_t, c_uchar) -> c_double);
+    fn njsc_register_data_view_get_int32(func: extern fn(*mut c_void, uint64_t, uint64_t, c_uchar) -> c_double);
+    fn njsc_register_data_view_get_uint8(func: extern fn(*mut c_void, uint64_t, uint64_t) -> c_double);
+    fn njsc_register_data_view_get_uint16(func: extern fn(*mut c_void, uint64_t, uint64_t, c_uchar) -> c_double);
+    fn njsc_register_data_view_get_uint32(func: extern fn(*mut c_void, uint64_t, uint64_t, c_uchar) -> c_double);
+    fn njsc_register_data_view_get_float32(func: extern fn(*mut c_void, uint64_t, uint64_t, c_uchar) -> c_double);
+    fn njsc_register_data_view_get_float64(func: extern fn(*mut c_void, uint64_t, uint64_t, c_uchar) -> c_double);
+    fn njsc_register_data_view_set_int8(func: extern fn(*mut c_void, uint64_t, uint64_t, c_double));
+    fn njsc_register_data_view_set_int16(func: extern fn(*mut c_void, uint64_t, uint64_t, c_double, c_uchar));
+    fn njsc_register_data_view_set_int32(func: extern fn(*mut c_void, uint64_t, uint64_t, c_double, c_uchar));
+    fn njsc_register_data_view_set_uint8(func: extern fn(*mut c_void, uint64_t, uint64_t, c_double));
+    fn njsc_register_data_view_set_uint16(func: extern fn(*mut c_void, uint64_t, uint64_t, c_double, c_uchar));
+    fn njsc_register_data_view_set_uint32(func: extern fn(*mut c_void, uint64_t, uint64_t, c_double, c_uchar));
+    fn njsc_register_data_view_set_float32(func: extern fn(*mut c_void, uint64_t, uint64_t, c_double, c_uchar));
+    fn njsc_register_data_view_set_float64(func: extern fn(*mut c_void, uint64_t, uint64_t, c_double, c_uchar));
+    fn test_main(argc: c_int, argv: *const c_void) -> c_int;
     fn njsc_vm_new(script: *const c_char) -> *const c_void;
     fn njsc_vm_clone(template: *const c_void) -> *const c_void;
     fn njsc_get_value_type(value: *const c_void) -> uint8_t;
@@ -31,6 +52,28 @@ extern "C" {
     fn njsc_new_array_buffer(vm: *const c_void, length: uint32_t) -> *const c_void;
     fn njsc_new_uint8_array(vm: *const c_void, length: uint32_t) -> *const c_void;
     fn njsc_new_native_object(vm: *const c_void, ptr: uint64_t) -> *const c_void;
+}
+
+//初始化注入DataView
+pub fn register_data_view() {
+    unsafe {
+        njsc_register_data_view_get_int8(data_view_read_int8);
+        njsc_register_data_view_get_int16(data_view_read_int16);
+        njsc_register_data_view_get_int32(data_view_read_int32);
+        njsc_register_data_view_get_uint8(data_view_read_uint8);
+        njsc_register_data_view_get_uint16(data_view_read_uint16);
+        njsc_register_data_view_get_uint32(data_view_read_uint32);
+        njsc_register_data_view_get_float32(data_view_read_float32);
+        njsc_register_data_view_get_float64(data_view_read_float64);
+        njsc_register_data_view_set_int8(data_view_write_int8);
+        njsc_register_data_view_set_int16(data_view_write_int16);
+        njsc_register_data_view_set_int32(data_view_write_int32);
+        njsc_register_data_view_set_uint8(data_view_write_uint8);
+        njsc_register_data_view_set_uint16(data_view_write_uint16);
+        njsc_register_data_view_set_uint32(data_view_write_uint32);
+        njsc_register_data_view_set_float32(data_view_write_float32);
+        njsc_register_data_view_set_float64(data_view_write_float64);
+    }
 }
 
 /*
@@ -573,6 +616,14 @@ pub struct JSBuffer {
 }
 
 impl JSBuffer {
+    //构建JSBuffer
+    pub fn new(ptr: *mut c_void, len: usize) -> Self {
+        JSBuffer {
+            buffer: ptr,
+            len: len,
+        }
+    }
+
     //获取buffer长度
     pub fn len(&self) -> usize {
         self.len
@@ -927,3 +978,10 @@ impl JSBuffer {
         last as isize
     }
 }
+
+//测试njsc
+// #[test]
+// fn test() {
+//     register_data_view();
+//     unsafe { test_main(0, null()) };
+// }
