@@ -1,7 +1,7 @@
 #[cfg(test)]
 extern crate pi_vm;
 
-use pi_vm::adapter::{JSTemplate, JS};
+use pi_vm::adapter::{register_data_view, JSTemplate, JS};
 
 #[test]
 fn base_test() {
