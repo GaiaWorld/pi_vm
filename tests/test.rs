@@ -1,12 +1,12 @@
 #[cfg(test)]
 extern crate pi_vm;
-extern crate scoped_threadpool;
 extern crate threadpool;
 
 use std::thread;
 use std::time::Duration;
 use std::sync::{Arc, Mutex, Condvar};
 
+use pi_vm::util::now_nanosecond;
 use pi_vm::task_pool::TaskPool;
 use pi_vm::task::TaskType;
 use pi_vm::worker_pool::WorkerPool;
@@ -18,11 +18,12 @@ fn njsc_test() {
     njsc_test_main();
 }
 
-#[test]
+// #[test]
 fn base_test() {
     let js = JSTemplate::new("var obj = {}; console.log(\"!!!!!!obj: \" + obj);".to_string());
     assert!(js.is_some());
     let copy: JS = js.unwrap().clone().unwrap();
+    copy.run();
     let val = copy.new_null();
     assert!(val.is_null());
     let val = copy.new_undefined();
@@ -144,8 +145,13 @@ fn base_test() {
     assert!(val.is_native_object() && val.get_native_object() == 0xffffffffusize);
 }
 
-// #[test]
+#[test]
 fn task_test() {
+    let js = JSTemplate::new("var obj = {}; console.log(\"!!!!!!obj: \" + obj); function echo(x, y, z) { console.log(\"!!!!!!x: \" + x + \" y: \" + y + \" z: \" + z); };".to_string());
+    assert!(js.is_some());
+    let copy: JS = js.unwrap().clone().unwrap();
+    copy.run();
+
     let task_pool = TaskPool::new(10);
     let sync = Arc::new((Mutex::new(task_pool), Condvar::new()));
     let mut worker_pool = Box::new(WorkerPool::new(3));
@@ -153,21 +159,14 @@ fn task_test() {
 
     let task_type = TaskType::Async;
     let priority = 0;
-    let mut env = Vec::new();
-    env.insert(0, "");
-    env.insert(1, "");
     let copy_sync = sync.clone();
     let func = Box::new(move|| {
-        env[0] = "Hello ";
-        env[1] = "World";
-        println!("thread: {:?}, {}{}", thread::current().id(), env[0], env[1]);
+        copy.call("echo".to_string(), &[copy.new_boolean(true), copy.new_f64(0.999), copy.new_str("Hello World!!!!!!".to_string())]);
 
         let task_type = TaskType::Async;
         let priority = 10;
         let func = Box::new(move|| {
-            env[0] = "你好 ";
-            env[1] = "World";
-            println!("thread: {:?}, {}{}", thread::current().id(), env[0], env[1]);
+            copy.call("echo".to_string(), &[copy.new_boolean(true), copy.new_f64(0.999), copy.new_str("Hello World!!!!!!".to_string())]);
         });
         let args = Vec::new();
         {

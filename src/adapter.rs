@@ -1,4 +1,4 @@
-use libc::{c_void, c_char, uint8_t, c_int, uint32_t, uint64_t, c_double, memcpy};
+use libc::{c_void, c_char, int8_t, uint8_t, c_int, uint32_t, uint64_t, c_double, memcpy};
 use std::ffi::{CStr, CString};
 use std::slice::from_raw_parts;
 use std::os::raw::c_uchar;
@@ -26,9 +26,15 @@ extern "C" {
     fn njsc_register_data_view_set_uint32(func: extern fn(*mut c_void, uint64_t, uint64_t, c_double, c_uchar));
     fn njsc_register_data_view_set_float32(func: extern fn(*mut c_void, uint64_t, uint64_t, c_double, c_uchar));
     fn njsc_register_data_view_set_float64(func: extern fn(*mut c_void, uint64_t, uint64_t, c_double, c_uchar));
-    fn test_main(argc: c_int, argv: *const c_void) -> c_int;
+    fn test_main() -> c_int;
     fn njsc_vm_new(script: *const c_char) -> *const c_void;
     fn njsc_vm_clone(template: *const c_void) -> *const c_void;
+    fn njsc_vm_run(vm: *const c_void, reply: *const c_void);
+    fn njsc_vm_status_switch(vm: *const c_void, old_status: int8_t, new_status: int8_t) -> int8_t;
+    fn njsc_vm_status_sub(vm: *const c_void, value: int8_t) -> int8_t;
+    fn njsc_args_new(vm: *const c_void, len: uint32_t) -> *const c_void;
+    fn njsc_args_set(args: *const c_void, index: uint32_t, value: *const c_void);
+    fn njsc_call(vm: *const c_void, func: *const c_char, args: *const c_void, len: uint32_t, reply: *const c_void);
     fn njsc_vm_destroy(vm: *const c_void);
     fn njsc_vm_template_destroy(template: *const c_void);
     fn njsc_get_value_type(value: *const c_void) -> uint8_t;
@@ -77,9 +83,14 @@ pub fn register_data_view() {
     }
 }
 
+//调用NativeObject函数
+extern "C" fn native_object_function_call(hash: uint32_t, args_size: uint32_t, args: *const c_void) -> *const c_void {
+    null()
+}
+
 //执行njsc测试代码
 pub fn njsc_test_main() {
-    unsafe { test_main(0, null()); }
+    unsafe { test_main(); }
 }
 
 /*
@@ -129,6 +140,16 @@ impl JSTemplate {
 }
 
 /*
+* js状态
+*/
+enum JSStatus {
+    Destroy = -1,
+    NoTask,
+    SingleTask,
+    MultiTask,
+}
+
+/*
 * js运行环境
 */
 #[derive(Clone)]
@@ -136,12 +157,24 @@ pub struct JS {
     vm: usize,
 }
 
+//尝试destroy虚拟机
+fn try_js_destroy(js: &JS) {
+    if js.vm == 0 {
+        return;
+    }
+
+    unsafe {
+        let old_status = njsc_vm_status_switch(js.vm as *const c_void, JSStatus::NoTask as i8, JSStatus::Destroy as i8);
+        if old_status == JSStatus::NoTask as i8 {
+            //当前js虚拟机无任务，则可以destroy
+            njsc_vm_destroy(js.vm as *const c_void);
+        }
+    }
+}
+
 impl Drop for JS {
     fn drop(&mut self) {
-        if self.vm == 0 {
-            return;
-        }
-        unsafe { njsc_vm_destroy(self.vm as *const c_void) };
+        try_js_destroy(self);
     }
 }
 
@@ -154,6 +187,38 @@ impl JS {
             type_id: JSValueType::Null as u8,
             vm: self.vm,
             value: ptr as usize,
+        }
+    }
+
+    //运行js虚拟机
+    pub fn run(&self) {
+        unsafe { njsc_vm_run(self.vm as *const c_void, null()); }
+    }
+
+    //调用指定函数
+    pub fn call(&self, func: String, args: &[JSType]) {
+        let ptr: *const c_void;
+        let len = args.len() as u32;
+        let mut index = 0u32;
+        let vm = self.vm;
+        unsafe {
+            let status = njsc_vm_status_switch(vm as *const c_void, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
+            if status == JSStatus::SingleTask as i8 {
+                //当前虚拟机正在destroy或有任务
+                panic!("invalid vm status");
+            } else {
+                ptr = njsc_args_new(vm as *const c_void, len);
+                for value in args {
+                    if vm != value.vm {
+                        try_js_destroy(self);
+                        panic!("invalid js call args");
+                    }
+                    njsc_args_set(ptr, index, value.value as *const c_void);
+                    index += 1;
+                }
+                njsc_call(self.vm as *const c_void, CString::new(func).unwrap().as_ptr(), ptr, len, null());
+                njsc_vm_status_sub(self.vm as *const c_void, 1);
+            }
         }
     }
 
@@ -1010,4 +1075,3 @@ impl JSBuffer {
         last as isize
     }
 }
-
