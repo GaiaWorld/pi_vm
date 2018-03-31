@@ -5,3 +5,4 @@
 extern crate libc;
 
 pub mod adapter;
+pub mod bonmgr;
