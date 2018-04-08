@@ -9,6 +9,9 @@ extern crate libc;
 extern crate rand;
 extern crate threadpool;
 
+#[macro_use]
+extern crate lazy_static;
+
 pub mod data_view_impl;
 pub mod adapter;
 pub mod util;

@@ -6,8 +6,6 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt::{Display, Formatter, Result};
 
 use task::{TaskType, Task, TaskCache};
-use util::now_microsecond;
-use adapter::JSType;
 
 /*
 * 同步任务池
@@ -58,11 +56,9 @@ impl SyncPool {
             if w < 0 {
                 self.weight -= priority; //减少同步任务池权重
                 match queue.pop_front() {
-                    Some(mut t) => {
+                    Some(t) => {
                         //填充任务
-                        t = t.copy_to(task);
-                        task.set_start_time(t.get_start_time());
-                        task.set_finish_time(now_microsecond()); //设置任务完成时间
+                        t.copy_to(task);
                         reply = Some(t);
                     },
                     None => (),
@@ -76,11 +72,9 @@ impl SyncPool {
     //从同步延迟任务队列中弹出任务
     fn delay_pop(&mut self, task: &mut Task) -> Option<Task> {
         match self.delay_queue.pop_front() {
-            Some(mut t) => {
+            Some(t) => {
                 //填充任务
-                t = t.copy_to(task);
-                task.set_start_time(t.get_start_time());
-                task.set_finish_time(now_microsecond()); //设置任务完成时间
+                t.copy_to(task);
                 Some(t)
             },
             None => Option::None,
@@ -187,11 +181,9 @@ impl AsyncPool<Task> {
         if index > -1 {
             self.weight -= priority as u64; //减少异步任务池权重
             match self.queue.remove(index as usize) {
-                Some(mut t) => {
+                Some(t) => {
                     //填充任务
-                    t = t.copy_to(task);
-                    task.set_start_time(t.get_start_time());
-                    task.set_finish_time(now_microsecond()); //设置任务完成时间
+                    t.copy_to(task);
                     reply = Some(t);
                 },
                 None => (),
@@ -203,11 +195,9 @@ impl AsyncPool<Task> {
     //从异步延迟任务队列中弹出任务
     fn delay_pop(&mut self, task: &mut Task) -> Option<Task> {
         match self.delay_queue.pop_front() {
-            Some(mut t) => {
+            Some(t) => {
                 //填充任务
-                t = t.copy_to(task);
-                task.set_start_time(t.get_start_time());
-                task.set_finish_time(now_microsecond()); //设置任务完成时间
+                t.copy_to(task);
                 Some(t)
             },
             None => Option::None,
@@ -247,7 +237,6 @@ impl AsyncPool<Task> {
 * 任务池
 */
 pub struct TaskPool {
-    counter:        u32,                //任务编号计数器
     task_cache:     TaskCache,          //任务缓存
     sync_pool:      SyncPool,           //同步任务池
     async_pool:     AsyncPool<Task>,    //异步任务池
@@ -257,8 +246,8 @@ unsafe impl Sync for TaskPool {}
 
 impl Display for TaskPool {
 	fn fmt(&self, f: &mut Formatter) -> Result {
-		write!(f, "TaskPool[counter = {}, cache_size = {}, sync_pool = {}, async_pool = {}]", 
-        self.counter, self.task_cache.size(), self.sync_pool, self.async_pool)
+		write!(f, "TaskPool[cache_size = {}, sync_pool = {}, async_pool = {}]", 
+            self.task_cache.size(), self.sync_pool, self.async_pool)
 	}
 }
 
@@ -266,7 +255,6 @@ impl TaskPool {
     //构建一个任务池
     pub fn new(len: u32) -> Self {
         TaskPool {
-            counter:    0,
             task_cache: TaskCache::new(len),
             sync_pool:  SyncPool::new(),
             async_pool: AsyncPool::new(),
@@ -325,14 +313,11 @@ impl TaskPool {
     }
 
     //向任务池加入一个任务
-    pub fn push(&mut self, task_type: TaskType, priority: u32, func: Box<FnBox()>, args: Vec<JSType>) {
+    pub fn push(&mut self, task_type: TaskType, priority: u32, func: Box<FnBox()>, info: &'static str) {
         let mut task: Task = self.task_cache.pop();
-        task.set_uid(self.new_uid());
-        task.set_type(task_type);
         task.set_priority(priority);
         task.set_func(Some(func));
-        task.set_args(args);
-        task.set_start_time(now_microsecond()); //设置任务开始时间
+        task.set_info(info);
         if priority > 0 {
             match task_type {
                 TaskType::Async => {
@@ -378,12 +363,6 @@ impl TaskPool {
     pub fn clear(&mut self) {
         self.async_pool.clear();
         self.sync_pool.clear();
-    }
-
-    //获取新的任务编号
-    fn new_uid(&mut self) -> u32 {
-        self.counter += 1;
-        self.counter
     }
 
     //释放指定任务
