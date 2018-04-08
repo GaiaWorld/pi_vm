@@ -1,11 +1,13 @@
 use libc::{c_void, c_char, int8_t, uint8_t, c_int, uint32_t, uint64_t, c_double, memcpy};
-use std::ffi::{CStr, CString};
 use std::slice::from_raw_parts;
+use std::ffi::{CStr, CString};
+use std::sync::{Arc, Mutex};
 use std::os::raw::c_uchar;
 use std::mem::transmute;
 use std::ops::Drop;
 use std::ptr::null;
 
+use bonmgr::BonMgr;
 use data_view_impl::*;
 
 #[link(name = "njsc")]
@@ -83,9 +85,35 @@ pub fn register_data_view() {
     }
 }
 
+lazy_static! {
+    static ref BON_MGR: Arc<Mutex<BonMgr>> = Arc::new(Mutex::new(BonMgr::new()));
+}
+
 //调用NativeObject函数
-extern "C" fn native_object_function_call(hash: uint32_t, args_size: uint32_t, args: *const c_void) -> *const c_void {
-    null()
+#[no_mangle]
+pub extern "C" fn native_object_function_call(
+    vm: *const c_void, 
+    hash: uint32_t, 
+    args_size: uint32_t, 
+    args: *const c_void) -> *const c_void {
+        if args_size == 0 {
+            return null();
+        }
+
+        let reply: Option<JSType>;
+        let mut js = JS {vm: vm as usize};
+        //同步块
+        {
+            let mut refer = BON_MGR.clone();
+            reply = (&mut *refer.
+                lock().
+                unwrap()).
+                call(&mut js, hash, Vec::new()).ok();
+        }
+        match reply {
+            Some(val) => val.value as *const c_void,
+            None => null(),
+        }
 }
 
 //执行njsc测试代码

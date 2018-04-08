@@ -154,35 +154,33 @@ fn task_test() {
 
     let task_pool = TaskPool::new(10);
     let sync = Arc::new((Mutex::new(task_pool), Condvar::new()));
-    let mut worker_pool = Box::new(WorkerPool::new(3));
+    let mut worker_pool = Box::new(WorkerPool::new(3, 1));
     worker_pool.run(sync.clone());
 
     let task_type = TaskType::Async;
     let priority = 0;
     let copy_sync = sync.clone();
     let func = Box::new(move|| {
-        copy.call("echo".to_string(), &[copy.new_boolean(true), copy.new_f64(0.999), copy.new_str("Hello World!!!!!!".to_string())]);
+        copy.call("echo".to_string(), &[copy.new_boolean(false), copy.new_u64(0xfffffffffff), copy.new_str("Hello World!!!!!!".to_string())]);
 
         let task_type = TaskType::Async;
         let priority = 10;
         let func = Box::new(move|| {
-            copy.call("echo".to_string(), &[copy.new_boolean(true), copy.new_f64(0.999), copy.new_str("Hello World!!!!!!".to_string())]);
+            copy.call("echo".to_string(), &[copy.new_boolean(true), copy.new_f64(0.999), copy.new_str("你好 World!!!!!!".to_string())]);
         });
-        let args = Vec::new();
         {
             let &(ref lock, ref cvar) = &*copy_sync;
             let mut task_pool = lock.lock().unwrap();
-            (*task_pool).push(task_type, priority, func, args);
+            (*task_pool).push(task_type, priority, func, "first task");
             println!("task_pool: {}", task_pool);
             cvar.notify_one();
         }
         thread::sleep(Duration::from_millis(10000));
     });
-    let args = Vec::new();
     {
         let &(ref lock, ref cvar) = &*sync;
         let mut task_pool = lock.lock().unwrap();
-        (*task_pool).push(task_type, priority, func, args);
+        (*task_pool).push(task_type, priority, func, "second task");
         println!("task_pool: {}", task_pool);
         cvar.notify_one();
     }
