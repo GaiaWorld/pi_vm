@@ -1,5 +1,5 @@
-use std::time;
-use std::thread;
+use std::time::Duration;
+use std::thread::park_timeout;
 use std::sync::{Arc, Mutex, Condvar};
 use std::fmt::{Display, Formatter, Result};
 use std::sync::atomic::{Ordering, AtomicUsize};
@@ -52,7 +52,7 @@ impl Worker {
     }
 
     //启动
-    pub fn startup(pool: &mut ThreadPool, worker: Arc<Worker>, sync: Arc<(Mutex<TaskPool>, Condvar)>) -> bool {
+    pub fn startup(pool: &ThreadPool, worker: Arc<Worker>, sync: Arc<(Mutex<TaskPool>, Condvar)>) -> bool {
         pool.execute(move|| {
             let mut task = Task::new();
             Worker::work_loop(worker, sync, &mut task);
@@ -71,7 +71,7 @@ impl Worker {
                 break;
             } else if status == WorkerStatus::Wait as usize {
                 //继续等待控制状态
-                thread::sleep(time::Duration::from_millis(1));
+                park_timeout(Duration::from_millis(1));
                 continue;
             } else if status == WorkerStatus::Running as usize {
                 //继续工作
@@ -81,13 +81,14 @@ impl Worker {
     }
 
     //获取工作者当前状态
+    #[inline]
     pub fn get_status(&self) -> usize {
         self.status.load(Ordering::Relaxed)
     }
 
     //设置工作者当前状态
     pub fn set_status(&self, current: WorkerStatus, new: WorkerStatus) -> bool {
-        match self.status.compare_exchange(current as usize, new as usize, Ordering::SeqCst, Ordering::Acquire) {
+        match self.status.compare_exchange(current as usize, new as usize, Ordering::Acquire, Ordering::Relaxed) {
             Ok(_) => true,
             _ => false,
         }
@@ -103,8 +104,17 @@ impl Worker {
         if self.get_status() == WorkerStatus::Stop as usize {
             return true;
         }
-        self.status.fetch_sub(WorkerStatus::Running as usize, Ordering::SeqCst);
-        true
+        match self.status.compare_exchange(WorkerStatus::Running as usize, WorkerStatus::Stop as usize, 
+            Ordering::Acquire, Ordering::Relaxed) {
+            Ok(_) => true,
+            _ => {
+                match self.status.compare_exchange(WorkerStatus::Wait as usize, WorkerStatus::Stop as usize, 
+                    Ordering::Acquire, Ordering::Relaxed) {
+                    Ok(_) => true,
+                    _ => false,
+                }
+            },
+        }
     }
 
     //工作
@@ -115,12 +125,16 @@ impl Worker {
             let mut task_pool = lock.lock().unwrap();
             while (*task_pool).size() == 0 {
                 //等待任务
-                task_pool = cvar.wait(task_pool).unwrap();
+                let (pool, wait) = cvar.wait_timeout(task_pool, Duration::from_millis(1000)).unwrap();
+                if wait.timed_out() {
+                    return //等待超时，则立即解锁，并处理控制状态
+                };
+                task_pool = pool;
             }
             (*task_pool).pop(task); //获取任务
         }
         check_slow_task(self, task); //执行任务
-        self.counter.fetch_add(1, Ordering::Relaxed); //增加工作计数
+        self.counter.fetch_add(1, Ordering::Acquire); //增加工作计数
     }
 }
 

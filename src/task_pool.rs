@@ -280,10 +280,11 @@ impl TaskPool {
                 //从同步任务队列中弹出
                 wait_free=self.sync_pool.pop(r, task);
                 self.free(wait_free);
+            } else {
+                //从异步任务队列中弹出
+                wait_free=self.async_pool.pop(r - sw, task);
+                self.free(wait_free);
             }
-            //从异步任务队列中弹出
-            wait_free=self.async_pool.pop(r - sw, task);
-            self.free(wait_free);
         }
         sw = self.sync_pool.delay_size();
         aw = self.async_pool.delay_size();
