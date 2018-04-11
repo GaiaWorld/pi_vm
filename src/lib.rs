@@ -13,6 +13,7 @@ extern crate threadpool;
 extern crate lazy_static;
 
 pub mod data_view_impl;
+pub mod native_object_impl;
 pub mod adapter;
 pub mod util;
 pub mod worker;

@@ -1,7 +1,11 @@
 use std::collections::HashMap;
 use std::cell::RefCell;
 use adapter::{JSType, JS};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+
+lazy_static! {
+	pub static ref BON_MGR: Arc<Mutex<BonMgr>> = Arc::new(Mutex::new(BonMgr::new()));
+}
 
 pub trait StructMember {}
  
