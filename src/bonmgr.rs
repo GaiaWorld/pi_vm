@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::cell::RefCell;
 use adapter::{JSType, JS};
+use std::sync::Arc;
 
 pub trait StructMember {}
  
@@ -85,16 +86,14 @@ impl BonMgr{
 		}
 	}
 
-	pub fn call(&mut self, js: &mut JS, fun_hash: u32, args: Vec<JSType>) -> Result<JSType, &'static str> {
-		let func = match self.fun_metas.remove(&fun_hash){
+	pub fn call(&mut self, mut js: Arc<JS>, fun_hash: u32, args: Vec<JSType>) -> Result<JSType, &'static str> {
+		let func = match self.fun_metas.get(&fun_hash){
 			Some(v) => v,
 			None => {
-				println!("FnMeta is not finded");
 				return Err("FnMeta is not finded");
 			}
 		};
-		let r = func(self, js, args);
-		self.fun_metas.insert(fun_hash, func);
+		let r = func(self, Arc::get_mut(&mut js).unwrap(), args);
 		r
 		//Ok(JSType{})
 	}
@@ -241,6 +240,4 @@ pub fn ptr_jstype(mgr: &BonMgr,js: &JS, ptr: usize, meta_hash: u32) -> JSType{
 // 		mgr.call(2222222, Vec::new());
 // 	}
 // }
-
-
 
