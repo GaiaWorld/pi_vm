@@ -1,14 +1,17 @@
 use libc::{c_void, c_char, int8_t, uint8_t, c_int, uint32_t, uint64_t, c_double, memcpy};
+use std::sync::{Arc, Mutex, Condvar};
 use std::slice::from_raw_parts;
 use std::ffi::{CStr, CString};
-use std::sync::{Arc, Mutex};
 use std::os::raw::c_uchar;
 use std::mem::transmute;
+use std::boxed::FnBox;
 use std::ops::Drop;
 use std::ptr::null;
 
-use bonmgr::BonMgr;
 use data_view_impl::*;
+use native_object_impl::*;
+use task::TaskType;
+use task_pool::TaskPool;
 
 #[link(name = "njsc")]
 extern "C" {
@@ -28,15 +31,19 @@ extern "C" {
     fn njsc_register_data_view_set_uint32(func: extern fn(*mut c_void, uint64_t, uint64_t, c_double, c_uchar));
     fn njsc_register_data_view_set_float32(func: extern fn(*mut c_void, uint64_t, uint64_t, c_double, c_uchar));
     fn njsc_register_data_view_set_float64(func: extern fn(*mut c_void, uint64_t, uint64_t, c_double, c_uchar));
+    fn njsc_register_native_object_function_call(func: extern fn(*const c_void, uint32_t, uint32_t, *const c_void, *const c_void) -> *const c_void);
+    fn njsc_register_native_object_free(func: extern fn(*const c_void, uint32_t));
     fn test_main() -> c_int;
     fn njsc_vm_new(script: *const c_char) -> *const c_void;
     fn njsc_vm_clone(template: *const c_void) -> *const c_void;
     fn njsc_vm_run(vm: *const c_void, reply: *const c_void);
-    fn njsc_vm_status_switch(vm: *const c_void, old_status: int8_t, new_status: int8_t) -> int8_t;
+    fn njsc_vm_status_check(vm: *const c_void, value: int8_t) -> uint8_t;
+    pub fn njsc_vm_status_switch(vm: *const c_void, old_status: int8_t, new_status: int8_t) -> int8_t;
     fn njsc_vm_status_sub(vm: *const c_void, value: int8_t) -> int8_t;
     fn njsc_args_new(vm: *const c_void, len: uint32_t) -> *const c_void;
     fn njsc_args_set(args: *const c_void, index: uint32_t, value: *const c_void);
     fn njsc_call(vm: *const c_void, func: *const c_char, args: *const c_void, len: uint32_t, reply: *const c_void);
+    fn njsc_continue(vm: *const c_void, arg: *const c_void, reply: *const c_void);
     fn njsc_vm_destroy(vm: *const c_void);
     fn njsc_vm_template_destroy(template: *const c_void);
     fn njsc_get_value_type(value: *const c_void) -> uint8_t;
@@ -63,7 +70,7 @@ extern "C" {
     fn njsc_new_native_object(vm: *const c_void, ptr: uint64_t) -> *const c_void;
 }
 
-//初始化注入DataView
+//初始化注入DataView关联函数
 pub fn register_data_view() {
     unsafe {
         njsc_register_data_view_get_int8(data_view_read_int8);
@@ -85,35 +92,12 @@ pub fn register_data_view() {
     }
 }
 
-lazy_static! {
-    static ref BON_MGR: Arc<Mutex<BonMgr>> = Arc::new(Mutex::new(BonMgr::new()));
-}
-
-//调用NativeObject函数
-#[no_mangle]
-pub extern "C" fn native_object_function_call(
-    vm: *const c_void, 
-    hash: uint32_t, 
-    args_size: uint32_t, 
-    args: *const c_void) -> *const c_void {
-        if args_size == 0 {
-            return null();
-        }
-
-        let reply: Option<JSType>;
-        let mut js = JS {vm: vm as usize};
-        //同步块
-        {
-            let mut refer = BON_MGR.clone();
-            reply = (&mut *refer.
-                lock().
-                unwrap()).
-                call(&mut js, hash, Vec::new()).ok();
-        }
-        match reply {
-            Some(val) => val.value as *const c_void,
-            None => null(),
-        }
+//初始化注入NativeObject关联函数
+pub fn register_native_object() {
+    unsafe {
+        njsc_register_native_object_function_call(native_object_function_call);
+        njsc_register_native_object_free(native_object_function_free);
+    }
 }
 
 //执行njsc测试代码
@@ -170,11 +154,12 @@ impl JSTemplate {
 /*
 * js状态
 */
-enum JSStatus {
+pub enum JSStatus {
     Destroy = -1,
     NoTask,
     SingleTask,
     MultiTask,
+    WaitBlock,
 }
 
 /*
@@ -207,15 +192,9 @@ impl Drop for JS {
 }
 
 impl JS {
-    //构建null
-    pub fn new_null(&self) -> JSType {
-        let ptr: *const c_void;
-        unsafe { ptr = njsc_new_null(self.vm as *const c_void) }
-        JSType {
-            type_id: JSValueType::Null as u8,
-            vm: self.vm,
-            value: ptr as usize,
-        }
+    //构建指定虚拟机
+    pub unsafe fn new(ptr: *const c_void) -> Self {
+        JS {vm: ptr as usize}
     }
 
     //运行js虚拟机
@@ -247,6 +226,17 @@ impl JS {
                 njsc_call(self.vm as *const c_void, CString::new(func).unwrap().as_ptr(), ptr, len, null());
                 njsc_vm_status_sub(self.vm as *const c_void, 1);
             }
+        }
+    }
+    
+    //构建null
+    pub fn new_null(&self) -> JSType {
+        let ptr: *const c_void;
+        unsafe { ptr = njsc_new_null(self.vm as *const c_void) }
+        JSType {
+            type_id: JSValueType::Null as u8,
+            vm: self.vm,
+            value: ptr as usize,
         }
     }
 
@@ -503,9 +493,23 @@ pub struct JSType {
 }
 
 impl JSType {
+    //构建一个指定js类型
+    pub unsafe fn new(type_id: u8, vm: *const c_void, ptr: *const c_void) -> Self {
+        JSType {
+            type_id: type_id,
+            vm: vm as usize,
+            value: ptr as usize,
+        }
+    }
+
     //获取指定类型的类型id
     fn get_type_id(value: *const c_void) -> u8 {
         unsafe { njsc_get_value_type(value) as u8 }
+    }
+
+    //获取内部值
+    pub fn get_value(&self) -> usize {
+        self.value
     }
 
     //判断是否是null
@@ -1102,4 +1106,50 @@ impl JSBuffer {
         unsafe { memcpy(self.buffer.wrapping_offset(offset as isize), v.as_ptr() as *const c_void, len); }
         last as isize
     }
+}
+
+/*
+* 线程安全的向任务池投递任务
+*/
+pub fn sync_cast_task(sync: Arc<(Mutex<TaskPool>, Condvar)>, 
+    task_type: TaskType, priority: u32, func: Box<FnBox()>, info: &'static str) {
+        let &(ref lock, ref cvar) = &*sync;
+        let mut task_pool = lock.lock().unwrap();
+        (*task_pool).push(task_type, priority, func, info);
+        cvar.notify_one();
+}
+
+/*
+* 线程安全的向任务池投递阻塞回应任务
+*/
+pub fn sync_cast_block_reply_task(js: Arc<JS>, result: JSType, 
+    sync: Arc<(Mutex<TaskPool>, Condvar)>, task_type: TaskType, priority: u32, info: &'static str) {
+        let copy_js = js.clone();
+        let copy_sync = sync.clone();
+        let func = Box::new(move || {
+            unsafe {
+                if njsc_vm_status_check(copy_js.vm as *const c_void, JSStatus::WaitBlock as i8) > 0 || 
+                    njsc_vm_status_check(copy_js.vm as *const c_void, JSStatus::SingleTask as i8) > 0 {
+                    //同步任务还未阻塞虚拟机，重新投递当前异步任务，并等待同步任务阻塞虚拟机
+                    sync_cast_block_reply_task(copy_js, result, copy_sync, task_type, priority, info);
+                } else {
+                    let status = njsc_vm_status_switch(copy_js.vm as *const c_void, JSStatus::MultiTask as i8, JSStatus::SingleTask as i8);
+                    if status == JSStatus::MultiTask as i8 {
+                        //同步任务已阻塞虚拟机，则返回指定的值，并唤醒虚拟机继续同步执行
+                        njsc_continue(copy_js.vm as *const c_void, result.get_value() as *const c_void, null());
+                        //当前异步任务如果没有投递其它异步任务，则当前异步任务成为同步任务，并在当前异步任务完成后回收虚拟机
+                        //否则还有其它异步任务，则回收权利交由其它异步任务
+                        njsc_vm_status_sub(copy_js.vm as *const c_void, 1);
+                    } else {
+                        try_js_destroy(&copy_js);
+                        panic!("cast block reply task failed");
+                    }
+                }
+            }
+        });
+        
+        let &(ref lock, ref cvar) = &*sync;
+        let mut task_pool = lock.lock().unwrap();
+        (*task_pool).push(task_type, priority, func, info);
+        cvar.notify_one();
 }

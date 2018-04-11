@@ -1,5 +1,3 @@
-#![allow(dead_code, non_snake_case)]
-
 use std::vec::Vec;
 use std::mem::forget;
 use std::os::raw::c_uchar;
@@ -240,11 +238,11 @@ pub fn into_usize_ptr(mut array: Vec<usize>) -> *mut usize {
 }
 
 #[inline]
-pub fn box2void<T>(ptrBox: Box<T>) -> *const c_void {
-    Box::into_raw(ptrBox) as *const c_void
+pub fn box2void<T>(ptr_box: Box<T>) -> *const c_void {
+    Box::into_raw(ptr_box) as *const c_void
 }
 
 #[inline]
-pub fn void2box<T>(ptrVoid: *mut c_void) -> Box<T> {
-    unsafe { Box::from_raw(ptrVoid as *mut T) }
+pub fn void2box<T>(ptr_void: *mut c_void) -> Box<T> {
+    unsafe { Box::from_raw(ptr_void as *mut T) }
 }

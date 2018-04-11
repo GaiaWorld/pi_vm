@@ -71,7 +71,7 @@ impl Worker {
                 break;
             } else if status == WorkerStatus::Wait as usize {
                 //继续等待控制状态
-                park_timeout(Duration::from_millis(1));
+                park_timeout(Duration::from_millis(1000));
                 continue;
             } else if status == WorkerStatus::Running as usize {
                 //继续工作
@@ -128,7 +128,7 @@ impl Worker {
                 let (pool, wait) = cvar.wait_timeout(task_pool, Duration::from_millis(1000)).unwrap();
                 if wait.timed_out() {
                     return //等待超时，则立即解锁，并处理控制状态
-                };
+                }
                 task_pool = pool;
             }
             (*task_pool).pop(task); //获取任务
