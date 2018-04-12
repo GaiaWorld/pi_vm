@@ -17,28 +17,31 @@ pub extern "C" fn native_object_function_call(
         let js = unsafe { Arc::new(JS::new(vm)) };
         let vec = args_to_vec(vm, args_size, args_type as *const u8, args as *const u64);
         //同步块
-        {
-            let refer = BON_MGR.clone();
-            reply = (&mut *refer.
-                            lock().
-                            unwrap()).
-                                call(js.clone(), hash, vec).
-                                ok();
-        }
-        match reply {
-            Some(val) => val.get_value() as *const c_void,
-            None => {
-                //没有立即返回，则表示会阻塞，并异步返回
-                unsafe {
-                    if njsc_vm_status_switch(vm, JSStatus::SingleTask as i8, JSStatus::WaitBlock as i8) == JSStatus::SingleTask as i8 {
-                        //改变状态成功，防止虚拟机在当前同步任务完成后被立即回收，回收权利交由异步任务
-                        null()
-                    } else {
-                        panic!("native object function call failed");
-                    }
-                }
-            },
-        }
+        // {
+        //     let refer = BON_MGR.clone();
+        //     reply = (&mut *refer.
+        //                     lock().
+        //                     unwrap()).
+        //                         call(js.clone(), hash, vec).
+        //                         ok();
+        // }
+        // match reply {
+        //     Some(val) => val.get_value() as *const c_void,
+        //     None => {
+        //         //没有立即返回，则表示会阻塞，并异步返回
+        //         unsafe {
+        //             if njsc_vm_status_switch(vm, JSStatus::SingleTask as i8, JSStatus::WaitBlock as i8) == JSStatus::SingleTask as i8 {
+        //                 //改变状态成功，防止虚拟机在当前同步任务完成后被立即回收，回收权利交由异步任务
+        //                 null()
+        //             } else {
+        //                 panic!("native object function call failed");
+        //             }
+        //         }
+        //     },
+        // }
+        //测试代码
+        unsafe { njsc_vm_status_switch(vm, JSStatus::SingleTask as i8, JSStatus::WaitBlock as i8) };
+        null()
 }
 
 //转换参数
