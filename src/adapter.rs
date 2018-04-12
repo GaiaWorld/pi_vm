@@ -6,7 +6,6 @@ use std::os::raw::c_uchar;
 use std::mem::transmute;
 use std::boxed::FnBox;
 use std::ops::Drop;
-use std::ptr::null;
 
 use data_view_impl::*;
 use native_object_impl::*;
@@ -36,14 +35,14 @@ extern "C" {
     fn test_main() -> c_int;
     fn njsc_vm_new(script: *const c_char) -> *const c_void;
     fn njsc_vm_clone(template: *const c_void) -> *const c_void;
-    fn njsc_vm_run(vm: *const c_void, reply: *const c_void);
+    fn njsc_vm_run(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
     fn njsc_vm_status_check(vm: *const c_void, value: int8_t) -> uint8_t;
     pub fn njsc_vm_status_switch(vm: *const c_void, old_status: int8_t, new_status: int8_t) -> int8_t;
     fn njsc_vm_status_sub(vm: *const c_void, value: int8_t) -> int8_t;
     fn njsc_args_new(vm: *const c_void, len: uint32_t) -> *const c_void;
     fn njsc_args_set(args: *const c_void, index: uint32_t, value: *const c_void);
-    fn njsc_call(vm: *const c_void, func: *const c_char, args: *const c_void, len: uint32_t, reply: *const c_void);
-    fn njsc_continue(vm: *const c_void, arg: *const c_void, reply: *const c_void);
+    fn njsc_call(vm: *const c_void, func: *const c_char, args: *const c_void, len: uint32_t, reply: extern fn(*const c_void, c_int, *const c_char));
+    fn njsc_continue(vm: *const c_void, arg: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
     fn njsc_vm_destroy(vm: *const c_void);
     fn njsc_vm_template_destroy(template: *const c_void);
     fn njsc_get_value_type(value: *const c_void) -> uint8_t;
@@ -68,6 +67,16 @@ extern "C" {
     fn njsc_new_array_buffer(vm: *const c_void, length: uint32_t) -> *const c_void;
     fn njsc_new_uint8_array(vm: *const c_void, length: uint32_t) -> *const c_void;
     fn njsc_new_native_object(vm: *const c_void, ptr: uint64_t) -> *const c_void;
+}
+
+//同步调用返回回调函数
+#[no_mangle]
+pub extern "C" fn call_reply_callback(vm: *const c_void, status: c_int, err: *const c_char) {
+    if status > 0 {
+        //调用正常，则忽略
+        return;
+    }
+    panic!("js error, vm: {}, status: {}, err: {}", vm as usize, status, unsafe { CStr::from_ptr(err).to_string_lossy().into_owned() });
 }
 
 //初始化注入DataView关联函数
@@ -199,7 +208,7 @@ impl JS {
 
     //运行js虚拟机
     pub fn run(&self) {
-        unsafe { njsc_vm_run(self.vm as *const c_void, null()); }
+        unsafe { njsc_vm_run(self.vm as *const c_void, call_reply_callback); }
     }
 
     //调用指定函数
@@ -223,7 +232,7 @@ impl JS {
                     njsc_args_set(ptr, index, value.value as *const c_void);
                     index += 1;
                 }
-                njsc_call(self.vm as *const c_void, CString::new(func).unwrap().as_ptr(), ptr, len, null());
+                njsc_call(self.vm as *const c_void, CString::new(func).unwrap().as_ptr(), ptr, len, call_reply_callback);
                 njsc_vm_status_sub(self.vm as *const c_void, 1);
             }
         }
@@ -1136,7 +1145,7 @@ pub fn block_reply(js: Arc<JS>, result: JSType,
                     let status = njsc_vm_status_switch(copy_js.vm as *const c_void, JSStatus::MultiTask as i8, JSStatus::SingleTask as i8);
                     if status == JSStatus::MultiTask as i8 {
                         //同步任务已阻塞虚拟机，则返回指定的值，并唤醒虚拟机继续同步执行
-                        njsc_continue(copy_js.vm as *const c_void, result.get_value() as *const c_void, null());
+                        njsc_continue(copy_js.vm as *const c_void, result.get_value() as *const c_void, call_reply_callback);
                         //当前异步任务如果没有投递其它异步任务，则当前异步任务成为同步任务，并在当前异步任务完成后回收虚拟机
                         //否则还有其它异步任务，则回收权利交由其它异步任务
                         njsc_vm_status_sub(copy_js.vm as *const c_void, 1);
