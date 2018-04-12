@@ -19,8 +19,9 @@ pub extern "C" fn native_object_function_call(
         //同步块
         {
             let refer = BON_MGR.clone();
-            reply = (&mut *refer.lock().
-                                unwrap()).
+            reply = (&mut *refer.
+                            lock().
+                            unwrap()).
                                 call(js.clone(), hash, vec).
                                 ok();
         }
@@ -41,14 +42,14 @@ pub extern "C" fn native_object_function_call(
 }
 
 //转换参数
-fn args_to_vec(vm: *const c_void, args_size: u32, args_type: *const u8, args: *const u64) -> Vec<JSType> {
-    let mut vec = Vec::new();
+fn args_to_vec(vm: *const c_void, args_size: u32, args_type: *const u8, args: *const u64) -> Option<Vec<JSType>> {
     if args_size == 0 {
-        return vec;
+        return None;
     }
     
     let mut type_id: u8;
     let mut arg: u64;
+    let mut vec = Vec::new();
     for offset in 0..args_size {
         unsafe {
             type_id = args_type.wrapping_offset(offset as isize).read();
@@ -65,7 +66,7 @@ fn args_to_vec(vm: *const c_void, args_size: u32, args_type: *const u8, args: *c
             }
         }
     }
-    vec
+    Some(vec)
 }
 
 //释放指定虚拟机对应的NativeObject实例
