@@ -15,23 +15,16 @@ pub extern "C" fn native_object_function_call(
     args: *const c_void) -> *const c_void {
         let reply: Option<JSType>;
         let js = unsafe { Arc::new(JS::new(vm)) };
-        let option = args_to_vec(vm, args_size, args_type as *const u8, args as *const u64);
-        let refer = BON_MGR.clone();
-        match option {
-            None =>
-                reply = (&mut *refer.
-                        lock().
-                        unwrap()).
-                            call(js.clone(), hash).
-                            ok();
-            Some(vec) => {
-                reply = (&mut *refer.
-                        lock().
-                        unwrap()).
-                            call_arg(js.clone(), hash, vec).
-                            ok();
-            },
-        } 
+        let vec = args_to_vec(vm, args_size, args_type as *const u8, args as *const u64);
+        //同步块
+        {
+            let refer = BON_MGR.clone();
+            reply = (&mut *refer.
+                            lock().
+                            unwrap()).
+                                call(js.clone(), hash, vec).
+                                ok();
+        }
         match reply {
             Some(val) => val.get_value() as *const c_void,
             None => {
@@ -46,6 +39,9 @@ pub extern "C" fn native_object_function_call(
                 }
             },
         }
+        //测试代码
+        // unsafe { njsc_vm_status_switch(vm, JSStatus::SingleTask as i8, JSStatus::WaitBlock as i8) };
+        // null()
 }
 
 //转换参数
