@@ -1111,7 +1111,7 @@ impl JSBuffer {
 /*
 * 线程安全的向任务池投递任务
 */
-pub fn sync_cast_task(sync: Arc<(Mutex<TaskPool>, Condvar)>, 
+pub fn cast_task(sync: Arc<(Mutex<TaskPool>, Condvar)>, 
     task_type: TaskType, priority: u32, func: Box<FnBox()>, info: &'static str) {
         let &(ref lock, ref cvar) = &*sync;
         let mut task_pool = lock.lock().unwrap();
@@ -1120,9 +1120,9 @@ pub fn sync_cast_task(sync: Arc<(Mutex<TaskPool>, Condvar)>,
 }
 
 /*
-* 线程安全的向任务池投递阻塞回应任务
+* 线程安全的回应阻塞调用
 */
-pub fn sync_cast_block_reply_task(js: Arc<JS>, result: JSType, 
+pub fn block_reply(js: Arc<JS>, result: JSType, 
     sync: Arc<(Mutex<TaskPool>, Condvar)>, task_type: TaskType, priority: u32, info: &'static str) {
         let copy_js = js.clone();
         let copy_sync = sync.clone();
@@ -1131,7 +1131,7 @@ pub fn sync_cast_block_reply_task(js: Arc<JS>, result: JSType,
                 if njsc_vm_status_check(copy_js.vm as *const c_void, JSStatus::WaitBlock as i8) > 0 || 
                     njsc_vm_status_check(copy_js.vm as *const c_void, JSStatus::SingleTask as i8) > 0 {
                     //同步任务还未阻塞虚拟机，重新投递当前异步任务，并等待同步任务阻塞虚拟机
-                    sync_cast_block_reply_task(copy_js, result, copy_sync, task_type, priority, info);
+                    block_reply(copy_js, result, copy_sync, task_type, priority, info);
                 } else {
                     let status = njsc_vm_status_switch(copy_js.vm as *const c_void, JSStatus::MultiTask as i8, JSStatus::SingleTask as i8);
                     if status == JSStatus::MultiTask as i8 {
