@@ -39,9 +39,6 @@ pub extern "C" fn native_object_function_call(
                 }
             },
         }
-        //测试代码
-        // unsafe { njsc_vm_status_switch(vm, JSStatus::SingleTask as i8, JSStatus::WaitBlock as i8) };
-        // null()
 }
 
 //转换参数
