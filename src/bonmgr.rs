@@ -26,8 +26,10 @@ pub struct StructMeta {
 // 	pub members: Vec<StructMeta>
 // }
 
-pub type FnMeta = fn(&BonMgr, &mut JS, Vec<JSType>) -> Result<JSType, &'static str>;
-
+pub enum FnMeta {
+	CallArg(fn(&BonMgr, Arc<JS>, Vec<JSType>) -> Result<JSType, &'static str>),
+	Call(fn(&BonMgr, Arc<JS>) -> Result<JSType, &'static str>)
+}
 // pub struct FnMeta{
 // 	pub call: fn(Vec<JSType>) -> Result<JSType, &'static str>,
 // 	pub param: Vec<TypeDesc>, //（是否为引用，是否可变, 参数类型）如（"&str", String）
@@ -90,16 +92,23 @@ impl BonMgr{
 		}
 	}
 
-	pub fn call(&mut self, mut js: Arc<JS>, fun_hash: u32, args: Vec<JSType>) -> Result<JSType, &'static str> {
+	//有参数的调用
+	pub fn call(&mut self, js: Arc<JS>, fun_hash: u32, args: Option<Vec<JSType>>) -> Result<JSType, &'static str> {
 		let func = match self.fun_metas.get(&fun_hash){
 			Some(v) => v,
 			None => {
 				return Err("FnMeta is not finded");
 			}
 		};
-		let r = func(self, Arc::get_mut(&mut js).unwrap(), args);
-		r
-		//Ok(JSType{})
+
+		match func{
+			&FnMeta::CallArg(ref f) => {
+				f(self, js, args.unwrap())
+			},
+			&FnMeta::Call(ref f) => {
+				f(self, js)
+			}
+		}
 	}
 
 	pub fn regist_fun_meta(&mut self, meta: FnMeta, hash: u32){
@@ -153,7 +162,7 @@ impl BonMgr{
 }
 
 //特为构建代码提供，主要用于函数参数native_object转换为ptr， 如果类型不匹配将返回一个错误
-pub fn jstype_ptr<'a>(jstype: &JSType, mgr: &BonMgr, obj_type: &str ,error_str: &'a str) -> Result<usize, &'a str>{
+pub fn jstype_ptr<'a>(jstype: &JSType, mgr: &BonMgr, obj_type: u32 ,error_str: &'a str) -> Result<usize, &'a str>{
 	if !jstype.is_native_object(){
 		return Err(error_str);
 	}
@@ -164,21 +173,26 @@ pub fn jstype_ptr<'a>(jstype: &JSType, mgr: &BonMgr, obj_type: &str ,error_str: 
 		None => {return Ok(ptr)//return Err("NObject is not finded");  
 		}
 	};
-	
-	let meta = match mgr.struct_metas.get(&obj.meta_hash){
-		Some(v) => v,
-		None => {return Err("StructMeta is not finded");}
-	};
-
-	if meta.name == obj_type {
+	if(obj.meta_hash == obj_type){
 		Ok(ptr)
 	}else{
 		Err("type is diff")
 	}
+	
+	// let meta = match mgr.struct_metas.get(&obj.meta_hash){
+	// 	Some(v) => v,
+	// 	None => {return Err("StructMeta is not finded");}
+	// };
+
+	// if meta.name == obj_type {
+	// 	Ok(ptr)
+	// }else{
+	// 	Err("type is diff")
+	// }
 }
 
 //特为构建代码提供，主要用于函数返回时ptr转换为native_object， 同时将根据返回类型构建NObject并注册
-pub fn ptr_jstype(mgr: &BonMgr,js: &JS, ptr: usize, meta_hash: u32) -> JSType{
+pub fn ptr_jstype(mgr: &BonMgr,js: Arc<JS>, ptr: usize, meta_hash: u32) -> JSType{
 	let nobj = NObject{meta_hash: meta_hash};
 	mgr.regist_obj(nobj, ptr);
 	js.new_native_object(ptr)
