@@ -10,7 +10,8 @@ use pi_vm::util::now_nanosecond;
 use pi_vm::task_pool::TaskPool;
 use pi_vm::task::TaskType;
 use pi_vm::worker_pool::WorkerPool;
-use pi_vm::adapter::{njsc_test_main, register_data_view, register_native_object, JSTemplate, JS, cast_task, block_reply};
+use pi_vm::adapter::{njsc_test_main, register_data_view, register_native_object, JSTemplate, JS};
+use pi_vm::pi_vm_impl::{JS_TASK_POOL, cast_task, block_reply};
 
 // #[test]
 fn njsc_test() {
@@ -172,10 +173,8 @@ fn native_object_call_block_reply_test() {
     let copy = Arc::new(js.clone().unwrap());
     copy.run();
 
-    let task_pool = TaskPool::new(10);
-    let sync = Arc::new((Mutex::new(task_pool), Condvar::new()));
     let mut worker_pool = Box::new(WorkerPool::new(3, 1000));
-    worker_pool.run(sync.clone());
+    worker_pool.run(JS_TASK_POOL.clone());
 
     let copy1 = copy.clone();
     let task_type = TaskType::Async;
@@ -183,10 +182,10 @@ fn native_object_call_block_reply_test() {
     let func = Box::new(move|| {
         copy1.call("call".to_string(), &[copy1.new_boolean(true), copy1.new_f64(0.999), copy1.new_str("你好 World!!!!!!".to_string())]);
     });
-    cast_task(sync.clone(), task_type, priority, func, "call block task");
+    cast_task(task_type, priority, func, "call block task");
     thread::sleep(Duration::from_millis(500));
     
-    block_reply(copy.clone(), copy.new_str("Hello World".to_string()), sync.clone(), TaskType::Sync, 10, "block reply task");
+    block_reply(copy.clone(), copy.new_str("Hello World".to_string()), TaskType::Sync, 10, "block reply task");
     thread::sleep(Duration::from_millis(1000));
 }
 
@@ -200,14 +199,11 @@ fn task_test() {
     let copy: JS = js.clone().unwrap();
     copy.run();
 
-    let task_pool = TaskPool::new(10);
-    let sync = Arc::new((Mutex::new(task_pool), Condvar::new()));
     let mut worker_pool = Box::new(WorkerPool::new(3, 1000));
-    worker_pool.run(sync.clone());
+    worker_pool.run(JS_TASK_POOL.clone());
 
     let task_type = TaskType::Async;
     let priority = 0;
-    let copy_sync = sync.clone();
     let func = Box::new(move|| {
         copy.call("echo".to_string(), &[copy.new_boolean(false), copy.new_u64(0xfffffffffff), copy.new_str("Hello World!!!!!!".to_string())]);
 
@@ -217,28 +213,28 @@ fn task_test() {
             copy.call("echo".to_string(), &[copy.new_boolean(true), copy.new_f64(0.999), copy.new_str("你好 World!!!!!!".to_string())]);
             thread::sleep(Duration::from_millis(1000)); //延迟结束任务
         });
-        cast_task(copy_sync, task_type, priority, func, "first task");
+        cast_task(task_type, priority, func, "first task");
         thread::sleep(Duration::from_millis(1000)); //延迟结束任务
     });
-    cast_task(sync.clone(), task_type, priority, func, "second task");
+    cast_task(task_type, priority, func, "second task");
     println!("worker_pool: {}", worker_pool);
     //测试运行任务的同时增加工作者
     for index in 0..10 {
         let mut copy: JS = (&js).clone().unwrap();
         copy.run();
-        cast_task(sync.clone(), TaskType::Sync, 10, Box::new(move || {
+        cast_task(TaskType::Sync, 10, Box::new(move || {
                 copy.call("echo".to_string(), &[copy.new_boolean(true), copy.new_u64(index), copy.new_str("Hello World!!!!!!".to_string())]);
                 thread::sleep(Duration::from_millis(1000)); //延迟结束任务
             }), "other task");
     }
-    worker_pool.increase(sync.clone(), 7, 1000);
+    worker_pool.increase(JS_TASK_POOL.clone(), 7, 1000);
     thread::sleep(Duration::from_millis(10000));
     println!("worker_pool: {}", worker_pool);
     //测试运行任务的同时减少工作者
     for index in 0..10 {
         let mut copy: JS = (&js).clone().unwrap();
         copy.run();
-        cast_task(sync.clone(), TaskType::Sync, 10, Box::new(move || {
+        cast_task(TaskType::Sync, 10, Box::new(move || {
                 copy.call("echo".to_string(), &[copy.new_boolean(false), copy.new_u64(index), copy.new_str("Hello World!!!!!!".to_string())]);
                 thread::sleep(Duration::from_millis(1000)); //延迟结束任务
             }), "other task");
