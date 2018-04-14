@@ -69,13 +69,15 @@ extern "C" {
     fn njsc_new_native_object(vm: *const c_void, ptr: uint64_t) -> *const c_void;
 }
 
-//同步调用返回回调函数
+//js返回回调函数
 #[no_mangle]
 pub extern "C" fn js_reply_callback(vm: *const c_void, status: c_int, err: *const c_char) {
     if status > 0 {
         //调用正常，则忽略
         return;
     }
+
+    unsafe { njsc_vm_status_sub(vm, 1); } //当前同步任务执行js错误，需要改变状态，保证虚拟机回收或异步任务被执行
     panic!("js error, vm: {}, status: {}, err: {}", vm as usize, status, unsafe { CStr::from_ptr(err).to_string_lossy().into_owned() });
 }
 
