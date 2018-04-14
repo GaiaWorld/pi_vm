@@ -2,7 +2,7 @@ use std::ptr::null;
 use std::sync::Arc;
 use libc::{c_void, uint32_t};
 
-use bonmgr::BON_MGR;
+use bonmgr::bon_call;
 use adapter::{JSStatus, JS, JSType, njsc_vm_status_switch};
 
 //调用NativeObject函数
@@ -13,19 +13,9 @@ pub extern "C" fn native_object_function_call(
     args_size: uint32_t, 
     args_type: *const c_void,
     args: *const c_void) -> *const c_void {
-        let reply: Option<JSType>;
         let js = unsafe { Arc::new(JS::new(vm)) };
         let vec = args_to_vec(vm, args_size, args_type as *const u8, args as *const u64);
-        //同步块
-        {
-            let refer = BON_MGR.clone();
-            reply = (&mut *refer.
-                            lock().
-                            unwrap()).
-                                call(js.clone(), hash, vec).
-                                ok();
-        }
-        match reply {
+        match bon_call(js.clone(), hash, vec) {
             Some(val) => val.get_value() as *const c_void,
             None => {
                 //没有立即返回，则表示会阻塞，并异步返回
