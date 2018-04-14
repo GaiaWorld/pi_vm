@@ -3,7 +3,7 @@ use std::sync::Arc;
 use libc::{c_void, uint32_t};
 
 use bonmgr::BON_MGR;
-use adapter::{JSStatus, JS, JSValueType, JSType, njsc_vm_status_switch};
+use adapter::{JSStatus, JS, JSType, njsc_vm_status_switch};
 
 //调用NativeObject函数
 #[no_mangle]
@@ -53,17 +53,8 @@ fn args_to_vec(vm: *const c_void, args_size: u32, args_type: *const u8, args: *c
     for offset in 0..args_size {
         unsafe {
             type_id = args_type.wrapping_offset(offset as isize).read();
-            if type_id <= JSValueType::String as u8 || 
-                type_id == JSValueType::ArrayBuffer as u8 ||
-                type_id == JSValueType::Uint8Array as u8 ||
-                type_id == JSValueType::NativeObject as u8 ||
-                type_id == JSValueType::Object as u8 ||
-                type_id == JSValueType::Array as u8 {
-                    arg = args.wrapping_offset(offset as isize).read();
-                    vec.insert(offset as usize, JSType::new(type_id, vm, arg as *const c_void));
-            } else {
-                panic!("invali native object call arg type, {}", type_id);
-            }
+            arg = args.wrapping_offset(offset as isize).read();
+            vec.insert(offset as usize, JSType::new(type_id, vm, arg as *const c_void));
         }
     }
     Some(vec)
