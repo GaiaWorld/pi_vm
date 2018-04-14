@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Condvar};
 use std::fmt::{Display, Formatter, Result as FmtResult}; //避免和标准Result冲突，改名为FmtResult
 
-use threadpool::ThreadPool;
+use threadpool::{ThreadPool, Builder as ThreadPoolBuilder};
 
 use task_pool::TaskPool;
 use worker::{WorkerStatus, Worker};
@@ -26,7 +26,7 @@ impl Display for WorkerPool {
 
 impl WorkerPool {
     //构建指定数量工作者的工作者池
-    pub fn new(len: usize, slow: u32) -> Self {
+    pub fn new(len: usize, stack_size: usize, slow: u32) -> Self {
         let mut counter: u32 = 0;
         let mut map = HashMap::new();
         for _ in 0..len {
@@ -36,7 +36,10 @@ impl WorkerPool {
         WorkerPool {
             counter:        counter,
             map:            map,
-            thread_pool:    ThreadPool::new(len),
+            thread_pool:    ThreadPoolBuilder::new().
+                                                num_threads(len).
+                                                thread_stack_size(stack_size).
+                                                build(),
         }
     }
 
