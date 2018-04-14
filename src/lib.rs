@@ -3,6 +3,7 @@
 #![feature(fnbox)]
 #![feature(rustc_private)]
 #![feature(type_ascription)]
+#![feature(duration_extras)]
 
 extern crate time;
 extern crate libc;
