@@ -7,6 +7,10 @@ lazy_static! {
 	pub static ref BON_MGR: Arc<Mutex<BonMgr>> = Arc::new(Mutex::new(BonMgr::new()));
 }
 
+pub fn bon_call(js: Arc<JS>, fun_hash: u32, args: Option<Vec<JSType>>) -> Option<JSType>{
+	BON_MGR.call(js, fun_hash, args)
+}
+
 pub trait StructMember {}
  
 pub struct TypeDesc(bool, bool, NType);//(是否为引用, 是否可变, NType)
@@ -93,7 +97,7 @@ impl BonMgr{
 	}
 
 	//有参数的调用
-	pub fn call(&mut self, js: Arc<JS>, fun_hash: u32, args: Option<Vec<JSType>>) -> Result<JSType, &'static str> {
+	pub fn call(&mut self, js: Arc<JS>, sync: fun_hash: u32, args: Option<Vec<JSType>>) -> Option<JSType> {
 		let func = match self.fun_metas.get(&fun_hash){
 			Some(v) => v,
 			None => {
