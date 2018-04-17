@@ -1,5 +1,6 @@
 use libc::{c_void, c_char, int8_t, uint8_t, c_int, uint32_t, uint64_t, c_double, memcpy};
 use std::slice::from_raw_parts;
+use std::string::FromUtf8Error;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_uchar;
 use std::mem::transmute;
@@ -48,6 +49,7 @@ extern "C" {
     fn njsc_get_object_field(vm: *const c_void, object: *const c_void, key: *const c_char) -> *const c_void;
     fn njsc_get_array_length(array: *const c_void) -> uint32_t;
     fn njsc_get_array_index(vm: *const c_void, array: *const c_void, index: uint32_t) -> *const c_void;
+    fn njsc_get_char_length(value: *const c_void) -> uint32_t;
     fn njsc_get_buffer_length(value: *const c_void) -> uint32_t;
     fn njsc_get_buffer(value: *const c_void) -> *const c_void;
     fn njsc_get_native_object_instance(value: *const c_void) -> uint64_t;
@@ -55,13 +57,14 @@ extern "C" {
     fn njsc_new_undefined(vm: *const c_void) -> *const c_void;
     fn njsc_new_boolean(vm: *const c_void, b: uint8_t) -> *const c_void;
     fn njsc_new_number(vm: *const c_void, num: c_double) -> *const c_void;
-    fn njsc_new_string(vm: *const c_void, str: *const c_char) -> *const c_void;
+    fn njsc_new_string(vm: *const c_void, str: *const c_char, size: uint32_t, length: uint32_t) -> *const c_void;
     fn njsc_new_object(vm: *const c_void) -> *const c_void;
     fn njsc_set_object_field(vm: *const c_void, object: *const c_void, key: *const c_char, value: *const c_void);
     fn njsc_new_array(vm: *const c_void, length: uint32_t) -> *const c_void;
     fn njsc_set_array_index(vm: *const c_void, array: *const c_void, index: uint32_t, value: *const c_void);
     fn njsc_new_array_buffer(vm: *const c_void, length: uint32_t) -> *const c_void;
     fn njsc_new_uint8_array(vm: *const c_void, length: uint32_t) -> *const c_void;
+    fn njsc_new_string_buffer(vm: *const c_void, byte_length: uint32_t, char_length: uint32_t) -> *const c_void;
     fn njsc_new_native_object(vm: *const c_void, ptr: uint64_t) -> *const c_void;
 }
 
@@ -211,7 +214,16 @@ impl JS {
 
     //运行js虚拟机
     pub fn run(&self) {
-        unsafe { njsc_vm_run(self.vm as *const c_void, js_reply_callback); }
+        unsafe { 
+            let status = njsc_vm_status_switch(self.vm as *const c_void, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
+            if status == JSStatus::SingleTask as i8 {
+                //当前虚拟机状态错误，无法运行
+                panic!("invalid vm status with run");
+            } else {
+                njsc_vm_run(self.vm as *const c_void, js_reply_callback);
+                njsc_vm_status_sub(self.vm as *const c_void, 1);
+            }
+        }
     }
 
     //调用指定函数
@@ -224,7 +236,7 @@ impl JS {
             let status = njsc_vm_status_switch(vm as *const c_void, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
             if status == JSStatus::SingleTask as i8 {
                 //当前虚拟机正在destroy或有任务
-                panic!("invalid vm status");
+                panic!("invalid vm status with call");
             } else {
                 ptr = njsc_args_new(vm as *const c_void, len);
                 for value in args {
@@ -390,10 +402,12 @@ impl JS {
         }
     }
 
-    //构建字符串
+    //构建字符串，注意rust的字符串默认是UTF8编码，而JS是UTF16编码
     pub fn new_str(&self, str: String) -> JSType {
         let ptr: *const c_void;
-        unsafe { ptr = njsc_new_string(self.vm as *const c_void, CString::new(str).unwrap().as_ptr()) }
+        let byte_length = str.len() as u32;
+        let char_length = str.encode_utf16().count() as u32;
+        unsafe { ptr = njsc_new_string(self.vm as *const c_void, CString::new(str).unwrap().as_ptr(), byte_length, char_length) }
         JSType {
             type_id: JSValueType::String as u8,
             vm: self.vm,
@@ -464,6 +478,22 @@ impl JS {
             vm: self.vm,
             value: ptr as usize,
         }
+    }
+
+    //根据指定的u8数组，构建UTF8编码的二进制字符串
+    pub fn new_utf8_array(&self, bytes: &[u8]) -> JSType {
+        let ptr: *const c_void;
+        let str = String::from_utf8_lossy(bytes);
+        let byte_length = str.len() as u32;
+        let char_length = str.encode_utf16().count() as u32;
+        unsafe { ptr = njsc_new_string_buffer(self.vm as *const c_void, byte_length, char_length) }
+        let js_type = JSType {
+            type_id: JSValueType::Uint8Array as u8,
+            vm: self.vm,
+            value: ptr as usize,
+        };
+        js_type.from_bytes(bytes);
+        js_type
     }
 
     //构建NativeObject
@@ -605,6 +635,21 @@ impl JSType {
         }
     }
 
+     //判断是否是UTF8编码的Uint8Array
+	pub fn is_utf8_array(&self) -> bool {
+        if self.type_id == JSValueType::Uint8Array as u8 {
+            unsafe {
+                if njsc_get_char_length(self.value as *const c_void) == njsc_get_buffer_length(self.value as *const c_void) {
+                    false
+                } else {
+                    true
+                }
+            }
+        } else {
+            false
+        }
+    }
+
     //判断是否是NativeObject
 	pub fn is_native_object(&self) -> bool {
         if self.type_id == JSValueType::NativeObject as u8 {
@@ -722,23 +767,21 @@ impl JSType {
     }
 
     //重置指定的Buffer
-	pub fn from_vec(&self, vec: Vec<u8>) {
+	pub fn from_bytes(&self, bytes: &[u8]) {
         unsafe {
             let length = njsc_get_buffer_length(self.value as *const c_void) as usize;
             let buffer = njsc_get_buffer(self.value as *const c_void);
-            memcpy(buffer as *mut c_void, vec.as_ptr() as *const c_void, length);
+            memcpy(buffer as *mut c_void, bytes.as_ptr() as *const c_void, length);
         }
     }
 
     //获取指定的Buffer
     pub fn into_buffer(&self) -> JSBuffer {
         unsafe {
+            let size = njsc_get_char_length(self.value as *const c_void) as usize;
             let length = njsc_get_buffer_length(self.value as *const c_void) as usize;
             let buffer = njsc_get_buffer(self.value as *const c_void);
-            JSBuffer {
-                buffer: buffer as *mut c_void,
-                len: length,
-            }
+            JSBuffer::new(buffer as *mut c_void, size, length)
         }
     }
 
@@ -753,16 +796,23 @@ impl JSType {
 */
 pub struct JSBuffer {
     buffer: *mut c_void,
+    size: usize,
     len: usize,
 }
 
 impl JSBuffer {
     //构建JSBuffer
-    pub fn new(ptr: *mut c_void, len: usize) -> Self {
+    pub fn new(ptr: *mut c_void, size: usize, len: usize) -> Self {
         JSBuffer {
             buffer: ptr,
+            size: size,
             len: len,
         }
+    }
+
+    //获取buffer字符数
+    pub fn size(&self) -> usize {
+        self.size
     }
 
     //获取buffer长度
@@ -926,6 +976,20 @@ impl JSBuffer {
         unsafe {
             from_raw_parts(self.buffer.wrapping_offset(offset as isize) as *const u8, len)
         }
+    }
+
+    //在指定位置读UTF8字符串
+    pub fn to_string(&self, offset: usize, len: usize) -> Result<String, FromUtf8Error> {
+        if offset + len > self.len {
+            panic!("access out of range");
+        }
+
+        let mut vec = Vec::new();
+        vec.resize(len, 0);
+        unsafe {
+            vec.copy_from_slice(from_raw_parts(self.buffer.wrapping_offset(offset as isize) as *const u8, len));
+        }
+        String::from_utf8(vec)
     }
 
     //在指定位置写小端i8

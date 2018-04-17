@@ -84,7 +84,7 @@ fn base_test() {
     for i in 0..tmp.len() {
         tmp[i] = 10;
     }
-    val.from_vec(tmp);
+    val.from_bytes(tmp.as_slice());
     let tmp = val.to_bytes();
     assert!(val.is_array_buffer() && tmp.len() == 32);
     println!("buffer: {:?}", tmp);
@@ -141,12 +141,27 @@ fn base_test() {
     for i in 0..tmp.len() {
         tmp[i] = 255;
     }
-    val.from_vec(tmp);
+    val.from_bytes(tmp.as_slice());
     let tmp = val.to_bytes();
     assert!(val.is_uint8_array() && tmp.len() == 10);
     println!("buffer: {:?}", tmp);
+    let val = copy.new_utf8_array("你好!!!!!!".as_bytes());
+    assert!(val.is_utf8_array());
+    let tmp = val.into_buffer();
+    assert!(tmp.size() == 8 && tmp.len() == 12 && tmp.to_string(0, tmp.len()).ok().unwrap() == "你好!!!!!!");
     let val = copy.new_native_object(0xffffffffusize);
     assert!(val.is_native_object() && val.get_native_object() == 0xffffffffusize);
+}
+
+// #[test]
+fn test_string() {
+    register_data_view();
+    register_native_object();
+    let js = JSTemplate::new("console.log(\"!!!!!!string: \" + \"你好!!!!!!\".length); var view = TextEncoder.encode(\"你好!!!!!!\"); console.log(\"!!!!!!view: \" + view); var r = NativeObject.call(0xffffffff, [view]); console.log(\"!!!!!!r: \" + r); console.log(\"!!!!!!string: \" + TextDecoder.decode(view));".to_string());
+    assert!(js.is_some());
+    let js = js.unwrap();
+    let copy: JS = js.clone().unwrap();
+    copy.run();
 }
 
 // #[test]
@@ -163,7 +178,7 @@ fn native_object_call_test() {
     copy.call("call".to_string(), &[copy.new_boolean(false), copy.new_u64(0xfffffffffff), copy.new_str("你好 World!!!!!!".to_string())]);
 }
 
-#[test]
+// #[test]
 fn native_object_call_block_reply_test() {
     register_data_view();
     register_native_object();
