@@ -1,10 +1,13 @@
 #![crate_type = "rlib"]
 #![feature(libc)]
 #![feature(fnbox)]
+#![feature(drain_filter)]
 #![feature(rustc_private)]
 #![feature(type_ascription)]
 #![feature(duration_extras)]
+#![feature(slice_internals)]
 
+extern crate core;
 extern crate time;
 extern crate libc;
 extern crate rand;

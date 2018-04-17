@@ -8,14 +8,14 @@ use adapter::JSBuffer;
 //从指定的缓冲区读出一个有符号1字节整数
 #[no_mangle]
 pub extern "C" fn data_view_read_int8 (buf: *mut c_void, length: uint64_t, offset: uint64_t) -> c_double {
-    let buffer: JSBuffer = JSBuffer::new(buf, length as usize);
+    let buffer: JSBuffer = JSBuffer::new(buf, length as usize, length as usize);
     buffer.read_i8(offset as usize) as f64
 }
 
 //从指定的缓冲区读出一个有符号2字节整数
 #[no_mangle]
 pub extern "C" fn data_view_read_int16 (buf: *mut c_void, length: uint64_t, offset: uint64_t, is_le: c_uchar) -> c_double {
-    let buffer: JSBuffer = JSBuffer::new(buf, length as usize);
+    let buffer: JSBuffer = JSBuffer::new(buf, length as usize, length as usize);
     let endian = is_le as u8;
     if endian > 0 {
         buffer.read_i16(offset as usize) as f64
@@ -27,7 +27,7 @@ pub extern "C" fn data_view_read_int16 (buf: *mut c_void, length: uint64_t, offs
 //从指定的缓冲区读出一个有符号4字节整数
 #[no_mangle]
 pub extern "C" fn data_view_read_int32 (buf: *mut c_void, length: uint64_t, offset: uint64_t, is_le: c_uchar) -> c_double {
-    let buffer: JSBuffer = JSBuffer::new(buf, length as usize);
+    let buffer: JSBuffer = JSBuffer::new(buf, length as usize, length as usize);
     let endian = is_le as u8;
     if endian > 0 {
         buffer.read_i32(offset as usize) as f64
@@ -39,14 +39,14 @@ pub extern "C" fn data_view_read_int32 (buf: *mut c_void, length: uint64_t, offs
 //从指定的缓冲区读出一个无符号1字节整数
 #[no_mangle]
 pub extern "C" fn data_view_read_uint8 (buf: *mut c_void, length: uint64_t, offset: uint64_t) -> c_double {
-    let buffer: JSBuffer = JSBuffer::new(buf, length as usize);
+    let buffer: JSBuffer = JSBuffer::new(buf, length as usize, length as usize);
     buffer.read_u8(offset as usize) as f64
 }
 
 //从指定的缓冲区读出一个无符号2字节整数
 #[no_mangle]
 pub extern "C" fn data_view_read_uint16 (buf: *mut c_void, length: uint64_t, offset: uint64_t, is_le: c_uchar) -> c_double {
-    let buffer: JSBuffer = JSBuffer::new(buf, length as usize);
+    let buffer: JSBuffer = JSBuffer::new(buf, length as usize, length as usize);
     let endian = is_le as u8;
     if endian > 0 {
         buffer.read_u16(offset as usize) as f64
@@ -58,7 +58,7 @@ pub extern "C" fn data_view_read_uint16 (buf: *mut c_void, length: uint64_t, off
 //从指定的缓冲区读出一个无符号4字节整数
 #[no_mangle]
 pub extern "C" fn data_view_read_uint32 (buf: *mut c_void, length: uint64_t, offset: uint64_t, is_le: c_uchar) -> c_double {
-    let buffer: JSBuffer = JSBuffer::new(buf, length as usize);
+    let buffer: JSBuffer = JSBuffer::new(buf, length as usize, length as usize);
     let endian = is_le as u8;
     if endian > 0 {
         buffer.read_u32(offset as usize) as f64
@@ -70,7 +70,7 @@ pub extern "C" fn data_view_read_uint32 (buf: *mut c_void, length: uint64_t, off
 //从指定的缓冲区读出一个4字节浮点数
 #[no_mangle]
 pub extern "C" fn data_view_read_float32 (buf: *mut c_void, length: uint64_t, offset: uint64_t, is_le: c_uchar) -> c_double {
-    let buffer: JSBuffer = JSBuffer::new(buf, length as usize);
+    let buffer: JSBuffer = JSBuffer::new(buf, length as usize, length as usize);
     let endian = is_le as u8;
     if endian > 0 {
         buffer.read_f32(offset as usize) as f64
@@ -82,7 +82,7 @@ pub extern "C" fn data_view_read_float32 (buf: *mut c_void, length: uint64_t, of
 //从指定的缓冲区读出一个8字节浮点数
 #[no_mangle]
 pub extern "C" fn data_view_read_float64 (buf: *mut c_void, length: uint64_t, offset: uint64_t, is_le: c_uchar) -> c_double {
-    let buffer: JSBuffer = JSBuffer::new(buf, length as usize);
+    let buffer: JSBuffer = JSBuffer::new(buf, length as usize, length as usize);
     let endian = is_le as u8;
     if endian > 0 {
         buffer.read_f64(offset as usize) as f64
@@ -94,7 +94,7 @@ pub extern "C" fn data_view_read_float64 (buf: *mut c_void, length: uint64_t, of
 //向指定的缓冲区写入一个有符号1字节整数
 #[no_mangle]
 pub extern "C" fn data_view_write_int8 (buf: *mut c_void, length: uint64_t, offset: uint64_t, value: c_double) {
-    let mut buffer: JSBuffer = JSBuffer::new(buf, length as usize);
+    let mut buffer: JSBuffer = JSBuffer::new(buf, length as usize, length as usize);
     buffer.write_i8(offset as usize, value as i8);
     
 }
@@ -102,7 +102,7 @@ pub extern "C" fn data_view_write_int8 (buf: *mut c_void, length: uint64_t, offs
 //向指定的缓冲区写入一个有符号2字节整数
 #[no_mangle]
 pub extern "C" fn data_view_write_int16 (buf: *mut c_void, length: uint64_t, offset: uint64_t, value: c_double, is_le: c_uchar) {
-    let mut buffer: JSBuffer = JSBuffer::new(buf, length as usize);
+    let mut buffer: JSBuffer = JSBuffer::new(buf, length as usize, length as usize);
     let endian = is_le as u8;
     if endian > 0 {
         buffer.write_i16(offset as usize, value as i16);
@@ -115,7 +115,7 @@ pub extern "C" fn data_view_write_int16 (buf: *mut c_void, length: uint64_t, off
 //向指定的缓冲区写入一个有符号4字节整数
 #[no_mangle]
 pub extern "C" fn data_view_write_int32 (buf: *mut c_void, length: uint64_t, offset: uint64_t, value: c_double, is_le: c_uchar) {
-    let mut buffer: JSBuffer = JSBuffer::new(buf, length as usize);
+    let mut buffer: JSBuffer = JSBuffer::new(buf, length as usize, length as usize);
     let endian = is_le as u8;
     if endian > 0 {
         buffer.write_i32(offset as usize, value as i32);
@@ -128,7 +128,7 @@ pub extern "C" fn data_view_write_int32 (buf: *mut c_void, length: uint64_t, off
 //向指定的缓冲区写入一个无符号1字节整数
 #[no_mangle]
 pub extern "C" fn data_view_write_uint8 (buf: *mut c_void, length: uint64_t, offset: uint64_t, value: c_double) {
-    let mut buffer: JSBuffer = JSBuffer::new(buf, length as usize);
+    let mut buffer: JSBuffer = JSBuffer::new(buf, length as usize, length as usize);
     buffer.write_u8(offset as usize, value as u8);
     
 }
@@ -136,7 +136,7 @@ pub extern "C" fn data_view_write_uint8 (buf: *mut c_void, length: uint64_t, off
 //向指定的缓冲区写入一个无符号2字节整数
 #[no_mangle]
 pub extern "C" fn data_view_write_uint16 (buf: *mut c_void, length: uint64_t, offset: uint64_t, value: c_double, is_le: c_uchar) {
-    let mut buffer: JSBuffer = JSBuffer::new(buf, length as usize);
+    let mut buffer: JSBuffer = JSBuffer::new(buf, length as usize, length as usize);
     let endian = is_le as u8;
     if endian > 0 {
         buffer.write_u16(offset as usize, value as u16);
@@ -149,7 +149,7 @@ pub extern "C" fn data_view_write_uint16 (buf: *mut c_void, length: uint64_t, of
 //向指定的缓冲区写入一个无符号4字节整数
 #[no_mangle]
 pub extern "C" fn data_view_write_uint32 (buf: *mut c_void, length: uint64_t, offset: uint64_t, value: c_double, is_le: c_uchar) {
-    let mut buffer: JSBuffer = JSBuffer::new(buf, length as usize);
+    let mut buffer: JSBuffer = JSBuffer::new(buf, length as usize, length as usize);
     let endian = is_le as u8;
     if endian > 0 {
         buffer.write_u32(offset as usize, value as u32);
@@ -162,7 +162,7 @@ pub extern "C" fn data_view_write_uint32 (buf: *mut c_void, length: uint64_t, of
 //向指定的缓冲区写入一个4字节浮点数
 #[no_mangle]
 pub extern "C" fn data_view_write_float32 (buf: *mut c_void, length: uint64_t, offset: uint64_t, value: c_double, is_le: c_uchar) {
-    let mut buffer: JSBuffer = JSBuffer::new(buf, length as usize);
+    let mut buffer: JSBuffer = JSBuffer::new(buf, length as usize, length as usize);
     let endian = is_le as u8;
     if endian > 0 {
         buffer.write_f32(offset as usize, value as f32);
@@ -175,7 +175,7 @@ pub extern "C" fn data_view_write_float32 (buf: *mut c_void, length: uint64_t, o
 //向指定的缓冲区写入一个8字节浮点数
 #[no_mangle]
 pub extern "C" fn data_view_write_float64 (buf: *mut c_void, length: uint64_t, offset: uint64_t, value: c_double, is_le: c_uchar) {
-    let mut buffer: JSBuffer = JSBuffer::new(buf, length as usize);
+    let mut buffer: JSBuffer = JSBuffer::new(buf, length as usize, length as usize);
     let endian = is_le as u8;
     if endian > 0 {
         buffer.write_f64(offset as usize, value as f64);
@@ -198,7 +198,7 @@ pub extern "C" fn rs_native_object_create (id: uint32_t,
     buf: *mut c_void, buf_length: uint64_t, 
     objs: *mut c_void, objs_length: uint64_t) -> usize {
 
-    let buffer: JSBuffer = JSBuffer::new(buf, buf_length as usize);
+    let buffer: JSBuffer = JSBuffer::new(buf, buf_length as usize, buf_length as usize);
     let array = to_usize_array(objs as *mut usize, objs_length as usize);
 
     let instance: usize = 0;
@@ -216,7 +216,7 @@ pub extern "C" fn rs_native_object_sync_create (id: uint32_t,
     objs: *mut c_void, objs_length: uint64_t, 
     callback: *mut c_void) {
 
-    let buffer: JSBuffer = JSBuffer::new(buf, buf_length as usize);
+    let buffer: JSBuffer = JSBuffer::new(buf, buf_length as usize, buf_length as usize);
     let array = to_usize_array(objs as *mut usize, objs_length as usize);
     let cb: Box<NativeObjectCallback> = void2box::<NativeObjectCallback>(callback);
     //TODO...
