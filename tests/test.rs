@@ -6,12 +6,12 @@ use std::thread;
 use std::time::Duration;
 use std::sync::{Arc, Mutex, Condvar};
 
-use pi_vm::util::now_nanosecond;
-use pi_vm::task_pool::TaskPool;
 use pi_vm::task::TaskType;
+use pi_vm::task_pool::TaskPool;
+use pi_vm::util::now_nanosecond;
 use pi_vm::worker_pool::WorkerPool;
-use pi_vm::adapter::{njsc_test_main, register_data_view, register_native_object, JSTemplate, JS};
 use pi_vm::pi_vm_impl::{JS_TASK_POOL, cast_task, block_reply};
+use pi_vm::adapter::{njsc_test_main, register_data_view, register_native_object, JSTemplate, JS};
 
 // #[test]
 fn njsc_test() {
@@ -180,16 +180,20 @@ fn native_object_call_test() {
 
 // #[test]
 fn native_object_call_block_reply_test() {
+    let mut worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
+    worker_pool.run(JS_TASK_POOL.clone());
+
     register_data_view();
     register_native_object();
-    let js = JSTemplate::new("var obj = {}; console.log(\"!!!!!!obj: \" + obj); function call(x, y, z) { var r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); };".to_string());
+    let js = JSTemplate::new("var obj = {}; console.log(\"!!!!!!obj: \" + obj); var r = NativeObject.call(0xffffffff, [true, 0.999, \"你好\"]); console.log(\"!!!!!!r: \" + r); function call(x, y, z) { r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); };".to_string());
     assert!(js.is_some());
     let js = js.unwrap();
     let copy = Arc::new(js.clone().unwrap());
     copy.run();
-
-    let mut worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
-    worker_pool.run(JS_TASK_POOL.clone());
+    block_reply(copy.clone(), copy.new_str("Hello World0".to_string()), TaskType::Sync, 10, "block reply task0");
+    while !copy.is_ran() {
+        thread::sleep(Duration::from_millis(1));
+    }
 
     let copy1 = copy.clone();
     let task_type = TaskType::Async;
@@ -198,14 +202,17 @@ fn native_object_call_block_reply_test() {
         copy1.call("call".to_string(), &[copy1.new_boolean(true), copy1.new_f64(0.999), copy1.new_str("你好 World!!!!!!".to_string())]);
     });
     cast_task(task_type, priority, func, "call block task");
-    thread::sleep(Duration::from_millis(500));
+    thread::sleep(Duration::from_millis(500)); //保证同步任务先执行
     
-    block_reply(copy.clone(), copy.new_str("Hello World".to_string()), TaskType::Sync, 10, "block reply task");
+    block_reply(copy.clone(), copy.new_str("Hello World1".to_string()), TaskType::Sync, 10, "block reply task1");
     thread::sleep(Duration::from_millis(1000));
 }
 
 // #[test]
 fn task_test() {
+    let mut worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
+    worker_pool.run(JS_TASK_POOL.clone());
+    
     register_data_view();
     register_native_object();
     let js = JSTemplate::new("var obj = {}; console.log(\"!!!!!!obj: \" + obj); function echo(x, y, z) { console.log(\"!!!!!!x: \" + x + \" y: \" + y + \" z: \" + z); };".to_string());
@@ -213,9 +220,9 @@ fn task_test() {
     let js = js.unwrap();
     let copy: JS = js.clone().unwrap();
     copy.run();
-
-    let mut worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
-    worker_pool.run(JS_TASK_POOL.clone());
+    while !copy.is_ran() {
+        thread::sleep(Duration::from_millis(1));
+    }
 
     let task_type = TaskType::Async;
     let priority = 0;

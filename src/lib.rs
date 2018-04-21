@@ -6,7 +6,9 @@
 #![feature(type_ascription)]
 #![feature(duration_extras)]
 #![feature(slice_internals)]
+#![feature(duration_from_micros)]
 
+extern crate fnv;
 extern crate core;
 extern crate time;
 extern crate libc;

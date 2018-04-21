@@ -124,7 +124,7 @@ impl Worker {
             let mut task_pool = lock.lock().unwrap();
             while (*task_pool).size() == 0 {
                 //等待任务
-                let (pool, wait) = cvar.wait_timeout(task_pool, Duration::from_millis(1)).unwrap();
+                let (pool, wait) = cvar.wait_timeout(task_pool, Duration::from_micros(500)).unwrap();
                 if wait.timed_out() {
                     return //等待超时，则立即解锁，并处理控制状态
                 }
