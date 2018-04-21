@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["zuon <dev@dev.com>"]
 
 [dependencies]
+fnv = "*"
 time = "*"
 libc = "*"
 rand = "*"

@@ -212,6 +212,11 @@ impl JS {
         self.vm as *const c_void
     }
 
+    //判断js虚拟机是否完成运行
+    pub fn is_ran(&self) -> bool {
+        unsafe { njsc_vm_status_check(self.vm as *const c_void, JSStatus::NoTask as i8) > 0 }
+    }
+
     //运行js虚拟机
     pub fn run(&self) {
         unsafe { 

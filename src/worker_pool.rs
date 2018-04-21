@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use fnv::FnvHashMap;
 use std::sync::{Arc, Mutex, Condvar};
 use std::fmt::{Display, Formatter, Result as FmtResult}; //避免和标准Result冲突，改名为FmtResult
 
@@ -11,9 +11,9 @@ use worker::{WorkerStatus, Worker};
 * 工作者池
 */
 pub struct WorkerPool {
-    counter:        u32,                        //工作者编号计数器
-    map:            HashMap<u32, Arc<Worker>>,  //工作者缓存
-    thread_pool:    ThreadPool,                 //线程池
+    counter:        u32,                            //工作者编号计数器
+    map:            FnvHashMap<u32, Arc<Worker>>,   //工作者缓存
+    thread_pool:    ThreadPool,                     //线程池
 }
 
 impl Display for WorkerPool {
@@ -28,7 +28,7 @@ impl WorkerPool {
     //构建指定数量工作者的工作者池
     pub fn new(len: usize, stack_size: usize, slow: u32) -> Self {
         let mut counter: u32 = 0;
-        let mut map = HashMap::new();
+        let mut map = FnvHashMap::default();
         for _ in 0..len {
             counter += 1;
             map.insert(counter, Arc::new(Worker::new(counter, slow)));

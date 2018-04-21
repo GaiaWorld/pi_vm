@@ -1,8 +1,8 @@
-extern crate rand;
+use rand;
 use rand::Rng;
-
+use fnv::FnvHashMap;
 use std::boxed::FnBox;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::fmt::{Display, Formatter, Result};
 
 use task::{TaskType, Task, TaskCache};
@@ -11,9 +11,9 @@ use task::{TaskType, Task, TaskCache};
 * 同步任务池
 */
 struct SyncPool {
-    weight:         u64,                            //同步任务池权重
-    map:            HashMap<u64, VecDeque<Task>>,   //同步任务队列表
-    delay_queue:    VecDeque<Task>,                 //延迟同步任务队列
+    weight:         u64,                                //同步任务池权重
+    map:            FnvHashMap<u64, VecDeque<Task>>,    //同步任务队列表
+    delay_queue:    VecDeque<Task>,                     //延迟同步任务队列
 }
 
 impl Display for SyncPool {
@@ -28,7 +28,7 @@ impl SyncPool {
     fn new() -> Self {
         SyncPool {
             weight:         0,
-            map:            HashMap::new(),
+            map:            FnvHashMap::default(),
             delay_queue:    VecDeque::new(),
         }
     }
