@@ -8,6 +8,7 @@ lazy_static! {
 }
 
 pub fn bon_call(js: Arc<JS>, fun_hash: u32, args: Option<Vec<JSType>>) -> Option<JSType>{
+	println!("bon_call{}", 5);
 	(&mut *BON_MGR.lock().unwrap()).call(js, fun_hash, args)
 }
 
