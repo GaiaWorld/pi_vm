@@ -2,123 +2,93 @@ use libc::{c_void, c_char, int8_t, uint8_t, c_int, uint32_t, uint64_t, c_double,
 use std::slice::from_raw_parts;
 use std::string::FromUtf8Error;
 use std::ffi::{CStr, CString};
-use std::os::raw::c_uchar;
 use std::mem::transmute;
 use std::ops::Drop;
 
-use data_view_impl::*;
+#[cfg(not(unix))]
+use kernel32;
+
 use native_object_impl::*;
 
-#[link(name = "njsc")]
+#[link(name = "libdukc")]
 extern "C" {
-    fn njsc_register_data_view_get_int8(func: extern fn(*mut c_void, uint64_t, uint64_t) -> c_double);
-    fn njsc_register_data_view_get_int16(func: extern fn(*mut c_void, uint64_t, uint64_t, c_uchar) -> c_double);
-    fn njsc_register_data_view_get_int32(func: extern fn(*mut c_void, uint64_t, uint64_t, c_uchar) -> c_double);
-    fn njsc_register_data_view_get_uint8(func: extern fn(*mut c_void, uint64_t, uint64_t) -> c_double);
-    fn njsc_register_data_view_get_uint16(func: extern fn(*mut c_void, uint64_t, uint64_t, c_uchar) -> c_double);
-    fn njsc_register_data_view_get_uint32(func: extern fn(*mut c_void, uint64_t, uint64_t, c_uchar) -> c_double);
-    fn njsc_register_data_view_get_float32(func: extern fn(*mut c_void, uint64_t, uint64_t, c_uchar) -> c_double);
-    fn njsc_register_data_view_get_float64(func: extern fn(*mut c_void, uint64_t, uint64_t, c_uchar) -> c_double);
-    fn njsc_register_data_view_set_int8(func: extern fn(*mut c_void, uint64_t, uint64_t, c_double));
-    fn njsc_register_data_view_set_int16(func: extern fn(*mut c_void, uint64_t, uint64_t, c_double, c_uchar));
-    fn njsc_register_data_view_set_int32(func: extern fn(*mut c_void, uint64_t, uint64_t, c_double, c_uchar));
-    fn njsc_register_data_view_set_uint8(func: extern fn(*mut c_void, uint64_t, uint64_t, c_double));
-    fn njsc_register_data_view_set_uint16(func: extern fn(*mut c_void, uint64_t, uint64_t, c_double, c_uchar));
-    fn njsc_register_data_view_set_uint32(func: extern fn(*mut c_void, uint64_t, uint64_t, c_double, c_uchar));
-    fn njsc_register_data_view_set_float32(func: extern fn(*mut c_void, uint64_t, uint64_t, c_double, c_uchar));
-    fn njsc_register_data_view_set_float64(func: extern fn(*mut c_void, uint64_t, uint64_t, c_double, c_uchar));
-    fn njsc_register_native_object_function_call(func: extern fn(*const c_void, uint32_t, uint32_t, *const c_void, *const c_void) -> *const c_void);
-    fn njsc_register_native_object_free(func: extern fn(*const c_void, uint32_t));
-    fn test_main() -> c_int;
-    fn njsc_vm_new(script: *const c_char) -> *const c_void;
-    fn njsc_vm_clone(template: *const c_void) -> *const c_void;
-    fn njsc_vm_run(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
-    pub fn njsc_vm_status_check(vm: *const c_void, value: int8_t) -> uint8_t;
-    pub fn njsc_vm_status_switch(vm: *const c_void, old_status: int8_t, new_status: int8_t) -> int8_t;
-    pub fn njsc_vm_status_sub(vm: *const c_void, value: int8_t) -> int8_t;
-    fn njsc_args_new(vm: *const c_void, len: uint32_t) -> *const c_void;
-    fn njsc_args_set(args: *const c_void, index: uint32_t, value: *const c_void);
-    fn njsc_call(vm: *const c_void, func: *const c_char, args: *const c_void, len: uint32_t, reply: extern fn(*const c_void, c_int, *const c_char));
-    pub fn njsc_continue(vm: *const c_void, arg: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
-    fn njsc_vm_destroy(vm: *const c_void);
-    fn njsc_vm_template_destroy(template: *const c_void);
-    fn njsc_get_value_type(value: *const c_void) -> uint8_t;
-    fn njsc_get_boolean(value: *const c_void) -> uint8_t;
-    fn njsc_get_number(value: *const c_void) -> c_double;
-    fn njsc_get_string(value: *const c_void) -> *const c_char;
-    fn njsc_get_object_field(vm: *const c_void, object: *const c_void, key: *const c_char) -> *const c_void;
-    fn njsc_get_array_length(array: *const c_void) -> uint32_t;
-    fn njsc_get_array_index(vm: *const c_void, array: *const c_void, index: uint32_t) -> *const c_void;
-    fn njsc_get_char_length(value: *const c_void) -> uint32_t;
-    fn njsc_get_buffer_length(value: *const c_void) -> uint32_t;
-    fn njsc_get_buffer(value: *const c_void) -> *const c_void;
-    fn njsc_get_native_object_instance(value: *const c_void) -> uint64_t;
-    fn njsc_new_null(vm: *const c_void) -> *const c_void;
-    fn njsc_new_undefined(vm: *const c_void) -> *const c_void;
-    fn njsc_new_boolean(vm: *const c_void, b: uint8_t) -> *const c_void;
-    fn njsc_new_number(vm: *const c_void, num: c_double) -> *const c_void;
-    fn njsc_new_string(vm: *const c_void, str: *const c_char, size: uint32_t, length: uint32_t) -> *const c_void;
-    fn njsc_new_object(vm: *const c_void) -> *const c_void;
-    fn njsc_set_object_field(vm: *const c_void, object: *const c_void, key: *const c_char, value: *const c_void);
-    fn njsc_new_array(vm: *const c_void, length: uint32_t) -> *const c_void;
-    fn njsc_set_array_index(vm: *const c_void, array: *const c_void, index: uint32_t, value: *const c_void);
-    fn njsc_new_array_buffer(vm: *const c_void, length: uint32_t) -> *const c_void;
-    fn njsc_new_uint8_array(vm: *const c_void, length: uint32_t) -> *const c_void;
-    fn njsc_new_string_buffer(vm: *const c_void, byte_length: uint32_t, char_length: uint32_t) -> *const c_void;
-    fn njsc_new_native_object(vm: *const c_void, ptr: uint64_t) -> *const c_void;
+    fn dukc_register_native_object_function_call(func: extern fn(*const c_void, uint32_t, uint32_t, *const c_void, *const c_void) -> c_int);
+    fn dukc_register_native_object_free(func: extern fn(*const c_void, uint32_t));
+    fn dukc_vm_create() -> *const c_void;
+    fn dukc_compile_script(vm: *const c_void, file: *const c_char, code: *const c_char, size: *mut uint32_t) -> *const c_void;
+    fn dukc_vm_clone(size: uint32_t, bytes: *const c_void) -> *const c_void;
+    fn dukc_vm_run(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
+    pub fn dukc_vm_status_check(vm: *const c_void, value: int8_t) -> uint8_t;
+    pub fn dukc_vm_status_switch(vm: *const c_void, old_status: int8_t, new_status: int8_t) -> int8_t;
+    pub fn dukc_vm_status_sub(vm: *const c_void, value: int8_t) -> int8_t;
+    fn dukc_new_null(vm: *const c_void) -> uint32_t;
+    fn dukc_new_undefined(vm: *const c_void) -> uint32_t;
+    fn dukc_new_boolean(vm: *const c_void, b: uint8_t) -> uint32_t;
+    fn dukc_new_number(vm: *const c_void, num: c_double) -> uint32_t;
+    fn dukc_new_string(vm: *const c_void, str: *const c_char) -> uint32_t;
+    fn dukc_new_object(vm: *const c_void) -> uint32_t;
+    fn dukc_set_object_field(vm: *const c_void, object: uint32_t, key: *const c_char, value: uint32_t) -> c_int;
+    fn dukc_new_array(vm: *const c_void) -> uint32_t;
+    fn dukc_set_array_index(vm: *const c_void, array: uint32_t, index: uint32_t, value: uint32_t) -> c_int;
+    fn dukc_new_array_buffer(vm: *const c_void, length: uint32_t) -> uint32_t;
+    fn dukc_new_uint8_array(vm: *const c_void, length: uint32_t) -> uint32_t;
+    fn dukc_new_native_object(vm: *const c_void, ptr: uint64_t) -> uint32_t;
+    pub fn dukc_remove_value(vm: *const c_void, value: uint32_t);
+    fn dukc_get_value_type(vm: *const c_void, value: uint32_t) -> uint8_t;
+    fn dukc_get_boolean(vm: *const c_void, value: uint32_t) -> uint8_t;
+    fn dukc_get_number(vm: *const c_void, value: uint32_t) -> c_double;
+    fn dukc_get_string(vm: *const c_void, value: uint32_t) -> *const c_char;
+    fn dukc_get_object_field(vm: *const c_void, object: uint32_t, key: *const c_char) -> uint32_t;
+    fn dukc_get_array_length(vm: *const c_void, array: uint32_t) -> uint32_t;
+    fn dukc_get_array_index(vm: *const c_void, array: uint32_t, index: uint32_t) -> uint32_t;
+    fn dukc_get_buffer_length(vm: *const c_void, value: uint32_t) -> uint32_t;
+    fn dukc_get_buffer(vm: *const c_void, value: uint32_t) -> *const c_void;
+    fn dukc_get_native_object_instance(vm: *const c_void, value: uint32_t) -> uint64_t;
+    fn dukc_get_js_function(vm: *const c_void, func: *const c_char) -> c_int;
+    fn dukc_call(vm: *const c_void, len: uint8_t, reply: extern fn(*const c_void, c_int, *const c_char));
+    // pub fn dukc_continue(vm: *const c_void, arg: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
+    fn dukc_vm_destroy(vm: *const c_void);
 }
 
 //js返回回调函数
 #[no_mangle]
 pub extern "C" fn js_reply_callback(vm: *const c_void, status: c_int, err: *const c_char) {
-    if status > 0 {
+    if status == 0 {
         //调用正常，则忽略
         return;
     }
 
-    unsafe { njsc_vm_status_sub(vm, 1); } //当前同步任务执行js错误，需要改变状态，保证虚拟机回收或异步任务被执行
+    unsafe { dukc_vm_status_sub(vm, 1); } //当前同步任务执行js错误，需要改变状态，保证虚拟机回收或异步任务被执行
     panic!("js error, vm: {}, status: {}, err: {}", vm as usize, status, unsafe { CStr::from_ptr(err).to_string_lossy().into_owned() });
-}
-
-//初始化注入DataView关联函数
-pub fn register_data_view() {
-    unsafe {
-        njsc_register_data_view_get_int8(data_view_read_int8);
-        njsc_register_data_view_get_int16(data_view_read_int16);
-        njsc_register_data_view_get_int32(data_view_read_int32);
-        njsc_register_data_view_get_uint8(data_view_read_uint8);
-        njsc_register_data_view_get_uint16(data_view_read_uint16);
-        njsc_register_data_view_get_uint32(data_view_read_uint32);
-        njsc_register_data_view_get_float32(data_view_read_float32);
-        njsc_register_data_view_get_float64(data_view_read_float64);
-        njsc_register_data_view_set_int8(data_view_write_int8);
-        njsc_register_data_view_set_int16(data_view_write_int16);
-        njsc_register_data_view_set_int32(data_view_write_int32);
-        njsc_register_data_view_set_uint8(data_view_write_uint8);
-        njsc_register_data_view_set_uint16(data_view_write_uint16);
-        njsc_register_data_view_set_uint32(data_view_write_uint32);
-        njsc_register_data_view_set_float32(data_view_write_float32);
-        njsc_register_data_view_set_float64(data_view_write_float64);
-    }
 }
 
 //初始化注入NativeObject关联函数
 pub fn register_native_object() {
     unsafe {
-        njsc_register_native_object_function_call(native_object_function_call);
-        njsc_register_native_object_free(native_object_function_free);
+        dukc_register_native_object_function_call(native_object_function_call);
+        dukc_register_native_object_free(native_object_function_free);
     }
 }
 
 //执行njsc测试代码
-pub fn njsc_test_main() {
-    unsafe { test_main(); }
+pub fn dukc_test_main() {
+    // unsafe { test_main(); }
+}
+
+//显示加载动态库
+#[cfg(not(unix))]
+pub fn load_lib_backtrace() {
+    unsafe { kernel32::LoadLibraryA(CString::new("backtrace").unwrap().as_ptr()); }
 }
 
 /*
 * js虚拟机模板
 */
-pub struct JSTemplate(*const c_void);
+pub struct JSTemplate {
+    ptr: *const c_void,
+    bytes: *const c_void,
+    size: u32,
+}
 
 impl Drop for JSTemplate {
     fn drop(&mut self) {
@@ -127,27 +97,34 @@ impl Drop for JSTemplate {
             if inner == 0 {
                 return;
             }
-            njsc_vm_template_destroy(inner as *const c_void);
+            dukc_vm_destroy(inner as *const c_void);
         };
     }
 }
 
 impl JSTemplate {
     //构造一个指定脚本的js虚拟机模板
-    pub fn new(script: String) -> Option<Self> {
+    pub fn new(file: String, script: String) -> Option<Self> {
         let ptr: *const c_void;
-        unsafe { ptr = njsc_vm_new(CString::new(script).unwrap().as_ptr()) }
+        unsafe { ptr = dukc_vm_create() }
         if (ptr as usize) == 0 {
             None
         } else {
-            Some(JSTemplate(ptr))
+            let mut len = 0u32;
+            let size: *mut u32 = &mut len;
+            let bytes = unsafe { dukc_compile_script(ptr, CString::new(file).unwrap().as_ptr(), CString::new(script).unwrap().as_ptr(), size) };
+            Some(JSTemplate {
+                ptr: ptr,
+                bytes: bytes,
+                size: len,
+            })
         }
     }
 
     //复制一个指定模板的js虚拟机
     pub fn clone(&self) -> Option<JS> {
         let ptr: *const c_void;
-        unsafe { ptr = njsc_vm_clone(self.0) }
+        unsafe { ptr = dukc_vm_clone(self.size, self.bytes) }
         if (ptr as usize) == 0 {
             None
         } else {
@@ -157,7 +134,7 @@ impl JSTemplate {
 
     //获取虚拟机模板的指针
     pub unsafe fn get_inner(&self) -> usize {
-        self.0 as usize
+        self.ptr as usize
     }
 }
 
@@ -187,17 +164,17 @@ pub fn try_js_destroy(js: &JS) {
     }
 
     unsafe {
-        let old_status = njsc_vm_status_switch(js.vm as *const c_void, JSStatus::NoTask as i8, JSStatus::Destroy as i8);
+        let old_status = dukc_vm_status_switch(js.vm as *const c_void, JSStatus::NoTask as i8, JSStatus::Destroy as i8);
         if old_status == JSStatus::NoTask as i8 {
             //当前js虚拟机无任务，则可以destroy
-            njsc_vm_destroy(js.vm as *const c_void);
+            dukc_vm_destroy(js.vm as *const c_void);
         }
     }
 }
 
 impl Drop for JS {
     fn drop(&mut self) {
-        try_js_destroy(self);
+        // try_js_destroy(self);
     }
 }
 
@@ -214,65 +191,27 @@ impl JS {
 
     //判断js虚拟机是否完成运行
     pub fn is_ran(&self) -> bool {
-        unsafe { njsc_vm_status_check(self.vm as *const c_void, JSStatus::NoTask as i8) > 0 }
+        unsafe { dukc_vm_status_check(self.vm as *const c_void, JSStatus::NoTask as i8) > 0 }
     }
 
     //运行js虚拟机
     pub fn run(&self) {
         unsafe { 
-            let status = njsc_vm_status_switch(self.vm as *const c_void, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
+            let status = dukc_vm_status_switch(self.vm as *const c_void, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
             if status == JSStatus::SingleTask as i8 {
                 //当前虚拟机状态错误，无法运行
                 panic!("invalid vm status with run");
             } else {
-                njsc_vm_run(self.vm as *const c_void, js_reply_callback);
-                njsc_vm_status_sub(self.vm as *const c_void, 1);
+                dukc_vm_run(self.vm as *const c_void, js_reply_callback);
+                dukc_vm_status_sub(self.vm as *const c_void, 1);
             }
-        }
-    }
-
-    //调用指定函数
-    pub fn call(&self, func: String, args: &[JSType]) {
-        let ptr: *const c_void;
-        let len = args.len() as u32;
-        let mut index = 0u32;
-        let vm = self.vm;
-        unsafe {
-            let status = njsc_vm_status_switch(vm as *const c_void, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
-            if status == JSStatus::SingleTask as i8 {
-                //当前虚拟机正在destroy或有任务
-                panic!("invalid vm status with call");
-            } else {
-                ptr = njsc_args_new(vm as *const c_void, len);
-                for value in args {
-                    if vm != value.vm {
-                        try_js_destroy(self);
-                        panic!("invalid js call args");
-                    }
-                    njsc_args_set(ptr, index, value.value as *const c_void);
-                    index += 1;
-                }
-                njsc_call(self.vm as *const c_void, CString::new(func).unwrap().as_ptr(), ptr, len, js_reply_callback);
-                njsc_vm_status_sub(self.vm as *const c_void, 1);
-            }
-        }
-    }
-    
-    //构建null
-    pub fn new_null(&self) -> JSType {
-        let ptr: *const c_void;
-        unsafe { ptr = njsc_new_null(self.vm as *const c_void) }
-        JSType {
-            type_id: JSValueType::Null as u8,
-            vm: self.vm,
-            value: ptr as usize,
         }
     }
 
     //构建undefined
     pub fn new_undefined(&self) -> JSType {
-        let ptr: *const c_void;
-        unsafe { ptr = njsc_new_undefined(self.vm as *const c_void) }
+        let ptr: u32;
+        unsafe { ptr = dukc_new_undefined(self.vm as *const c_void) }
         JSType {
             type_id: JSValueType::Undefined as u8,
             vm: self.vm,
@@ -280,14 +219,25 @@ impl JS {
         }
     }
 
+    //构建null
+    pub fn new_null(&self) -> JSType {
+        let ptr: u32;
+        unsafe { ptr = dukc_new_null(self.vm as *const c_void) }
+        JSType {
+            type_id: JSValueType::Null as u8,
+            vm: self.vm,
+            value: ptr as usize,
+        }
+    }
+
     //构建boolean
     pub fn new_boolean(&self, b: bool) -> JSType {
-        let ptr: *const c_void;
+        let ptr: u32;
         unsafe {
             if b {
-                ptr = njsc_new_boolean(self.vm as *const c_void, 1u8); 
+                ptr = dukc_new_boolean(self.vm as *const c_void, 1u8); 
             } else {
-                ptr = njsc_new_boolean(self.vm as *const c_void, 0u8); 
+                ptr = dukc_new_boolean(self.vm as *const c_void, 0u8); 
             }
         }
         JSType {
@@ -299,8 +249,8 @@ impl JS {
 
     //构建i8
     pub fn new_i8(&self, num: i8) -> JSType {
-        let ptr: *const c_void;
-        unsafe { ptr = njsc_new_number(self.vm as *const c_void, num as c_double) }
+        let ptr: u32;
+        unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
             vm: self.vm,
@@ -310,8 +260,8 @@ impl JS {
 
     //构建i16
     pub fn new_i16(&self, num: i16) -> JSType {
-        let ptr: *const c_void;
-        unsafe { ptr = njsc_new_number(self.vm as *const c_void, num as c_double) }
+        let ptr: u32;
+        unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
             vm: self.vm,
@@ -321,8 +271,8 @@ impl JS {
 
     //构建i32
     pub fn new_i32(&self, num: i32) -> JSType {
-        let ptr: *const c_void;
-        unsafe { ptr = njsc_new_number(self.vm as *const c_void, num as c_double) }
+        let ptr: u32;
+        unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
             vm: self.vm,
@@ -332,8 +282,8 @@ impl JS {
 
     //构建i64
     pub fn new_i64(&self, num: i64) -> JSType {
-        let ptr: *const c_void;
-        unsafe { ptr = njsc_new_number(self.vm as *const c_void, num as c_double) }
+        let ptr: u32;
+        unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
             vm: self.vm,
@@ -343,8 +293,8 @@ impl JS {
 
     //构建u8
     pub fn new_u8(&self, num: u8) -> JSType {
-        let ptr: *const c_void;
-        unsafe { ptr = njsc_new_number(self.vm as *const c_void, num as c_double) }
+        let ptr: u32;
+        unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
             vm: self.vm,
@@ -354,8 +304,8 @@ impl JS {
 
     //构建u16
     pub fn new_u16(&self, num: u16) -> JSType {
-        let ptr: *const c_void;
-        unsafe { ptr = njsc_new_number(self.vm as *const c_void, num as c_double) }
+        let ptr: u32;
+        unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
             vm: self.vm,
@@ -365,8 +315,8 @@ impl JS {
 
     //构建u32
     pub fn new_u32(&self, num: u32) -> JSType {
-        let ptr: *const c_void;
-        unsafe { ptr = njsc_new_number(self.vm as *const c_void, num as c_double) }
+        let ptr: u32;
+        unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
             vm: self.vm,
@@ -376,8 +326,8 @@ impl JS {
 
     //构建u64
     pub fn new_u64(&self, num: u64) -> JSType {
-        let ptr: *const c_void;
-        unsafe { ptr = njsc_new_number(self.vm as *const c_void, num as c_double) }
+        let ptr: u32;
+        unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
             vm: self.vm,
@@ -387,8 +337,8 @@ impl JS {
 
     //构建f32
     pub fn new_f32(&self, num: f32) -> JSType {
-        let ptr: *const c_void;
-        unsafe { ptr = njsc_new_number(self.vm as *const c_void, num as c_double) }
+        let ptr: u32;
+        unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
             vm: self.vm,
@@ -398,8 +348,8 @@ impl JS {
 
     //构建f64
     pub fn new_f64(&self, num: f64) -> JSType {
-        let ptr: *const c_void;
-        unsafe { ptr = njsc_new_number(self.vm as *const c_void, num) }
+        let ptr: u32;
+        unsafe { ptr = dukc_new_number(self.vm as *const c_void, num) }
         JSType {
             type_id: JSValueType::Number as u8,
             vm: self.vm,
@@ -409,10 +359,8 @@ impl JS {
 
     //构建字符串，注意rust的字符串默认是UTF8编码，而JS是UTF16编码
     pub fn new_str(&self, str: String) -> JSType {
-        let ptr: *const c_void;
-        let byte_length = str.len() as u32;
-        let char_length = str.encode_utf16().count() as u32;
-        unsafe { ptr = njsc_new_string(self.vm as *const c_void, CString::new(str).unwrap().as_ptr(), byte_length, char_length) }
+        let ptr: u32;
+        unsafe { ptr = dukc_new_string(self.vm as *const c_void, CString::new(str).unwrap().as_ptr()) }
         JSType {
             type_id: JSValueType::String as u8,
             vm: self.vm,
@@ -422,8 +370,8 @@ impl JS {
 
     //构建对象
     pub fn new_object(&self) -> JSType {
-        let ptr: *const c_void;
-        unsafe { ptr = njsc_new_object(self.vm as *const c_void) }
+        let ptr: u32;
+        unsafe { ptr = dukc_new_object(self.vm as *const c_void) }
         JSType {
             type_id: JSValueType::Object as u8,
             vm: self.vm,
@@ -432,21 +380,24 @@ impl JS {
     }
     
     //设置指定对象的域
-    pub fn set_field(&self, object: &JSType, key: String, value: &JSType) {
+    pub fn set_field(&self, object: &JSType, key: String, value: &JSType) -> bool {
         if (self.vm != object.vm) || (self.vm != value.vm){
             //如果对象和值不是在指定虚拟机上创建的，则忽略
-            return;
+            return false;
         }
         unsafe { 
-            njsc_set_object_field(self.vm as *const c_void, object.value as *const c_void, CString::new(key).unwrap().as_ptr(), 
-                value.value as *const c_void)
+            if dukc_set_object_field(self.vm as *const c_void, object.value as u32, CString::new(key).unwrap().as_ptr(), 
+                value.value as u32) == 0 {
+                    return false;
+            }
+            true
         }
     }
 
     //构建数组
-    pub fn new_array(&self, length: u32) -> JSType {
-        let ptr: *const c_void;
-        unsafe { ptr = njsc_new_array(self.vm as *const c_void, length) }
+    pub fn new_array(&self) -> JSType {
+        let ptr: u32;
+        unsafe { ptr = dukc_new_array(self.vm as *const c_void) }
         JSType {
             type_id: JSValueType::Array as u8,
             vm: self.vm,
@@ -455,18 +406,21 @@ impl JS {
     }
 
     //设置指定数组指定偏移的值
-    pub fn set_index(&self, array: &JSType, index: u32, value: &JSType) {
+    pub fn set_index(&self, array: &JSType, index: u32, value: &JSType) -> bool {
         if (self.vm != array.vm) || (self.vm != value.vm){
             //如果数组和值不是在指定虚拟机上创建的，则忽略
-            return;
+            return false;
         }
-        unsafe { njsc_set_array_index(self.vm as *const c_void, array.value as *const c_void, index, value.value as *const c_void) }
+        unsafe { if dukc_set_array_index(self.vm as *const c_void, array.value as u32, index, value.value as u32) == 0 {
+            return false;
+        }}
+        return true;
     }
 
     //构建ArrayBuffer
     pub fn new_array_buffer(&self, length: u32) -> JSType {
-        let ptr: *const c_void;
-        unsafe { ptr = njsc_new_array_buffer(self.vm as *const c_void, length) }
+        let ptr: u32;
+        unsafe { ptr = dukc_new_array_buffer(self.vm as *const c_void, length) }
         JSType {
             type_id: JSValueType::ArrayBuffer as u8,
             vm: self.vm,
@@ -476,8 +430,8 @@ impl JS {
 
     //构建Uint8Array
     pub fn new_uint8_array(&self, length: u32) -> JSType {
-        let ptr: *const c_void;
-        unsafe { ptr = njsc_new_uint8_array(self.vm as *const c_void, length) }
+        let ptr: u32;
+        unsafe { ptr = dukc_new_uint8_array(self.vm as *const c_void, length) }
         JSType {
             type_id: JSValueType::Uint8Array as u8,
             vm: self.vm,
@@ -485,30 +439,37 @@ impl JS {
         }
     }
 
-    //根据指定的u8数组，构建UTF8编码的二进制字符串
-    pub fn new_utf8_array(&self, bytes: &[u8]) -> JSType {
-        let ptr: *const c_void;
-        let str = String::from_utf8_lossy(bytes);
-        let byte_length = str.len() as u32;
-        let char_length = str.encode_utf16().count() as u32;
-        unsafe { ptr = njsc_new_string_buffer(self.vm as *const c_void, byte_length, char_length) }
-        let js_type = JSType {
-            type_id: JSValueType::Uint8Array as u8,
-            vm: self.vm,
-            value: ptr as usize,
-        };
-        js_type.from_bytes(bytes);
-        js_type
-    }
-
     //构建NativeObject
     pub fn new_native_object(&self, instance: usize) -> JSType {
-        let ptr: *const c_void;
-        unsafe { ptr = njsc_new_native_object(self.vm as *const c_void, instance as uint64_t) }
+        let ptr: u32;
+        unsafe { ptr = dukc_new_native_object(self.vm as *const c_void, instance as u64) }
         JSType {
             type_id: JSValueType::NativeObject as u8,
             vm: self.vm,
             value: ptr as usize,
+        }
+    }
+
+    //获取指定函数
+    pub fn get_js_function(&self, func: String) -> bool {
+        unsafe { if dukc_get_js_function(self.vm as *const c_void, CString::new(func).unwrap().as_ptr()) == 0 {
+            return false;
+        }}
+        return true;
+    }
+
+    //调用指定函数
+    pub fn call(&self, len: usize) {
+        let vm = self.vm;
+        unsafe {
+            let status = dukc_vm_status_switch(vm as *const c_void, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
+            if status == JSStatus::SingleTask as i8 {
+                //当前虚拟机正在destroy或有任务
+                panic!("invalid vm status with call");
+            } else {
+                dukc_call(self.vm as *const c_void, len as u8, js_reply_callback);
+                dukc_vm_status_sub(self.vm as *const c_void, 1);
+            }
         }
     }
 }
@@ -517,16 +478,17 @@ impl JS {
 * 值类型
 */
 pub enum JSValueType {
-    Null = 0x0,
+    None = 0x0,
     Undefined,
+    Null,
     Boolean,
     Number,
     String,
-    ArrayBuffer = 0x8,
-    Uint8Array = 0x9,
-    NativeObject = 0xb,
-    Object = 0x10,
+    Object,
+    NativeObject = 0x3c,
     Array,
+    ArrayBuffer,
+    Uint8Array,
 }
 
 /*
@@ -550,8 +512,8 @@ impl JSType {
     }
 
     //获取指定类型的类型id
-    fn get_type_id(value: *const c_void) -> u8 {
-        unsafe { njsc_get_value_type(value) as u8 }
+    fn get_type_id(&self, value: u32) -> u8 {
+        unsafe { dukc_get_value_type(self.vm as *const c_void, value) as u8 }
     }
 
     //获取内部值
@@ -559,9 +521,9 @@ impl JSType {
         self.value
     }
 
-    //判断是否是null
-    pub fn is_null(&self) -> bool {
-        if self.type_id == JSValueType::Null as u8 {
+    //判断是否是无效值
+	pub fn is_none(&self) -> bool {
+        if self.type_id == JSValueType::None as u8 {
             true
         } else {
             false
@@ -571,6 +533,15 @@ impl JSType {
     //判断是否是undefined
 	pub fn is_undefined(&self) -> bool {
         if self.type_id == JSValueType::Undefined as u8 {
+            true
+        } else {
+            false
+        }
+    }
+
+    //判断是否是null
+    pub fn is_null(&self) -> bool {
+        if self.type_id == JSValueType::Null as u8 {
             true
         } else {
             false
@@ -640,21 +611,6 @@ impl JSType {
         }
     }
 
-     //判断是否是UTF8编码的Uint8Array
-	pub fn is_utf8_array(&self) -> bool {
-        if self.type_id == JSValueType::Uint8Array as u8 {
-            unsafe {
-                if njsc_get_char_length(self.value as *const c_void) == njsc_get_buffer_length(self.value as *const c_void) {
-                    false
-                } else {
-                    true
-                }
-            }
-        } else {
-            false
-        }
-    }
-
     //判断是否是NativeObject
 	pub fn is_native_object(&self) -> bool {
         if self.type_id == JSValueType::NativeObject as u8 {
@@ -667,7 +623,7 @@ impl JSType {
     //获取boolean
     pub fn get_boolean(&self) -> bool {
         let num: u8;
-        unsafe { num = njsc_get_boolean(self.value as *const c_void) }
+        unsafe { num = dukc_get_boolean(self.vm as *const c_void, self.value as u32) }
         if num == 0 {
             false
         } else {
@@ -677,65 +633,65 @@ impl JSType {
 
     //获取i8
     pub fn get_i8(&self) -> i8 {
-        unsafe { njsc_get_number(self.value as *const c_void) as i8 }
+        unsafe { dukc_get_number(self.vm as *const c_void, self.value as u32) as i8 }
     }
 
     //获取i16
 	pub fn get_i16(&self) -> i16 {
-        unsafe { njsc_get_number(self.value as *const c_void) as i16 }
+        unsafe { dukc_get_number(self.vm as *const c_void, self.value as u32) as i16 }
     }
 
     //获取i32
 	pub fn get_i32(&self) -> i32 {
-        unsafe { njsc_get_number(self.value as *const c_void) as i32 }
+        unsafe { dukc_get_number(self.vm as *const c_void, self.value as u32) as i32 }
     }
 
     //获取i64
 	pub fn get_i64(&self) -> i64 {
-        unsafe { njsc_get_number(self.value as *const c_void) as i64 }
+        unsafe { dukc_get_number(self.vm as *const c_void, self.value as u32) as i64 }
     }
 
     //获取u8
 	pub fn get_u8(&self) -> u8 {
-        unsafe { njsc_get_number(self.value as *const c_void) as u8 }
+        unsafe { dukc_get_number(self.vm as *const c_void, self.value as u32) as u8 }
     }
 
     //获取u16
 	pub fn get_u16(&self) -> u16 {
-        unsafe { njsc_get_number(self.value as *const c_void) as u16 }
+        unsafe { dukc_get_number(self.vm as *const c_void, self.value as u32) as u16 }
     }
 
     //获取u32
 	pub fn get_u32(&self) -> u32 {
-        unsafe { njsc_get_number(self.value as *const c_void) as u32 }
+        unsafe { dukc_get_number(self.vm as *const c_void, self.value as u32) as u32 }
     }
 
     //获取u64
 	pub fn get_u64(&self) -> u64 {
-        unsafe { njsc_get_number(self.value as *const c_void) as u64 }
+        unsafe { dukc_get_number(self.vm as *const c_void, self.value as u32) as u64 }
     }
 
     //获取f32
 	pub fn get_f32(&self) -> f32 {
-        unsafe { njsc_get_number(self.value as *const c_void) as f32 }
+        unsafe { dukc_get_number(self.vm as *const c_void, self.value as u32) as f32 }
     }
 
     //获取f64
 	pub fn get_f64(&self) -> f64 {
-        unsafe { njsc_get_number(self.value as *const c_void) as f64 }
+        unsafe { dukc_get_number(self.vm as *const c_void, self.value as u32) as f64 }
     }
 
     //获取字符串
 	pub fn get_str(&self) -> String {
-        unsafe { CStr::from_ptr(njsc_get_string(self.value as *const c_void)).to_string_lossy().into_owned() }
+        unsafe { CStr::from_ptr(dukc_get_string(self.vm as *const c_void, self.value as u32)).to_string_lossy().into_owned() }
     }
 
-    //获取对象指定域的值
+    //获取对象指定域的值，注意获取的值在读取后需要立即调用dukc_remove_value函数移除掉
 	pub fn get_field(&self, key: String) -> JSType {
-        let ptr: *const c_void;
-        unsafe { ptr = njsc_get_object_field(self.vm as *const c_void, self.value as *const c_void, CString::new(key).unwrap().as_ptr()) }
+        let ptr: u32;
+        unsafe { ptr = dukc_get_object_field(self.vm as *const c_void, self.value as u32, CString::new(key).unwrap().as_ptr()) }
         JSType {
-            type_id: Self::get_type_id(ptr),
+            type_id: self.get_type_id(ptr),
             vm: self.vm,
             value: ptr as usize,
         }
@@ -743,15 +699,15 @@ impl JSType {
 
     //获取数组长度
     pub fn get_array_length(&self) -> usize {
-        unsafe { njsc_get_array_length(self.value as *const c_void) as usize }
+        unsafe { dukc_get_array_length(self.vm as *const c_void, self.value as u32) as usize }
     }
 
-    //获取数组指定偏移的值
+    //获取数组指定偏移的值，注意获取的值在读取后需要立即调用dukc_remove_value函数移除掉
 	pub fn get_index(&self, index: u32) -> JSType {
-        let ptr: *const c_void;
-        unsafe { ptr = njsc_get_array_index(self.vm as *const c_void, self.value as *const c_void, index) }
+        let ptr: u32;
+        unsafe { ptr = dukc_get_array_index(self.vm as *const c_void, self.value as u32, index) }
         JSType {
-            type_id: Self::get_type_id(ptr),
+            type_id: self.get_type_id(ptr),
             vm: self.vm,
             value: ptr as usize,
         }
@@ -760,8 +716,8 @@ impl JSType {
     //获取指定Buffer的引用
     pub fn to_bytes(&self) -> &[u8] {
         unsafe {
-            let length = njsc_get_buffer_length(self.value as *const c_void) as usize;
-            let buffer = njsc_get_buffer(self.value as *const c_void);
+            let length = dukc_get_buffer_length(self.vm as *const c_void, self.value as u32) as usize;
+            let buffer = dukc_get_buffer(self.vm as *const c_void, self.value as u32);
             from_raw_parts(buffer as *const u8, length)
         }
     }
@@ -774,8 +730,8 @@ impl JSType {
     //重置指定的Buffer
 	pub fn from_bytes(&self, bytes: &[u8]) {
         unsafe {
-            let length = njsc_get_buffer_length(self.value as *const c_void) as usize;
-            let buffer = njsc_get_buffer(self.value as *const c_void);
+            let length = dukc_get_buffer_length(self.vm as *const c_void, self.value as u32) as usize;
+            let buffer = dukc_get_buffer(self.vm as *const c_void, self.value as u32);
             memcpy(buffer as *mut c_void, bytes.as_ptr() as *const c_void, length);
         }
     }
@@ -783,16 +739,15 @@ impl JSType {
     //获取指定的Buffer
     pub fn into_buffer(&self) -> JSBuffer {
         unsafe {
-            let size = njsc_get_char_length(self.value as *const c_void) as usize;
-            let length = njsc_get_buffer_length(self.value as *const c_void) as usize;
-            let buffer = njsc_get_buffer(self.value as *const c_void);
-            JSBuffer::new(buffer as *mut c_void, size, length)
+            let length = dukc_get_buffer_length(self.vm as *const c_void, self.value as u32) as usize;
+            let buffer = dukc_get_buffer(self.vm as *const c_void, self.value as u32);
+            JSBuffer::new(buffer as *mut c_void, length)
         }
     }
 
     //获取NativeObject
 	pub fn get_native_object(&self) -> usize {
-        unsafe { njsc_get_native_object_instance(self.value as *const c_void) as usize }
+        unsafe { dukc_get_native_object_instance(self.vm as *const c_void, self.value as u32) as usize }
     }
 }
 
@@ -801,26 +756,19 @@ impl JSType {
 */
 pub struct JSBuffer {
     buffer: *mut c_void,
-    size: usize,
     len: usize,
 }
 
 impl JSBuffer {
     //构建JSBuffer
-    pub fn new(ptr: *mut c_void, size: usize, len: usize) -> Self {
+    pub fn new(ptr: *mut c_void, len: usize) -> Self {
         JSBuffer {
             buffer: ptr,
-            size: size,
             len: len,
         }
     }
 
     //获取buffer字符数
-    pub fn size(&self) -> usize {
-        self.size
-    }
-
-    //获取buffer长度
     pub fn len(&self) -> usize {
         self.len
     }
