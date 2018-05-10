@@ -18,13 +18,15 @@ extern crate threadpool;
 #[macro_use]
 extern crate lazy_static;
 
+#[cfg(not(unix))]
+extern crate kernel32;
+
 pub mod adapter;
 pub mod util;
 pub mod worker;
 pub mod worker_pool;
 pub mod task;
 pub mod task_pool;
-pub mod data_view_impl;
 pub mod native_object_impl;
 pub mod pi_vm_impl;
 pub mod bonmgr;
