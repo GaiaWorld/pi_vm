@@ -46,6 +46,7 @@ extern "C" {
     fn dukc_get_native_object_instance(vm: *const c_void, value: uint32_t) -> uint64_t;
     fn dukc_get_js_function(vm: *const c_void, func: *const c_char) -> c_int;
     fn dukc_call(vm: *const c_void, len: uint8_t, reply: extern fn(*const c_void, c_int, *const c_char));
+    pub fn dukc_throw(vm: *const c_void, reason: *const c_char);
     // pub fn dukc_continue(vm: *const c_void, arg: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
     fn dukc_vm_destroy(vm: *const c_void);
 }
@@ -174,7 +175,7 @@ pub fn try_js_destroy(js: &JS) {
 
 impl Drop for JS {
     fn drop(&mut self) {
-        // try_js_destroy(self);
+        try_js_destroy(self);
     }
 }
 

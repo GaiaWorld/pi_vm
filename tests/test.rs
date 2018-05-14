@@ -25,6 +25,7 @@ use pi_vm::adapter::{load_lib_backtrace, register_native_object, dukc_remove_val
 #[test]
 fn test_vm_performance() {
     register_native_object();
+
     // let js = JSTemplate::new("test_vm_clone_performance.js".to_string(), "function call(x, y, z) { var r = [0, 0, 0]; r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); };".to_string());
     // assert!(js.is_some());
     // let js = js.unwrap();
