@@ -7,9 +7,14 @@ lazy_static! {
 	pub static ref BON_MGR: Arc<Mutex<BonMgr>> = Arc::new(Mutex::new(BonMgr::new()));
 }
 
-pub fn bon_call(js: Arc<JS>, fun_hash: u32, args: Option<Vec<JSType>>) -> Option<JSType>{
+pub fn bon_call(js: Arc<JS>, fun_hash: u32, args: Option<Vec<JSType>>) -> Option<CallResult>{
 	println!("bon_call{}", 5);
 	(&mut *BON_MGR.lock().unwrap()).call(js, fun_hash, args)
+}
+
+pub enum CallResult{
+    Ok,
+    Err(String),
 }
 
 pub trait StructMember {}
@@ -32,8 +37,8 @@ pub struct StructMeta {
 // }
 
 pub enum FnMeta {
-	CallArg(fn(&BonMgr, Arc<JS>, Vec<JSType>) -> Option<JSType>),
-	Call(fn(&BonMgr, Arc<JS>) -> Option<JSType>)
+	CallArg(fn(&BonMgr, Arc<JS>, Vec<JSType>) -> Option<CallResult>),
+	Call(fn(&BonMgr, Arc<JS>) -> Option<CallResult>)
 }
 // pub struct FnMeta{
 // 	pub call: fn(Vec<JSType>) -> Result<JSType, &'static str>,
@@ -98,7 +103,8 @@ impl BonMgr{
 	}
 
 	//有参数的调用
-	pub fn call(&mut self, js: Arc<JS>, fun_hash: u32, args: Option<Vec<JSType>>) -> Option<JSType> {
+	pub fn call(&mut self, js: Arc<JS>, fun_hash: u32, args: Option<Vec<JSType>>) -> Option<CallResult> {
+        println!("call____________________");
 		let func = match self.fun_metas.get(&fun_hash){
 			Some(v) => v,
 			None => {
