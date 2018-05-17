@@ -1,5 +1,5 @@
 use libc::{c_void, c_char, int8_t, uint8_t, c_int, uint32_t, uint64_t, c_double, memcpy};
-use std::slice::from_raw_parts;
+use std::slice::{from_raw_parts_mut, from_raw_parts};
 use std::string::FromUtf8Error;
 use std::ffi::{CStr, CString};
 use std::mem::transmute;
@@ -722,6 +722,13 @@ impl JSType {
             let buffer = dukc_get_buffer(self.vm as *const c_void, self.value as u32);
             from_raw_parts(buffer as *const u8, length)
         }
+    }
+
+    //获取指定Buffer的引用
+    pub unsafe fn to_bytes_mut(&self) -> &mut [u8] {
+        let length = dukc_get_buffer_length(self.vm as *const c_void, self.value as u32) as usize;
+        let buffer = dukc_get_buffer(self.vm as *const c_void, self.value as u32);
+        from_raw_parts_mut(buffer as *mut u8, length)
     }
 
     //获取指定Buffer的复制
