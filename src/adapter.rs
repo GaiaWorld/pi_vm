@@ -725,7 +725,7 @@ impl JSType {
     }
 
     //获取指定Buffer的引用
-    pub unsafe fn to_bytes_mut(&self) -> &mut [u8] {
+    pub unsafe fn to_bytes_mut(&mut self) -> &mut [u8] {
         let length = dukc_get_buffer_length(self.vm as *const c_void, self.value as u32) as usize;
         let buffer = dukc_get_buffer(self.vm as *const c_void, self.value as u32);
         from_raw_parts_mut(buffer as *mut u8, length)

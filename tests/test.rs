@@ -46,7 +46,7 @@ fn test_vm_performance() {
     println!("!!!!!!run time: {}", finish_time.as_secs() * 1000000 + (finish_time.subsec_micros() as u64));
 }
 
-#[test]
+// #[test]
 fn base_test() {
     load_lib_backtrace();
     register_native_object();
@@ -173,14 +173,16 @@ fn base_test() {
     tmp.write(0, &[100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100]);
     println!("buffer: {:?}", tmp.read(0, 32));
 
-    let val = copy.new_uint8_array(10);
-    let mut tmp = unsafe { val.to_bytes_mut() };
-    assert!(val.is_uint8_array() && tmp.len() == 10);
-    println!("buffer: {:?}", tmp);
-    for i in 0..tmp.len() {
-        tmp[i] = 255;
+    let mut val = copy.new_uint8_array(10);
+    assert!(val.is_uint8_array());
+    {
+        let tmp = unsafe { val.to_bytes_mut() };
+        assert!(tmp.len() == 10);
+        println!("buffer: {:?}", tmp);
+        for i in 0..tmp.len() {
+            tmp[i] = 255;
+        }
     }
-    val.from_bytes(tmp);
     let tmp = val.to_bytes();
     assert!(val.is_uint8_array() && tmp.len() == 10);
     println!("buffer: {:?}", tmp);
@@ -286,7 +288,7 @@ fn native_object_call_test() {
     copy.call(3);
 }
 
-// #[test]
+#[test]
 fn native_object_call_block_reply_test() {
     let mut worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
     worker_pool.run(JS_TASK_POOL.clone());
