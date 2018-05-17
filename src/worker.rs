@@ -124,7 +124,7 @@ impl Worker {
             let mut task_pool = lock.lock().unwrap();
             while (*task_pool).size() == 0 {
                 //等待任务
-                let (pool, wait) = cvar.wait_timeout(task_pool, Duration::from_micros(500)).unwrap();
+                let (pool, wait) = cvar.wait_timeout(task_pool, Duration::from_micros(1000)).unwrap();
                 if wait.timed_out() {
                     return //等待超时，则立即解锁，并处理控制状态
                 }
@@ -141,8 +141,9 @@ impl Worker {
 fn check_slow_task(worker: &Worker, task: &mut Task) {
     let time = Instant::now();
     task.run(); //执行任务
-    let finish_time = time.elapsed().subsec_micros();
-    if finish_time >= worker.slow {
+    let elapsed = time.elapsed();
+    let finish_time = elapsed.as_secs() * 1000000 + (elapsed.subsec_micros() as u64);
+    if finish_time >= worker.slow as u64 {
         //记录慢任务
         //TODO...
         println!("!!!!!!slow task, time: {}, task: {}", finish_time, task);

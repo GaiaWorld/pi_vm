@@ -15,7 +15,7 @@ extern "C" {
     fn dukc_register_native_object_function_call(func: extern fn(*const c_void, uint32_t, uint32_t, *const c_void, *const c_void) -> c_int);
     fn dukc_register_native_object_free(func: extern fn(*const c_void, uint32_t));
     fn dukc_vm_create() -> *const c_void;
-    fn dukc_compile_script(vm: *const c_void, file: *const c_char, code: *const c_char, size: *mut uint32_t) -> *const c_void;
+    fn dukc_compile_script(vm: *const c_void, file: *const c_char, code: *const c_char, size: *mut uint32_t, reply: extern fn(*const c_void, c_int, *const c_char)) -> *const c_void;
     fn dukc_vm_clone(size: uint32_t, bytes: *const c_void) -> *const c_void;
     fn dukc_vm_run(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
     pub fn dukc_vm_status_check(vm: *const c_void, value: int8_t) -> uint8_t;
@@ -47,7 +47,8 @@ extern "C" {
     fn dukc_get_js_function(vm: *const c_void, func: *const c_char) -> c_int;
     fn dukc_call(vm: *const c_void, len: uint8_t, reply: extern fn(*const c_void, c_int, *const c_char));
     pub fn dukc_throw(vm: *const c_void, reason: *const c_char);
-    // pub fn dukc_continue(vm: *const c_void, arg: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
+    pub fn dukc_wakeup(vm: *const c_void) -> c_int;
+    pub fn dukc_continue(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
     fn dukc_vm_destroy(vm: *const c_void);
 }
 
@@ -113,7 +114,7 @@ impl JSTemplate {
         } else {
             let mut len = 0u32;
             let size: *mut u32 = &mut len;
-            let bytes = unsafe { dukc_compile_script(ptr, CString::new(file).unwrap().as_ptr(), CString::new(script).unwrap().as_ptr(), size) };
+            let bytes = unsafe { dukc_compile_script(ptr, CString::new(file).unwrap().as_ptr(), CString::new(script).unwrap().as_ptr(), size, js_reply_callback) };
             Some(JSTemplate {
                 ptr: ptr,
                 bytes: bytes,
