@@ -1,10 +1,9 @@
-use libc::c_void;
 use std::boxed::FnBox;
 use std::sync::{Arc, Mutex, Condvar};
 
 use task::TaskType;
 use task_pool::TaskPool;
-use adapter::{JSStatus, JS, JSType, try_js_destroy, dukc_vm_status_check, dukc_vm_status_switch, dukc_vm_status_sub, dukc_wakeup, dukc_continue, js_reply_callback};
+use adapter::{JSStatus, JS, try_js_destroy, dukc_vm_status_check, dukc_vm_status_switch, dukc_vm_status_sub, dukc_wakeup, dukc_continue, js_reply_callback};
 
 lazy_static! {
 	pub static ref JS_TASK_POOL: Arc<(Mutex<TaskPool>, Condvar)> = Arc::new((Mutex::new(TaskPool::new(10)), Condvar::new()));
