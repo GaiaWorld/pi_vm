@@ -1,5 +1,5 @@
 use libc::{c_void, c_char, int8_t, uint8_t, c_int, uint32_t, uint64_t, c_double, memcpy};
-use std::slice::from_raw_parts;
+use std::slice::{from_raw_parts_mut, from_raw_parts};
 use std::string::FromUtf8Error;
 use std::ffi::{CStr, CString};
 use std::mem::transmute;
@@ -15,7 +15,7 @@ extern "C" {
     fn dukc_register_native_object_function_call(func: extern fn(*const c_void, uint32_t, uint32_t, *const c_void, *const c_void) -> c_int);
     fn dukc_register_native_object_free(func: extern fn(*const c_void, uint32_t));
     fn dukc_vm_create() -> *const c_void;
-    fn dukc_compile_script(vm: *const c_void, file: *const c_char, code: *const c_char, size: *mut uint32_t) -> *const c_void;
+    fn dukc_compile_script(vm: *const c_void, file: *const c_char, code: *const c_char, size: *mut uint32_t, reply: extern fn(*const c_void, c_int, *const c_char)) -> *const c_void;
     fn dukc_vm_clone(size: uint32_t, bytes: *const c_void) -> *const c_void;
     fn dukc_vm_run(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
     pub fn dukc_vm_status_check(vm: *const c_void, value: int8_t) -> uint8_t;
@@ -47,7 +47,8 @@ extern "C" {
     fn dukc_get_js_function(vm: *const c_void, func: *const c_char) -> c_int;
     fn dukc_call(vm: *const c_void, len: uint8_t, reply: extern fn(*const c_void, c_int, *const c_char));
     pub fn dukc_throw(vm: *const c_void, reason: *const c_char);
-    // pub fn dukc_continue(vm: *const c_void, arg: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
+    pub fn dukc_wakeup(vm: *const c_void) -> c_int;
+    pub fn dukc_continue(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
     fn dukc_vm_destroy(vm: *const c_void);
 }
 
@@ -113,7 +114,7 @@ impl JSTemplate {
         } else {
             let mut len = 0u32;
             let size: *mut u32 = &mut len;
-            let bytes = unsafe { dukc_compile_script(ptr, CString::new(file).unwrap().as_ptr(), CString::new(script).unwrap().as_ptr(), size) };
+            let bytes = unsafe { dukc_compile_script(ptr, CString::new(file).unwrap().as_ptr(), CString::new(script).unwrap().as_ptr(), size, js_reply_callback) };
             Some(JSTemplate {
                 ptr: ptr,
                 bytes: bytes,
@@ -721,6 +722,13 @@ impl JSType {
             let buffer = dukc_get_buffer(self.vm as *const c_void, self.value as u32);
             from_raw_parts(buffer as *const u8, length)
         }
+    }
+
+    //获取指定Buffer的引用
+    pub unsafe fn to_bytes_mut(&mut self) -> &mut [u8] {
+        let length = dukc_get_buffer_length(self.vm as *const c_void, self.value as u32) as usize;
+        let buffer = dukc_get_buffer(self.vm as *const c_void, self.value as u32);
+        from_raw_parts_mut(buffer as *mut u8, length)
     }
 
     //获取指定Buffer的复制
