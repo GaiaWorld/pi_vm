@@ -8,7 +8,6 @@ lazy_static! {
 }
 
 pub fn bon_call(js: Arc<JS>, fun_hash: u32, args: Option<Vec<JSType>>) -> Option<CallResult>{
-	println!("bon_call{}", 5);
 	(&mut *BON_MGR.lock().unwrap()).call(js, fun_hash, args)
 }
 
@@ -37,8 +36,10 @@ pub struct StructMeta {
 // }
 
 pub enum FnMeta {
-	CallArg(fn(&BonMgr, Arc<JS>, Vec<JSType>) -> Option<CallResult>),
-	Call(fn(&BonMgr, Arc<JS>) -> Option<CallResult>)
+	CallArgNobj(fn(Arc<JS>, &BonMgr, Vec<JSType>) -> Option<CallResult>),
+	CallNobj(fn(Arc<JS>, &BonMgr) -> Option<CallResult>),
+    CallArg(fn(Arc<JS>, Vec<JSType>) -> Option<CallResult>),
+    Call(fn(Arc<JS>) -> Option<CallResult>),
 }
 // pub struct FnMeta{
 // 	pub call: fn(Vec<JSType>) -> Result<JSType, &'static str>,
@@ -104,21 +105,26 @@ impl BonMgr{
 
 	//有参数的调用
 	pub fn call(&mut self, js: Arc<JS>, fun_hash: u32, args: Option<Vec<JSType>>) -> Option<CallResult> {
-        println!("call____________________");
 		let func = match self.fun_metas.get(&fun_hash){
 			Some(v) => v,
 			None => {
-				panic!("FnMeta is not finded");
+				panic!("FnMeta is not finded, hash:{}", fun_hash);
 			}
 		};
 
 		match func{
-			&FnMeta::CallArg(ref f) => {
-				f(self, js, args.unwrap())
+			&FnMeta::CallArgNobj(ref f) => {
+				f(js, self, args.unwrap())
 			},
-			&FnMeta::Call(ref f) => {
-				f(self, js)
-			}
+			&FnMeta::CallNobj(ref f) => {
+				f(js, self)
+			},
+            &FnMeta::CallArg(ref f) => {
+				f(js, args.unwrap())
+			},
+            &FnMeta::Call(ref f) => {
+				f(js)
+			},
 		}
 	}
 
@@ -184,7 +190,7 @@ pub fn jstype_ptr<'a>(jstype: &JSType, mgr: &BonMgr, obj_type: u32 ,error_str: &
 		None => {return Ok(ptr)//return Err("NObject is not finded");  
 		}
 	};
-	if(obj.meta_hash == obj_type){
+	if obj.meta_hash == obj_type{
 		Ok(ptr)
 	}else{
 		Err("type is diff")
