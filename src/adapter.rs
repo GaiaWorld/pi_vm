@@ -27,9 +27,9 @@ extern "C" {
     fn dukc_new_number(vm: *const c_void, num: c_double) -> uint32_t;
     fn dukc_new_string(vm: *const c_void, str: *const c_char) -> uint32_t;
     fn dukc_new_object(vm: *const c_void) -> uint32_t;
-    fn dukc_set_object_field(vm: *const c_void, object: uint32_t, key: *const c_char, value: uint32_t) -> c_int;
+    fn dukc_set_object_field(vm: *const c_void, object: uint32_t, key: *const c_char, value: uint32_t) -> uint32_t;
     fn dukc_new_array(vm: *const c_void) -> uint32_t;
-    fn dukc_set_array_index(vm: *const c_void, array: uint32_t, index: uint32_t, value: uint32_t) -> c_int;
+    fn dukc_set_array_index(vm: *const c_void, array: uint32_t, index: uint32_t, value: uint32_t) -> uint32_t;
     fn dukc_new_array_buffer(vm: *const c_void, length: uint32_t) -> uint32_t;
     fn dukc_new_uint8_array(vm: *const c_void, length: uint32_t) -> uint32_t;
     fn dukc_new_native_object(vm: *const c_void, ptr: uint64_t) -> uint32_t;
@@ -44,10 +44,10 @@ extern "C" {
     fn dukc_get_buffer_length(vm: *const c_void, value: uint32_t) -> uint32_t;
     fn dukc_get_buffer(vm: *const c_void, value: uint32_t) -> *const c_void;
     fn dukc_get_native_object_instance(vm: *const c_void, value: uint32_t) -> uint64_t;
-    fn dukc_get_js_function(vm: *const c_void, func: *const c_char) -> c_int;
+    fn dukc_get_js_function(vm: *const c_void, func: *const c_char) -> uint32_t;
     fn dukc_call(vm: *const c_void, len: uint8_t, reply: extern fn(*const c_void, c_int, *const c_char));
     pub fn dukc_throw(vm: *const c_void, reason: *const c_char);
-    pub fn dukc_wakeup(vm: *const c_void) -> c_int;
+    pub fn dukc_wakeup(vm: *const c_void, error: c_int) -> uint32_t;
     pub fn dukc_continue(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
     fn dukc_vm_destroy(vm: *const c_void);
 }
