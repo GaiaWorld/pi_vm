@@ -125,20 +125,20 @@ impl SyncPool {
 /*
 * 异步任务池
 */
-struct AsyncPool<Task> {
+struct AsyncPool {
     weight:         u64,            //异步任务队列权重
     queue:          VecDeque<Task>, //异步任务队列
     delay_queue:    VecDeque<Task>, //延迟异步任务队列
 }
 
-impl Display for AsyncPool<Task> {
+impl Display for AsyncPool {
 	fn fmt(&self, f: &mut Formatter) -> Result {
 		write!(f, "AsyncPool[weight = {}, size = {}, delay_size = {}]", 
         self.weight, self.size(), self.delay_size())
 	}
 }
 
-impl AsyncPool<Task> {
+impl AsyncPool {
     //构建一个同步任务池
     fn new() -> Self {
         AsyncPool {
@@ -237,9 +237,9 @@ impl AsyncPool<Task> {
 * 任务池
 */
 pub struct TaskPool {
-    task_cache:     TaskCache,          //任务缓存
-    sync_pool:      SyncPool,           //同步任务池
-    async_pool:     AsyncPool<Task>,    //异步任务池
+    task_cache:     TaskCache,  //任务缓存
+    sync_pool:      SyncPool,   //同步任务池
+    async_pool:     AsyncPool,  //异步任务池
 }
 
 unsafe impl Sync for TaskPool {}

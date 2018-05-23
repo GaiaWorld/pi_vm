@@ -34,7 +34,7 @@ pub fn block_reply(js: Arc<JS>, result: Box<FnBox(Arc<JS>)>, task_type: TaskType
                 let status = dukc_vm_status_switch(copy_js.get_vm(), JSStatus::MultiTask as i8, JSStatus::SingleTask as i8);
                 if status == JSStatus::MultiTask as i8 {
                     //同步任务已阻塞虚拟机，则返回指定的值，并唤醒虚拟机继续同步执行
-                    dukc_wakeup(copy_js.get_vm());
+                    dukc_wakeup(copy_js.get_vm(), 0);
                     result(copy_js.clone());
                     dukc_continue(copy_js.get_vm(), js_reply_callback);
                     //当前异步任务如果没有投递其它异步任务，则当前异步任务成为同步任务，并在当前异步任务完成后回收虚拟机
@@ -43,6 +43,41 @@ pub fn block_reply(js: Arc<JS>, result: Box<FnBox(Arc<JS>)>, task_type: TaskType
                 } else {
                     try_js_destroy(&copy_js);
                     panic!("cast block reply task failed");
+                }
+            }
+        }
+    });
+    
+    let &(ref lock, ref cvar) = &**JS_TASK_POOL;
+    let mut task_pool = lock.lock().unwrap();
+    (*task_pool).push(task_type, priority, func, info);
+    cvar.notify_one();
+}
+
+/*
+* 线程安全的为阻塞调用抛出异常
+*/
+pub fn block_throw(js: Arc<JS>, reason: String, task_type: TaskType, priority: u32, info: &'static str) {
+    let copy_js = js.clone();
+    let func = Box::new(move || {
+        unsafe {
+            if dukc_vm_status_check(copy_js.get_vm(), JSStatus::WaitBlock as i8) > 0 || 
+                dukc_vm_status_check(copy_js.get_vm(), JSStatus::SingleTask as i8) > 0 {
+                //同步任务还未阻塞虚拟机，重新投递当前异步任务，并等待同步任务阻塞虚拟机
+                block_throw(copy_js, reason, task_type, priority, info);
+            } else {
+                let status = dukc_vm_status_switch(copy_js.get_vm(), JSStatus::MultiTask as i8, JSStatus::SingleTask as i8);
+                if status == JSStatus::MultiTask as i8 {
+                    //同步任务已阻塞虚拟机，则抛出指定原因的错误，并唤醒虚拟机继续同步执行
+                    dukc_wakeup(copy_js.get_vm(), 1);
+                    copy_js.new_str(reason);
+                    dukc_continue(copy_js.get_vm(), js_reply_callback);
+                    //当前异步任务如果没有投递其它异步任务，则当前异步任务成为同步任务，并在当前异步任务完成后回收虚拟机
+                    //否则还有其它异步任务，则回收权利交由其它异步任务
+                    dukc_vm_status_sub(copy_js.get_vm(), 1);
+                } else {
+                    try_js_destroy(&copy_js);
+                    panic!("cast block throw task failed");
                 }
             }
         }
