@@ -1,5 +1,5 @@
-use std::time::{Instant, Duration};
 use std::thread::park_timeout;
+use std::time::{Instant, Duration};
 use std::sync::{Arc, Mutex, Condvar};
 use std::fmt::{Display, Formatter, Result};
 use std::sync::atomic::{Ordering, AtomicUsize};
@@ -25,7 +25,7 @@ pub enum WorkerStatus {
 #[derive(Debug)]
 pub struct Worker {
     uid:        u32,            //工作者编号
-    slow:       u32,            //工作者慢任务时长，单位us
+    slow:       Duration,       //工作者慢任务时长，单位us
     status:     AtomicUsize,    //工作者状态
     counter:    AtomicUsize,    //工作者计数器
 }
@@ -34,7 +34,7 @@ unsafe impl Sync for Worker {} //声明保证多线程安全性
 
 impl Display for Worker {
 	fn fmt(&self, f: &mut Formatter) -> Result {
-		write!(f, "Worker[uid = {}, slow = {}, status = {}, counter = {}]", 
+		write!(f, "Worker[uid = {}, slow = {:?}, status = {}, counter = {}]", 
             self.uid, self.slow, self.status.load(Ordering::Relaxed), self.counter.load(Ordering::Relaxed))
 	}
 }
@@ -44,7 +44,7 @@ impl Worker {
     pub fn new(uid: u32, slow: u32) -> Self {
         Worker {
             uid:        uid,
-            slow:       slow,
+            slow:       Duration::from_micros(slow as u64),
             status:     AtomicUsize::new(WorkerStatus::Wait as usize),
             counter:    AtomicUsize::new(0),
         }
@@ -142,10 +142,9 @@ fn check_slow_task(worker: &Worker, task: &mut Task) {
     let time = Instant::now();
     task.run(); //执行任务
     let elapsed = time.elapsed();
-    let finish_time = elapsed.as_secs() * 1000000 + (elapsed.subsec_micros() as u64);
-    if finish_time >= worker.slow as u64 {
+    if time.elapsed() >= worker.slow {
         //记录慢任务
         //TODO...
-        println!("!!!!!!slow task, time: {}, task: {}", finish_time, task);
+        println!("!!!!!!slow task, time: {}, task: {}", elapsed.as_secs() * 1000000 + (elapsed.subsec_micros() as u64), task);
     }
 }

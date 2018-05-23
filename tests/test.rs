@@ -12,7 +12,7 @@ use pi_vm::task::TaskType;
 use pi_vm::task_pool::TaskPool;
 use pi_vm::util::now_nanosecond;
 use pi_vm::worker_pool::WorkerPool;
-use pi_vm::pi_vm_impl::{JS_TASK_POOL, cast_task, block_reply};
+use pi_vm::pi_vm_impl::{JS_TASK_POOL, cast_task, block_reply, block_throw};
 use pi_vm::adapter::{load_lib_backtrace, register_native_object, dukc_remove_value, JSTemplate, JS};
 
 // // #[test]
@@ -295,7 +295,7 @@ fn native_object_call_block_reply_test() {
 
     load_lib_backtrace();
     register_native_object();
-    let js = JSTemplate::new("native_object_call_block_reply_test.js".to_string(), "var obj = {}; console.log(\"!!!!!!obj: \" + obj); __thread_call(function() { var r = NativeObject.call(0xffffffff, [true, 0.999, \"你好\"]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); }); function call(x, y, z) { var r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); };".to_string());
+    let js = JSTemplate::new("native_object_call_block_reply_test.js".to_string(), "var obj = {}; console.log(\"!!!!!!obj: \" + obj); __thread_call(function() { var r = NativeObject.call(0xffffffff, [true, 0.999, \"你好\"]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); }); function call(x, y, z) { var r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); try{ __thread_yield() } catch(e) { console.log(\"!!!!!!e: \" + e) } };".to_string());
     assert!(js.is_some());
     let js = js.unwrap();
     let copy = Arc::new(js.clone().unwrap());
@@ -339,6 +339,8 @@ fn native_object_call_block_reply_test() {
         vm.new_str("Hello World3".to_string());
     };
     block_reply(copy.clone(), Box::new(result), TaskType::Sync, 10, "block reply task3");
+
+    block_throw(copy.clone(), "Throw Error".to_string(), TaskType::Sync, 10, "block throw task");
     thread::sleep(Duration::from_millis(1000));
 }
 
