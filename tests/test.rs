@@ -36,6 +36,19 @@ fn test_vm_performance() {
     let finish_time = time.elapsed();
     println!("!!!!!!clone time: {}", finish_time.as_secs() * 1000000 + (finish_time.subsec_micros() as u64));
 
+    let opts = JS::new();
+    assert!(opts.is_some());
+    let js = opts.unwrap();
+    let opts = js.compile("test_vm_clone_performance.js".to_string(), "function call(x, y, z) { var r = [0, 0, 0]; r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); };".to_string());
+    assert!(opts.is_some());
+    let codes = opts.unwrap();
+    let time = Instant::now();
+    for _ in 0..10000 {
+        JS::new().unwrap().load(codes.as_slice());
+    }
+    let finish_time = time.elapsed();
+    println!("!!!!!!load time: {}", finish_time.as_secs() * 1000000 + (finish_time.subsec_micros() as u64));
+
     let js = JSTemplate::new("test_vm_run_performance.js".to_string(), "var x = 0; for(var n = 0; n < 100000000; n++) { x++; }".to_string());
     assert!(js.is_some());
     let js = js.unwrap();
@@ -258,7 +271,7 @@ fn test_js_this() {
 
 // #[test]
 fn native_object_call_test() {
-    let mut worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
+    let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
     worker_pool.run(JS_TASK_POOL.clone());
 
     load_lib_backtrace();
@@ -290,12 +303,79 @@ fn native_object_call_test() {
 
 #[test]
 fn native_object_call_block_reply_test() {
-    let mut worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
+    let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
     worker_pool.run(JS_TASK_POOL.clone());
 
     load_lib_backtrace();
     register_native_object();
-    let js = JSTemplate::new("native_object_call_block_reply_test.js".to_string(), "var obj = {}; console.log(\"!!!!!!obj: \" + obj); __thread_call(function() { var r = NativeObject.call(0xffffffff, [true, 0.999, \"你好\"]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); }); function call(x, y, z) { var r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); try{ __thread_yield() } catch(e) { console.log(\"!!!!!!e: \" + e) } };".to_string());
+    let opts = JS::new();
+    assert!(opts.is_some());
+    let js = opts.unwrap();
+    let arc = Arc::new(js);
+    let opts = arc.compile("native_object_call_block_reply_test_0.js".to_string(), "var obj = {}; console.log(\"!!!!!!obj: \" + obj); __thread_call(function() { var r = NativeObject.call(0xffffffff, [true, 0.999, \"你好\"]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); });".to_string());
+    assert!(opts.is_some());
+    let codes0 = opts.unwrap();
+    assert!(arc.load(codes0.as_slice()));
+    //运行时阻塞返回
+    let result = |vm: Arc<JS>| {
+        vm.new_str("Hello World0".to_string());
+    };
+    block_reply(arc.clone(), Box::new(result), TaskType::Sync, 10, "block reply task0");
+    while !arc.is_ran() {
+        thread::sleep(Duration::from_millis(1));
+    }
+
+    let opts = arc.compile("native_object_call_block_reply_test_1.js".to_string(), "function call(x, y, z) { var r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); try{ __thread_yield() } catch(e) { console.log(\"!!!!!!e: \" + e) } };".to_string());
+    assert!(opts.is_some());
+    let codes1 = opts.unwrap();
+    assert!(arc.load(codes1.as_slice()));
+    while !arc.is_ran() {
+        thread::sleep(Duration::from_millis(1));
+    }
+    
+    //调用时阻塞返回
+    let arc1 = arc.clone();
+    let task_type = TaskType::Async;
+    let priority = 10;
+    let func = Box::new(move|| {
+        arc1.get_js_function("call".to_string());
+        arc1.new_boolean(true);
+        arc1.new_f64(0.999);
+        arc1.new_str("你好 World!!!!!!".to_string());
+        arc1.call(3);
+    });
+    cast_task(task_type, priority, func, "call block task");
+    thread::sleep(Duration::from_millis(500)); //保证同步任务先执行
+    
+    let result = |vm: Arc<JS>| {
+        vm.new_str("Hello World1".to_string());
+    };
+    block_reply(arc.clone(), Box::new(result), TaskType::Sync, 10, "block reply task1");
+    thread::sleep(Duration::from_millis(500));
+
+    let result = |vm: Arc<JS>| {
+        vm.new_str("Hello World2".to_string());
+    };
+    block_reply(arc.clone(), Box::new(result), TaskType::Sync, 10, "block reply task2");
+    thread::sleep(Duration::from_millis(500));
+
+    let result = |vm: Arc<JS>| {
+        vm.new_str("Hello World3".to_string());
+    };
+    block_reply(arc.clone(), Box::new(result), TaskType::Sync, 10, "block reply task3");
+
+    block_throw(arc.clone(), "Throw Error".to_string(), TaskType::Sync, 10, "block throw task");
+    thread::sleep(Duration::from_millis(1000));
+}
+
+// #[test]
+fn native_object_call_block_reply_test_by_clone() {
+    let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
+    worker_pool.run(JS_TASK_POOL.clone());
+
+    load_lib_backtrace();
+    register_native_object();
+    let js = JSTemplate::new("native_object_call_block_reply_test_by_clone.js".to_string(), "var obj = {}; console.log(\"!!!!!!obj: \" + obj); __thread_call(function() { var r = NativeObject.call(0xffffffff, [true, 0.999, \"你好\"]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); }); function call(x, y, z) { var r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); try{ __thread_yield() } catch(e) { console.log(\"!!!!!!e: \" + e) } };".to_string());
     assert!(js.is_some());
     let js = js.unwrap();
     let copy = Arc::new(js.clone().unwrap());
