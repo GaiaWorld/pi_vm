@@ -193,6 +193,7 @@ pub fn jstype_ptr<'a>(jstype: &JSType, mgr: &BonMgr, obj_type: u32 ,error_str: &
 	if obj.meta_hash == obj_type{
 		Ok(ptr)
 	}else{
+        println!("expect {}, found {}", obj_type, obj.meta_hash);
 		Err("type is diff")
 	}
 	
