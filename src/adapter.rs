@@ -15,8 +15,11 @@ extern "C" {
     fn dukc_register_native_object_function_call(func: extern fn(*const c_void, uint32_t, uint32_t, *const c_void, *const c_void) -> c_int);
     fn dukc_register_native_object_free(func: extern fn(*const c_void, uint32_t));
     fn dukc_vm_create() -> *const c_void;
+    fn dukc_vm_init(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char)) -> uint32_t;
     fn dukc_compile_script(vm: *const c_void, file: *const c_char, code: *const c_char, size: *mut uint32_t, reply: extern fn(*const c_void, c_int, *const c_char)) -> *const c_void;
-    fn dukc_vm_clone(size: uint32_t, bytes: *const c_void) -> *const c_void;
+    fn dukc_load_code(vm: *const c_void, size: uint32_t, bytes: *const c_void) -> uint32_t;
+    fn dukc_bind_vm(vm: *const c_void);
+    fn dukc_vm_clone(size: uint32_t, bytes: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char)) -> *const c_void;
     fn dukc_vm_run(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
     pub fn dukc_vm_status_check(vm: *const c_void, value: int8_t) -> uint8_t;
     pub fn dukc_vm_status_switch(vm: *const c_void, old_status: int8_t, new_status: int8_t) -> int8_t;
@@ -109,7 +112,7 @@ impl JSTemplate {
     pub fn new(file: String, script: String) -> Option<Self> {
         let ptr: *const c_void;
         unsafe { ptr = dukc_vm_create() }
-        if (ptr as usize) == 0 {
+        if ptr.is_null() {
             None
         } else {
             let mut len = 0u32;
@@ -126,7 +129,7 @@ impl JSTemplate {
     //复制一个指定模板的js虚拟机
     pub fn clone(&self) -> Option<JS> {
         let ptr: *const c_void;
-        unsafe { ptr = dukc_vm_clone(self.size, self.bytes) }
+        unsafe { ptr = dukc_vm_clone(self.size, self.bytes, js_reply_callback) }
         if (ptr as usize) == 0 {
             None
         } else {
@@ -181,8 +184,27 @@ impl Drop for JS {
 }
 
 impl JS {
-    //构建指定虚拟机
-    pub unsafe fn new(ptr: *const c_void) -> Self {
+    //构建一个虚拟机
+    pub fn new() -> Option<Self> {
+        let ptr: *const c_void;
+        unsafe { ptr = dukc_vm_create() }
+        if ptr.is_null() {
+            None
+        } else {
+            unsafe {
+                if dukc_vm_init(ptr, js_reply_callback) == 0 {
+                    dukc_vm_destroy(ptr);
+                    return None;
+                }
+                dukc_vm_run(ptr, js_reply_callback);
+                dukc_bind_vm(ptr);
+            }
+            Some(JS {vm: ptr as usize})
+        }
+    }
+
+    //从指针构建指定虚拟机
+    pub unsafe fn from_raw(ptr: *const c_void) -> Self {
         JS {vm: ptr as usize}
     }
 
@@ -194,6 +216,32 @@ impl JS {
     //判断js虚拟机是否完成运行
     pub fn is_ran(&self) -> bool {
         unsafe { dukc_vm_status_check(self.vm as *const c_void, JSStatus::NoTask as i8) > 0 }
+    }
+
+    //编译指定脚本
+    pub fn compile(&self, file: String, script: String) -> Option<Vec<u8>> {
+        let mut len = 0u32;
+        let size: *mut u32 = &mut len;
+        unsafe {
+            let bytes = dukc_compile_script(self.vm as *const c_void, CString::new(file).unwrap().as_ptr(), CString::new(script).unwrap().as_ptr(), size, js_reply_callback);
+            if bytes.is_null() {
+                return None;                
+            }
+            Some(from_raw_parts(bytes as *mut u8, len as usize).to_vec())
+        }
+    }
+
+    //加载指定代码
+    pub fn load(&self, codes: &[u8]) -> bool {
+        let size = codes.len() as u32;
+        let bytes = codes.as_ptr() as *const c_void;
+        unsafe {
+            if dukc_load_code(self.vm as *const c_void, size, bytes) == 0 {
+                return false;
+            }
+        }
+        self.run();
+        true
     }
 
     //运行js虚拟机
