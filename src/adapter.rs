@@ -52,6 +52,7 @@ extern "C" {
     pub fn dukc_throw(vm: *const c_void, reason: *const c_char);
     pub fn dukc_wakeup(vm: *const c_void, error: c_int) -> uint32_t;
     pub fn dukc_continue(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
+    pub fn dukc_switch_context(vm: *const c_void);
     fn dukc_vm_destroy(vm: *const c_void);
 }
 
