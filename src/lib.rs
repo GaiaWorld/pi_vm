@@ -1,4 +1,5 @@
 #![crate_type = "rlib"]
+#![feature(asm)]
 #![feature(libc)]
 #![feature(fnbox)]
 #![feature(drain_filter)]
@@ -13,6 +14,7 @@ extern crate core;
 extern crate time;
 extern crate libc;
 extern crate rand;
+extern crate magnetic;
 extern crate threadpool;
 
 #[macro_use]
@@ -20,6 +22,9 @@ extern crate lazy_static;
 
 #[cfg(not(unix))]
 extern crate kernel32;
+
+extern crate pi_lib;
+extern crate pi_db;
 
 pub mod adapter;
 pub mod util;

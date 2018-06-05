@@ -8,6 +8,9 @@ fnv = "*"
 time = "*"
 libc = "*"
 rand = "*"
-kernel32-sys = "*"
+magnetic = "*"
 threadpool = "*"
 lazy_static = "*"
+kernel32-sys = "*"
+pi_lib = { path = "../pi_lib" }
+pi_db = { path = "../pi_db" }

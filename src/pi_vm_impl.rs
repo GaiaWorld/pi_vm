@@ -1,5 +1,15 @@
+use std::thread;
 use std::boxed::FnBox;
+use std::time::Duration;
 use std::sync::{Arc, Mutex, Condvar};
+use std::sync::atomic::{Ordering, AtomicUsize};
+
+use magnetic::mpmc::*;
+use magnetic::buffer::dynamic::DynamicBuffer;
+use magnetic::{Producer, Consumer};
+
+use pi_lib::atom::Atom;
+use pi_db::mgr::Mgr;
 
 use task::TaskType;
 use task_pool::TaskPool;
@@ -10,19 +20,141 @@ lazy_static! {
 }
 
 /*
+* 虚拟机工厂
+*/
+pub struct VMFactory {
+    //虚拟机池中虚拟机的数量
+    size: AtomicUsize,
+    //字节码列表
+    codes: Vec<Arc<Vec<u8>>>,
+    //虚拟机生产者
+    producer: Arc<MPMCProducer<JS, DynamicBuffer<JS>>>,
+    //虚拟机消费者
+    consumer: Arc<MPMCConsumer<JS, DynamicBuffer<JS>>>,
+}
+
+impl VMFactory {
+    //构建一个虚拟机工厂
+    pub fn new(mut size: usize) -> Self {
+        if size == 0 {
+            size = 1;
+        }
+        let (p, c) = mpmc_queue(DynamicBuffer::new(size).unwrap());
+        VMFactory {
+            size: AtomicUsize::new(0),
+            codes: Vec::new(),
+            producer: Arc::new(p),
+            consumer: Arc::new(c),
+        }
+    }
+
+    //为指定虚拟机工厂增加代码，必须使用所有权，以保证运行时不会不安全的增加代码
+    pub fn append(mut self, code: Arc<Vec<u8>>) -> Self {
+        self.codes.push(code);
+        self
+    }
+
+    //获取当前虚拟机池中虚拟机数量
+    pub fn size(&self) -> usize {
+        self.size.load(Ordering::Relaxed)
+    }
+
+    //生成一个虚拟机，返回生成前虚拟机池中虚拟机数量，0表示生成失败     
+    pub fn produce(&self) -> usize {
+        match self.new_vm() {
+            None => 0,
+            Some(vm) => {
+                match self.producer.try_push(vm) {
+                    Err(_) => 0,
+                    Ok(_) => self.size.fetch_add(1, Ordering::Acquire),
+                }
+            }
+        }
+    }
+
+    //从虚拟机池中获取一个虚拟机，并调用指定的js全局函数
+    pub fn call(&self, uid: u32, mgr: Mgr, topic: Atom, payload: Arc<Vec<u8>>, info: &'static str) {
+        match self.consumer.try_pop() {
+            Err(_) => {
+                //没有空闲虚拟机，则立即构建临时虚拟机
+                match self.new_vm() {
+                    None => (),
+                    Some(vm) => {
+                        let func = Box::new(move || {
+                            //TODO js全局函数还未确定，且参数列表也未确定
+                            vm.get_js_function("call".to_string());
+                            vm.new_str((*topic).clone());
+                            let array = vm.new_uint8_array(payload.len() as u32);
+                            array.from_bytes(payload.as_slice());
+                            vm.new_native_object(Arc::into_raw(Arc::new(mgr)) as usize);
+                            vm.call(3);
+                        });
+                        cast_task(TaskType::Sync, 5000000000 + uid as u64, func, info);
+                    }
+                }
+            }
+            Ok(vm) => {
+                let producer = self.producer.clone();
+                let func = Box::new(move || {
+                    //TODO js全局函数还未确定，且参数列表也未确定
+                    vm.get_js_function("call".to_string());
+                    vm.new_str((*topic).clone());
+                    let array = vm.new_uint8_array(payload.len() as u32);
+                    array.from_bytes(payload.as_slice());
+                    vm.new_native_object(Arc::into_raw(Arc::new(mgr)) as usize);
+                    vm.call(3);
+                    //调用完成后复用虚拟机
+                    match producer.try_push(vm) {
+                        Err(_) => (),
+                        Ok(_) => (),
+                    }
+                });
+                cast_task(TaskType::Sync, 5000000000 + uid as u64, func, info);
+            },
+        }
+    }
+
+    //构建一个虚拟机，并加载所有字节码
+    fn new_vm(&self) -> Option<JS> {
+        match JS::new() {
+            None => None,
+            Some(vm) => {
+                for code in &self.codes {
+                    if vm.load(code.as_slice()) {
+                        while !vm.is_ran() {
+                            pause();
+                        }
+                        continue;
+                    }
+                    return None;
+                }
+                Some(vm)
+            }
+        }
+    }
+}
+
+/*
+* Topic处理器
+*/
+pub struct TopicHandler {
+	len: AtomicUsize,
+}
+
+/*
 * 线程安全的向任务池投递任务
 */
-pub fn cast_task(task_type: TaskType, priority: u32, func: Box<FnBox()>, info: &'static str) {
-        let &(ref lock, ref cvar) = &**JS_TASK_POOL;
-        let mut task_pool = lock.lock().unwrap();
-        (*task_pool).push(task_type, priority, func, info);
-        cvar.notify_one();
+pub fn cast_task(task_type: TaskType, priority: u64, func: Box<FnBox()>, info: &'static str) {
+    let &(ref lock, ref cvar) = &**JS_TASK_POOL;
+    let mut task_pool = lock.lock().unwrap();
+    (*task_pool).push(task_type, priority, func, info);
+    cvar.notify_one();
 }
 
 /*
 * 线程安全的回应阻塞调用
 */
-pub fn block_reply(js: Arc<JS>, result: Box<FnBox(Arc<JS>)>, task_type: TaskType, priority: u32, info: &'static str) {
+pub fn block_reply(js: Arc<JS>, result: Box<FnBox(Arc<JS>)>, task_type: TaskType, priority: u64, info: &'static str) {
     let copy_js = js.clone();
     let func = Box::new(move || {
         unsafe {
@@ -47,17 +179,13 @@ pub fn block_reply(js: Arc<JS>, result: Box<FnBox(Arc<JS>)>, task_type: TaskType
             }
         }
     });
-    
-    let &(ref lock, ref cvar) = &**JS_TASK_POOL;
-    let mut task_pool = lock.lock().unwrap();
-    (*task_pool).push(task_type, priority, func, info);
-    cvar.notify_one();
+    cast_task(task_type, priority, func, info);
 }
 
 /*
 * 线程安全的为阻塞调用抛出异常
 */
-pub fn block_throw(js: Arc<JS>, reason: String, task_type: TaskType, priority: u32, info: &'static str) {
+pub fn block_throw(js: Arc<JS>, reason: String, task_type: TaskType, priority: u64, info: &'static str) {
     let copy_js = js.clone();
     let func = Box::new(move || {
         unsafe {
@@ -82,9 +210,23 @@ pub fn block_throw(js: Arc<JS>, reason: String, task_type: TaskType, priority: u
             }
         }
     });
-    
-    let &(ref lock, ref cvar) = &**JS_TASK_POOL;
-    let mut task_pool = lock.lock().unwrap();
-    (*task_pool).push(task_type, priority, func, info);
-    cvar.notify_one();
+    cast_task(task_type, priority, func, info);
+}
+
+#[cfg(all(feature="unstable", any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline(always)]
+pub fn pause() {
+    unsafe { asm!("PAUSE") };
+}
+
+#[cfg(all(not(feature="unstable"), any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline(always)]
+pub fn pause() {
+    thread::sleep(Duration::from_millis(1));
+}
+
+#[cfg(all(not(target_arch = "x86"), not(target_arch = "x86_64")))]
+#[inline(always)]
+pub fn pause() {
+    thread::sleep(Duration::from_millis(1));
 }
