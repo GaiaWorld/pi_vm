@@ -2,6 +2,7 @@
 
 #[cfg(test)]
 extern crate pi_vm;
+extern crate pi_lib;
 extern crate threadpool;
 
 use std::thread;
@@ -12,8 +13,10 @@ use pi_vm::task::TaskType;
 use pi_vm::task_pool::TaskPool;
 use pi_vm::util::now_nanosecond;
 use pi_vm::worker_pool::WorkerPool;
-use pi_vm::pi_vm_impl::{JS_TASK_POOL, cast_task, block_reply, block_throw};
+use pi_vm::pi_vm_impl::{JS_TASK_POOL, VMFactory, cast_task, block_reply, block_throw};
 use pi_vm::adapter::{load_lib_backtrace, register_native_object, dukc_remove_value, JSTemplate, JS};
+
+use pi_lib::atom::Atom;
 
 // // #[test]
 // fn njsc_test() {
@@ -301,7 +304,7 @@ fn native_object_call_test() {
     copy.call(3);
 }
 
-#[test]
+// #[test]
 fn native_object_call_block_reply_test() {
     let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
     worker_pool.run(JS_TASK_POOL.clone());
@@ -496,4 +499,26 @@ fn task_test() {
     worker_pool.decrease(7);
     thread::sleep(Duration::from_millis(10000));
     println!("worker_pool: {}", worker_pool);
+}
+
+#[test]
+fn test_vm_factory() {
+    let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
+    worker_pool.run(JS_TASK_POOL.clone());
+
+    load_lib_backtrace();
+    register_native_object();
+    let opts = JS::new();
+    assert!(opts.is_some());
+    let js = opts.unwrap();
+    let arc = Arc::new(js);
+    let opts = arc.compile("test_vm_factory.js".to_string(), "function call(x, y) { console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", y length: \" + y.length); var r = NativeObject.call(0xffffffff, [x, y]); console.log(\"!!!!!!r: \" + r); };".to_string());
+    assert!(opts.is_some());
+    let code = opts.unwrap();
+
+    let factory = VMFactory::new(0);
+    assert!(factory.size() == 0);
+    factory.append(Arc::new(code))
+            .call(1, Atom::from("Hello World"), Arc::new(vec![100, 100, 100, 100, 100, 100]), "factory call");
+    thread::sleep(Duration::from_millis(1000));
 }

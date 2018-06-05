@@ -106,7 +106,7 @@ impl SyncPool {
     }
 
     //移除指定优先级的同步任务队列
-    fn remove(&mut self, priority: u32) {
+    fn remove(&mut self, priority: u64) {
        self.map.remove(&(priority as u64));
     }
 
@@ -314,7 +314,7 @@ impl TaskPool {
     }
 
     //向任务池加入一个任务
-    pub fn push(&mut self, task_type: TaskType, priority: u32, func: Box<FnBox()>, info: &'static str) {
+    pub fn push(&mut self, task_type: TaskType, priority: u64, func: Box<FnBox()>, info: &'static str) {
         let mut task: Task = self.task_cache.pop();
         task.set_priority(priority);
         task.set_func(Some(func));
@@ -356,7 +356,7 @@ impl TaskPool {
     }
 
     //移除指定优先级的同步任务
-    pub fn remove_sync_task(&mut self, priority: u32) {
+    pub fn remove_sync_task(&mut self, priority: u64) {
         self.sync_pool.remove(priority);
     }
 
