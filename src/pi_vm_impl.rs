@@ -8,9 +8,6 @@ use magnetic::mpmc::*;
 use magnetic::buffer::dynamic::DynamicBuffer;
 use magnetic::{Producer, Consumer};
 
-use pi_lib::atom::Atom;
-use pi_db::mgr::Mgr;
-
 use task::TaskType;
 use task_pool::TaskPool;
 use adapter::{JSStatus, JS, try_js_destroy, dukc_vm_status_check, dukc_vm_status_switch, dukc_vm_status_sub, dukc_wakeup, dukc_continue, js_reply_callback};
@@ -73,36 +70,28 @@ impl VMFactory {
     }
 
     //从虚拟机池中获取一个虚拟机，并调用指定的js全局函数
-    pub fn call(&self, uid: u32, mgr: Mgr, topic: Atom, payload: Arc<Vec<u8>>, info: &'static str) {
+    pub fn call(&self, uid: u32, args: Box<FnBox(JS) -> JS>, info: &'static str) {
         match self.consumer.try_pop() {
             Err(_) => {
                 //没有空闲虚拟机，则立即构建临时虚拟机
                 match self.new_vm() {
                     None => (),
-                    Some(vm) => {
+                    Some(mut vm) => {
                         let func = Box::new(move || {
-                            //TODO js全局函数还未确定，且参数列表也未确定
                             vm.get_js_function("call".to_string());
-                            vm.new_str((*topic).clone());
-                            let array = vm.new_uint8_array(payload.len() as u32);
-                            array.from_bytes(payload.as_slice());
-                            vm.new_native_object(Arc::into_raw(Arc::new(mgr)) as usize);
-                            vm.call(3);
+                            vm = args(vm);
+                            vm.call(4);
                         });
                         cast_task(TaskType::Sync, 5000000000 + uid as u64, func, info);
                     }
                 }
             }
-            Ok(vm) => {
+            Ok(mut vm) => {
                 let producer = self.producer.clone();
                 let func = Box::new(move || {
-                    //TODO js全局函数还未确定，且参数列表也未确定
                     vm.get_js_function("call".to_string());
-                    vm.new_str((*topic).clone());
-                    let array = vm.new_uint8_array(payload.len() as u32);
-                    array.from_bytes(payload.as_slice());
-                    vm.new_native_object(Arc::into_raw(Arc::new(mgr)) as usize);
-                    vm.call(3);
+                    vm = args(vm);
+                    vm.call(4);
                     //调用完成后复用虚拟机
                     match producer.try_push(vm) {
                         Err(_) => (),
@@ -132,13 +121,6 @@ impl VMFactory {
             }
         }
     }
-}
-
-/*
-* Topic处理器
-*/
-pub struct TopicHandler {
-	len: AtomicUsize,
 }
 
 /*
