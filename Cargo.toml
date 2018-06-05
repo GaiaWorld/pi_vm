@@ -12,5 +12,3 @@ magnetic = "*"
 threadpool = "*"
 lazy_static = "*"
 kernel32-sys = "*"
-pi_lib = { path = "../pi_lib" }
-pi_db = { path = "../pi_db" }
