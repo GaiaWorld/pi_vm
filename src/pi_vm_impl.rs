@@ -19,11 +19,12 @@ lazy_static! {
 /*
 * 虚拟机工厂
 */
+#[derive(Clone)]
 pub struct VMFactory {
     //虚拟机池中虚拟机的数量
-    size: AtomicUsize,
+    size: Arc<AtomicUsize>,
     //字节码列表
-    codes: Vec<Arc<Vec<u8>>>,
+    codes: Arc<Vec<Arc<Vec<u8>>>>,
     //虚拟机生产者
     producer: Arc<MPMCProducer<JS, DynamicBuffer<JS>>>,
     //虚拟机消费者
@@ -38,16 +39,21 @@ impl VMFactory {
         }
         let (p, c) = mpmc_queue(DynamicBuffer::new(size).unwrap());
         VMFactory {
-            size: AtomicUsize::new(0),
-            codes: Vec::new(),
+            size: Arc::new(AtomicUsize::new(0)),
+            codes: Arc::new(Vec::new()),
             producer: Arc::new(p),
             consumer: Arc::new(c),
         }
     }
 
-    //为指定虚拟机工厂增加代码，必须使用所有权，以保证运行时不会不安全的增加代码
+    //为指定虚拟机工厂增加代码，必须使用所有权，以保证运行时不会不安全的增加代码，复制对象将无法增加代码
     pub fn append(mut self, code: Arc<Vec<u8>>) -> Self {
-        self.codes.push(code);
+        match Arc::get_mut(&mut self.codes) {
+            None => (),
+            Some(ref mut vec) => {
+                vec.push(code);
+            }
+        }
         self
     }
 
@@ -78,7 +84,7 @@ impl VMFactory {
                     None => (),
                     Some(mut vm) => {
                         let func = Box::new(move || {
-                            vm.get_js_function("call".to_string());
+                            vm.get_js_function("_$rpc".to_string());
                             vm = args(vm);
                             vm.call(4);
                         });
@@ -89,7 +95,7 @@ impl VMFactory {
             Ok(mut vm) => {
                 let producer = self.producer.clone();
                 let func = Box::new(move || {
-                    vm.get_js_function("call".to_string());
+                    vm.get_js_function("_$rpc".to_string());
                     vm = args(vm);
                     vm.call(4);
                     //调用完成后复用虚拟机
@@ -108,7 +114,7 @@ impl VMFactory {
         match JS::new() {
             None => None,
             Some(vm) => {
-                for code in &self.codes {
+                for code in self.codes.iter() {
                     if vm.load(code.as_slice()) {
                         while !vm.is_ran() {
                             pause();
