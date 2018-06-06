@@ -1,6 +1,5 @@
 use std::thread;
 use std::boxed::FnBox;
-use std::clone::Clone;
 use std::time::Duration;
 use std::sync::{Arc, Mutex, Condvar};
 use std::sync::atomic::{Ordering, AtomicUsize};
@@ -20,6 +19,7 @@ lazy_static! {
 /*
 * 虚拟机工厂
 */
+#[derive(Clone)]
 pub struct VMFactory {
     //虚拟机池中虚拟机的数量
     size: Arc<AtomicUsize>,
@@ -29,17 +29,6 @@ pub struct VMFactory {
     producer: Arc<MPMCProducer<JS, DynamicBuffer<JS>>>,
     //虚拟机消费者
     consumer: Arc<MPMCConsumer<JS, DynamicBuffer<JS>>>,
-}
-
-impl Clone for VMFactory {
-    fn clone(&self) -> Self {
-        VMFactory {
-            size: self.size.clone(),
-            codes: self.codes.clone(),
-            producer: self.producer.clone(),
-            consumer: self.consumer.clone(),
-        }
-    }
 }
 
 impl VMFactory {
