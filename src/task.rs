@@ -3,6 +3,8 @@ use std::mem::transmute;
 use std::collections::VecDeque;
 use std::fmt::{Display, Formatter, Result};
 
+use pi_lib::atom::Atom;
+
 /*
 * 任务类型
 */
@@ -20,14 +22,14 @@ pub enum TaskType {
 pub struct Task {
     priority:       u64,                //任务优先级
     func:           (usize, usize),     //任务函数
-    info:           &'static str,       //任务信息
+    info:           Atom,               //任务信息
 }
 
 unsafe impl Sync for Task {} //声明保证多线程安全性
 
 impl Display for Task {
 	fn fmt(&self, f: &mut Formatter) -> Result {
-		write!(f, "Task[priority = {}, func = {:?}, info = {}]", self.priority, self.func, self.info)
+		write!(f, "Task[priority = {}, func = {:?}, info = {}]", self.priority, self.func, *self.info)
 	}
 }
 
@@ -36,7 +38,7 @@ impl Task {
         Task {
             priority:   0,
             func:       (0, 0),
-            info:       "",
+            info:       Atom::from(""),
         }
     }
 
@@ -44,7 +46,7 @@ impl Task {
         //复制其它成员
         dest.priority = self.priority;
         dest.func = self.func;
-        dest.info = self.info;
+        dest.info = self.info.clone();
     }
     
     pub fn get_priority(&self) -> u64 {
@@ -67,17 +69,17 @@ impl Task {
     }
 
     pub fn get_info(&self) -> &str {
-        self.info
+        self.info.as_str()
     }
 
-    pub fn set_info(&mut self, info: &'static str) {
+    pub fn set_info(&mut self, info: Atom) {
         self.info = info;
     }
 
     pub fn reset(&mut self) {
         self.priority = 0;
         self.func = (0, 0);
-        self.info = "";
+        self.info = Atom::from("");
     }
 
     pub fn run(&self) {

@@ -5,6 +5,7 @@ use std::boxed::FnBox;
 use std::collections::VecDeque;
 use std::fmt::{Display, Formatter, Result};
 
+use pi_lib::atom::Atom;
 use task::{TaskType, Task, TaskCache};
 
 /*
@@ -314,7 +315,7 @@ impl TaskPool {
     }
 
     //向任务池加入一个任务
-    pub fn push(&mut self, task_type: TaskType, priority: u64, func: Box<FnBox()>, info: &'static str) {
+    pub fn push(&mut self, task_type: TaskType, priority: u64, func: Box<FnBox()>, info: Atom) {
         let mut task: Task = self.task_cache.pop();
         task.set_priority(priority);
         task.set_func(Some(func));
