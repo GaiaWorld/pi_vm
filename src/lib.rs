@@ -1,4 +1,5 @@
 #![crate_type = "rlib"]
+#![feature(asm)]
 #![feature(libc)]
 #![feature(fnbox)]
 #![feature(drain_filter)]
@@ -13,6 +14,7 @@ extern crate core;
 extern crate time;
 extern crate libc;
 extern crate rand;
+extern crate magnetic;
 extern crate threadpool;
 
 #[macro_use]

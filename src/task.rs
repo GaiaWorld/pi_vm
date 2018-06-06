@@ -18,7 +18,7 @@ pub enum TaskType {
 * 任务结构
 */
 pub struct Task {
-    priority:       u32,                //任务优先级
+    priority:       u64,                //任务优先级
     func:           (usize, usize),     //任务函数
     info:           &'static str,       //任务信息
 }
@@ -47,11 +47,11 @@ impl Task {
         dest.info = self.info;
     }
     
-    pub fn get_priority(&self) -> u32 {
+    pub fn get_priority(&self) -> u64 {
         self.priority
     }
     
-    pub fn set_priority(&mut self, priority: u32) {
+    pub fn set_priority(&mut self, priority: u64) {
         self.priority = priority;
     }
     
