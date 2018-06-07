@@ -1,21 +1,17 @@
 use std::thread;
 use std::boxed::FnBox;
 use std::time::Duration;
-use std::sync::{Arc, Mutex, Condvar};
+use std::sync::Arc;
 use std::sync::atomic::{Ordering, AtomicUsize};
 
 use magnetic::mpmc::*;
 use magnetic::buffer::dynamic::DynamicBuffer;
 use magnetic::{Producer, Consumer};
 
-use task::TaskType;
-use task_pool::TaskPool;
+use pi_base::task::TaskType;
+use pi_base::pi_base_impl::cast_js_task;
 use adapter::{JSStatus, JS, try_js_destroy, dukc_vm_status_check, dukc_vm_status_switch, dukc_vm_status_sub, dukc_wakeup, dukc_continue, js_reply_callback};
 use pi_lib::atom::Atom;
-
-lazy_static! {
-	pub static ref JS_TASK_POOL: Arc<(Mutex<TaskPool>, Condvar)> = Arc::new((Mutex::new(TaskPool::new(10)), Condvar::new()));
-}
 
 /*
 * 虚拟机工厂
@@ -89,7 +85,7 @@ impl VMFactory {
                             vm = args(vm);
                             vm.call(4);
                         });
-                        cast_task(TaskType::Sync, 5000000000 + uid as u64, func, info);
+                        cast_js_task(TaskType::Sync, 5000000000 + uid as u64, func, info);
                     }
                 }
             }
@@ -105,7 +101,7 @@ impl VMFactory {
                         Ok(_) => (),
                     }
                 });
-                cast_task(TaskType::Sync, 5000000000 + uid as u64, func, info);
+                cast_js_task(TaskType::Sync, 5000000000 + uid as u64, func, info);
             },
         }
     }
@@ -128,16 +124,6 @@ impl VMFactory {
             }
         }
     }
-}
-
-/*
-* 线程安全的向任务池投递任务
-*/
-pub fn cast_task(task_type: TaskType, priority: u64, func: Box<FnBox()>, info: Atom) {
-    let &(ref lock, ref cvar) = &**JS_TASK_POOL;
-    let mut task_pool = lock.lock().unwrap();
-    (*task_pool).push(task_type, priority, func, info);
-    cvar.notify_one();
 }
 
 /*
@@ -169,7 +155,7 @@ pub fn block_reply(js: Arc<JS>, result: Box<FnBox(Arc<JS>)>, task_type: TaskType
             }
         }
     });
-    cast_task(task_type, priority, func, info);
+    cast_js_task(task_type, priority, func, info);
 }
 
 /*
@@ -201,7 +187,7 @@ pub fn block_throw(js: Arc<JS>, reason: String, task_type: TaskType, priority: u
             }
         }
     });
-    cast_task(task_type, priority, func, info);
+    cast_js_task(task_type, priority, func, info);
 }
 
 #[cfg(all(feature="unstable", any(target_arch = "x86", target_arch = "x86_64")))]
