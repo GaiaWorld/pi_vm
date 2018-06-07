@@ -1,20 +1,17 @@
 use std::thread;
 use std::boxed::FnBox;
 use std::time::Duration;
-use std::sync::{Arc, Mutex, Condvar};
+use std::sync::Arc;
 use std::sync::atomic::{Ordering, AtomicUsize};
 
 use magnetic::mpmc::*;
 use magnetic::buffer::dynamic::DynamicBuffer;
 use magnetic::{Producer, Consumer};
 
-use task::TaskType;
-use task_pool::TaskPool;
+use pi_base::task::TaskType;
+use pi_base::pi_base_impl::cast_js_task;
 use adapter::{JSStatus, JS, try_js_destroy, dukc_vm_status_check, dukc_vm_status_switch, dukc_vm_status_sub, dukc_wakeup, dukc_continue, js_reply_callback};
-
-lazy_static! {
-	pub static ref JS_TASK_POOL: Arc<(Mutex<TaskPool>, Condvar)> = Arc::new((Mutex::new(TaskPool::new(10)), Condvar::new()));
-}
+use pi_lib::atom::Atom;
 
 /*
 * 虚拟机工厂
@@ -76,7 +73,7 @@ impl VMFactory {
     }
 
     //从虚拟机池中获取一个虚拟机，并调用指定的js全局函数
-    pub fn call(&self, uid: u32, args: Box<FnBox(JS) -> JS>, info: &'static str) {
+    pub fn call(&self, uid: u32, args: Box<FnBox(JS) -> JS>, info: Atom) {
         match self.consumer.try_pop() {
             Err(_) => {
                 //没有空闲虚拟机，则立即构建临时虚拟机
@@ -88,7 +85,7 @@ impl VMFactory {
                             vm = args(vm);
                             vm.call(4);
                         });
-                        cast_task(TaskType::Sync, 5000000000 + uid as u64, func, info);
+                        cast_js_task(TaskType::Sync, 5000000000 + uid as u64, func, info);
                     }
                 }
             }
@@ -104,7 +101,7 @@ impl VMFactory {
                         Ok(_) => (),
                     }
                 });
-                cast_task(TaskType::Sync, 5000000000 + uid as u64, func, info);
+                cast_js_task(TaskType::Sync, 5000000000 + uid as u64, func, info);
             },
         }
     }
@@ -130,26 +127,17 @@ impl VMFactory {
 }
 
 /*
-* 线程安全的向任务池投递任务
-*/
-pub fn cast_task(task_type: TaskType, priority: u64, func: Box<FnBox()>, info: &'static str) {
-    let &(ref lock, ref cvar) = &**JS_TASK_POOL;
-    let mut task_pool = lock.lock().unwrap();
-    (*task_pool).push(task_type, priority, func, info);
-    cvar.notify_one();
-}
-
-/*
 * 线程安全的回应阻塞调用
 */
-pub fn block_reply(js: Arc<JS>, result: Box<FnBox(Arc<JS>)>, task_type: TaskType, priority: u64, info: &'static str) {
+pub fn block_reply(js: Arc<JS>, result: Box<FnBox(Arc<JS>)>, task_type: TaskType, priority: u64, info: Atom) {
     let copy_js = js.clone();
+    let copy_info = info.clone();
     let func = Box::new(move || {
         unsafe {
             if dukc_vm_status_check(copy_js.get_vm(), JSStatus::WaitBlock as i8) > 0 || 
                 dukc_vm_status_check(copy_js.get_vm(), JSStatus::SingleTask as i8) > 0 {
                 //同步任务还未阻塞虚拟机，重新投递当前异步任务，并等待同步任务阻塞虚拟机
-                block_reply(copy_js, result, task_type, priority, info);
+                block_reply(copy_js, result, task_type, priority, copy_info);
             } else {
                 let status = dukc_vm_status_switch(copy_js.get_vm(), JSStatus::MultiTask as i8, JSStatus::SingleTask as i8);
                 if status == JSStatus::MultiTask as i8 {
@@ -167,20 +155,21 @@ pub fn block_reply(js: Arc<JS>, result: Box<FnBox(Arc<JS>)>, task_type: TaskType
             }
         }
     });
-    cast_task(task_type, priority, func, info);
+    cast_js_task(task_type, priority, func, info);
 }
 
 /*
 * 线程安全的为阻塞调用抛出异常
 */
-pub fn block_throw(js: Arc<JS>, reason: String, task_type: TaskType, priority: u64, info: &'static str) {
+pub fn block_throw(js: Arc<JS>, reason: String, task_type: TaskType, priority: u64, info: Atom) {
     let copy_js = js.clone();
+    let copy_info = info.clone();
     let func = Box::new(move || {
         unsafe {
             if dukc_vm_status_check(copy_js.get_vm(), JSStatus::WaitBlock as i8) > 0 || 
                 dukc_vm_status_check(copy_js.get_vm(), JSStatus::SingleTask as i8) > 0 {
                 //同步任务还未阻塞虚拟机，重新投递当前异步任务，并等待同步任务阻塞虚拟机
-                block_throw(copy_js, reason, task_type, priority, info);
+                block_throw(copy_js, reason, task_type, priority, copy_info);
             } else {
                 let status = dukc_vm_status_switch(copy_js.get_vm(), JSStatus::MultiTask as i8, JSStatus::SingleTask as i8);
                 if status == JSStatus::MultiTask as i8 {
@@ -198,7 +187,7 @@ pub fn block_throw(js: Arc<JS>, reason: String, task_type: TaskType, priority: u
             }
         }
     });
-    cast_task(task_type, priority, func, info);
+    cast_js_task(task_type, priority, func, info);
 }
 
 #[cfg(all(feature="unstable", any(target_arch = "x86", target_arch = "x86_64")))]
