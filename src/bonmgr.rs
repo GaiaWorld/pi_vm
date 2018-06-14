@@ -4,11 +4,11 @@ use adapter::{JSType, JS};
 use std::sync::{Arc, Mutex};
 
 lazy_static! {
-	pub static ref BON_MGR: Arc<Mutex<BonMgr>> = Arc::new(Mutex::new(BonMgr::new()));
+	pub static ref BON_MGR: Arc<BonMgr> = Arc::new(BonMgr::new());
 }
 
 pub fn bon_call(js: Arc<JS>, fun_hash: u32, args: Option<Vec<JSType>>) -> Option<CallResult>{
-	(&mut *BON_MGR.lock().unwrap()).call(js, fun_hash, args)
+	BON_MGR.call(js, fun_hash, args)
 }
 
 pub enum CallResult{
@@ -87,25 +87,28 @@ pub struct NObject {
 	pub meta_hash: u32,
 }
 pub struct BonMgr{
-	fun_metas:HashMap<u32, FnMeta>,
-	struct_metas:HashMap<u32, StructMeta>,
+	fun_metas: Arc<Mutex<HashMap<u32, FnMeta>>>,
+	struct_metas:Arc<Mutex<HashMap<u32, StructMeta>>>,
 	//enum_metas:HashMap<u32, EnumMeta>,
-	objs:RefCell<HashMap<usize, NObject>>
+	pub objs:Arc<Mutex<HashMap<usize, NObject>>>,
+    pub objs_ref:Arc<Mutex<HashMap<usize, NObject>>>,// 引用obj
 }
 
 impl BonMgr{
 	pub fn new () -> BonMgr{
 		BonMgr{
-			fun_metas: HashMap::new(),
-			struct_metas: HashMap::new(),
+			fun_metas: Arc::new(Mutex::new(HashMap::new())),
+			struct_metas: Arc::new(Mutex::new(HashMap::new())),
 			//enum_metas: HashMap::new(),
-			objs: RefCell::new(HashMap::new())
+			objs: Arc::new(Mutex::new(HashMap::new())),
+            objs_ref: Arc::new(Mutex::new(HashMap::new())),
 		}
 	}
 
 	//有参数的调用
-	pub fn call(&mut self, js: Arc<JS>, fun_hash: u32, args: Option<Vec<JSType>>) -> Option<CallResult> {
-		let func = match self.fun_metas.get(&fun_hash){
+	pub fn call(&self, js: Arc<JS>, fun_hash: u32, args: Option<Vec<JSType>>) -> Option<CallResult> {
+        let fun_ref = self.fun_metas.lock().unwrap();
+		let func = match fun_ref.get(&fun_hash){
 			Some(v) => v,
 			None => {
 				panic!("FnMeta is not finded, hash:{}", fun_hash);
@@ -128,21 +131,28 @@ impl BonMgr{
 		}
 	}
 
-	pub fn regist_fun_meta(&mut self, meta: FnMeta, hash: u32){
-		self.fun_metas.insert(hash, meta);
+	pub fn regist_fun_meta(&self, meta: FnMeta, hash: u32){
+        let mut fun_ref = self.fun_metas.lock().unwrap();
+		fun_ref.insert(hash, meta);
 	}
 
-	pub fn regist_struct_meta(&mut self, meta: StructMeta, hash: u32){
-		self.struct_metas.insert(hash, meta);
+	pub fn regist_struct_meta(&self, meta: StructMeta, hash: u32){
+        let mut struct_ref = self.struct_metas.lock().unwrap();
+		struct_ref.insert(hash, meta);
 	}
 
 	// pub fn regist_enum_meta(&mut self, meta: EnumMeta, hash: u32){
 	// 	self.enum_metas.insert(hash, meta);
 	// }
 
-	pub fn regist_obj(&self, obj:NObject, ptr: usize){
-		self.objs.borrow_mut().insert(ptr, obj);
-	}
+	// pub fn regist_obj(&self, obj:NObject, ptr: usize, is_ownership: bool){
+    //     if is_ownership{
+    //         self.objs.borrow_mut().insert(ptr, obj);
+    //     }else{
+    //         self.objs_ref.borrow_mut().insert(ptr, obj);
+    //     }
+		
+	// }
 
 	// pub fn get_func_meta(&self, hash: u32) -> Result<&FnMeta, &'static str>{
 	// 	let func = self.fun_metas.get(&hash);
@@ -179,24 +189,43 @@ impl BonMgr{
 }
 
 //特为构建代码提供，主要用于函数参数native_object转换为ptr， 如果类型不匹配将返回一个错误
-pub fn jstype_ptr<'a>(jstype: &JSType, mgr: &BonMgr, obj_type: u32 ,error_str: &'a str) -> Result<usize, &'a str>{
+pub fn jstype_ptr<'a>(jstype: &JSType, mgr: &BonMgr, obj_type: u32 , is_ownership:bool, error_str: &'a str) -> Result<usize, &'a str>{
 	if !jstype.is_native_object(){
 		return Err(error_str);
 	}
 	let ptr = jstype.get_native_object();
-	let obj = mgr.objs.borrow();
-	let obj = match obj.get(&ptr){
-		Some(v) => v,
-		None => {return Ok(ptr)//return Err("NObject is not finded");  
-		}
-	};
-	if obj.meta_hash == obj_type{
-		Ok(ptr)
-	}else{
-        println!("expect {}, found {}", obj_type, obj.meta_hash);
-		Err("type is diff")
-	}
-	
+    let mut objs = mgr.objs.lock().unwrap();
+	let r = {
+        let objs_ref = mgr.objs_ref.lock().unwrap();
+        let obj = match objs.get(&ptr){//先从拥有所有权的obj列表中获取NObject
+            Some(v) => v,
+            None => {
+                if is_ownership {//如果需要所有权， 直接抛出错误
+                    println!("NObject is not found in objs, ptr:{}", ptr);
+                    return Err("NObject is not found in objs");
+                }else{//如果不需要所有权， 从引用类obj列表中获取NObject
+                    match objs_ref.get(&ptr){
+                        Some(v) => v,
+                        None => {
+                            println!("NObject is not found in objs_ref, ptr:{}", ptr);
+                            return Err("NObject is not found in objs_ref");
+                        }
+                    }
+                }
+            }
+        };
+        if obj.meta_hash == obj_type{
+            Ok(ptr)
+        }else{
+            println!("expect {}, found {}", obj_type, obj.meta_hash);
+            Err("type is diff")
+        }
+    };
+
+    if is_ownership{//如果参数要求所有权， 需要从所有权obj列表中删除
+        objs.remove(&ptr);
+    }
+    r
 	// let meta = match mgr.struct_metas.get(&obj.meta_hash){
 	// 	Some(v) => v,
 	// 	None => {return Err("StructMeta is not finded");}
@@ -210,12 +239,11 @@ pub fn jstype_ptr<'a>(jstype: &JSType, mgr: &BonMgr, obj_type: u32 ,error_str: &
 }
 
 //特为构建代码提供，主要用于函数返回时ptr转换为native_object， 同时将根据返回类型构建NObject并注册
-pub fn ptr_jstype(mgr: &BonMgr,js: Arc<JS>, ptr: usize, meta_hash: u32) -> JSType{
+pub fn ptr_jstype(objs: Arc<Mutex<HashMap<usize, NObject>>>,js: Arc<JS>, ptr: usize, meta_hash: u32) -> JSType{
 	let nobj = NObject{meta_hash: meta_hash};
-	mgr.regist_obj(nobj, ptr);
+    objs.lock().unwrap().insert(ptr, nobj);
 	js.new_native_object(ptr)
 }
-
 
 // #[cfg(test)]
 // mod tests {
