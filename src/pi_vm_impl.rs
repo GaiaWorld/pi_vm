@@ -1,31 +1,32 @@
 use std::thread;
+use std::sync::Arc;
 use std::boxed::FnBox;
 use std::time::Duration;
-use std::sync::Arc;
 use std::sync::atomic::{Ordering, AtomicUsize};
 
 use magnetic::mpmc::*;
-use magnetic::buffer::dynamic::DynamicBuffer;
 use magnetic::{Producer, Consumer};
+use magnetic::buffer::dynamic::DynamicBuffer;
 
 use pi_base::task::TaskType;
 use pi_base::pi_base_impl::cast_js_task;
-use adapter::{JSStatus, JS, try_js_destroy, dukc_vm_status_check, dukc_vm_status_switch, dukc_vm_status_sub, dukc_wakeup, dukc_continue, js_reply_callback};
+use adapter::{JSStatus, JSMsg, JS, try_js_destroy, dukc_vm_status_check, dukc_vm_status_switch, dukc_wakeup, dukc_continue, js_reply_callback};
 use pi_lib::atom::Atom;
+
+/*
+* 默认虚拟机异步消息队列最大长度
+*/
+const VM_MSG_QUEUE_MAX_SIZE: u16 = 0xff;
 
 /*
 * 虚拟机工厂
 */
 #[derive(Clone)]
 pub struct VMFactory {
-    //虚拟机池中虚拟机的数量
-    size: Arc<AtomicUsize>,
-    //字节码列表
-    codes: Arc<Vec<Arc<Vec<u8>>>>,
-    //虚拟机生产者
-    producer: Arc<MPMCProducer<JS, DynamicBuffer<JS>>>,
-    //虚拟机消费者
-    consumer: Arc<MPMCConsumer<JS, DynamicBuffer<JS>>>,
+    size: Arc<AtomicUsize>,                             //虚拟机池中虚拟机的数量
+    codes: Arc<Vec<Arc<Vec<u8>>>>,                      //字节码列表
+    producer: Arc<MPMCProducer<Arc<JS>, DynamicBuffer<Arc<JS>>>>, //虚拟机生产者
+    consumer: Arc<MPMCConsumer<Arc<JS>, DynamicBuffer<Arc<JS>>>>, //虚拟机消费者
 }
 
 impl VMFactory {
@@ -61,39 +62,40 @@ impl VMFactory {
 
     //生成一个虚拟机，返回生成前虚拟机池中虚拟机数量，0表示生成失败     
     pub fn produce(&self) -> usize {
-        match self.new_vm() {
+        match self.new_vm(VM_MSG_QUEUE_MAX_SIZE) {
             None => 0,
             Some(vm) => {
                 match self.producer.try_push(vm) {
                     Err(_) => 0,
-                    Ok(_) => self.size.fetch_add(1, Ordering::Acquire),
+                    Ok(_) => self.size.fetch_add(1, Ordering::Acquire) + 1,
                 }
             }
         }
     }
 
     //从虚拟机池中获取一个虚拟机，并调用指定的js全局函数
-    pub fn call(&self, uid: u32, args: Box<FnBox(JS) -> JS>, info: Atom) {
+    pub fn call(&self, uid: u32, args: Box<FnBox(Arc<JS>)>, info: Atom) {
+        //弹出虚拟机，以保证同一时间只有一个线程访问同一个虚拟机
         match self.consumer.try_pop() {
             Err(_) => {
                 //没有空闲虚拟机，则立即构建临时虚拟机
-                match self.new_vm() {
+                match self.new_vm(VM_MSG_QUEUE_MAX_SIZE) {
                     None => (),
-                    Some(mut vm) => {
+                    Some(vm) => {
                         let func = Box::new(move || {
                             vm.get_js_function("_$rpc".to_string());
-                            vm = args(vm);
+                            args(vm.clone());
                             vm.call(4);
                         });
                         cast_js_task(TaskType::Sync, 5000000000 + uid as u64, func, info);
                     }
                 }
             }
-            Ok(mut vm) => {
+            Ok(vm) => {
                 let producer = self.producer.clone();
                 let func = Box::new(move || {
                     vm.get_js_function("_$rpc".to_string());
-                    vm = args(vm);
+                    args(vm.clone());
                     vm.call(4);
                     //调用完成后复用虚拟机
                     match producer.try_push(vm) {
@@ -107,8 +109,8 @@ impl VMFactory {
     }
 
     //构建一个虚拟机，并加载所有字节码
-    fn new_vm(&self) -> Option<JS> {
-        match JS::new() {
+    fn new_vm(&self, queue_max_size: u16) -> Option<Arc<JS>> {
+        match JS::new(queue_max_size) {
             None => None,
             Some(vm) => {
                 for code in self.codes.iter() {
@@ -145,9 +147,6 @@ pub fn block_reply(js: Arc<JS>, result: Box<FnBox(Arc<JS>)>, task_type: TaskType
                     dukc_wakeup(copy_js.get_vm(), 0);
                     result(copy_js.clone());
                     dukc_continue(copy_js.get_vm(), js_reply_callback);
-                    //当前异步任务如果没有投递其它异步任务，则当前异步任务成为同步任务，并在当前异步任务完成后回收虚拟机
-                    //否则还有其它异步任务，则回收权利交由其它异步任务
-                    dukc_vm_status_sub(copy_js.get_vm(), 1);
                 } else {
                     try_js_destroy(&copy_js);
                     panic!("cast block reply task failed");
@@ -177,9 +176,6 @@ pub fn block_throw(js: Arc<JS>, reason: String, task_type: TaskType, priority: u
                     dukc_wakeup(copy_js.get_vm(), 1);
                     copy_js.new_str(reason);
                     dukc_continue(copy_js.get_vm(), js_reply_callback);
-                    //当前异步任务如果没有投递其它异步任务，则当前异步任务成为同步任务，并在当前异步任务完成后回收虚拟机
-                    //否则还有其它异步任务，则回收权利交由其它异步任务
-                    dukc_vm_status_sub(copy_js.get_vm(), 1);
                 } else {
                     try_js_destroy(&copy_js);
                     panic!("cast block throw task failed");
@@ -190,20 +186,27 @@ pub fn block_throw(js: Arc<JS>, reason: String, task_type: TaskType, priority: u
     cast_js_task(task_type, priority, func, info);
 }
 
+/*
+* 线程安全的向虚拟机推送异步回调函数，返回当前虚拟机异步消息队列长度，如果返回0，则表示推送失败
+*/
+pub fn push_callback(js: Arc<JS>, callback: u32, args: Box<FnBox(Arc<JS>) -> usize>, info: Atom) -> usize {
+    js.push(JSMsg::new(callback, args, info))
+}
+
 #[cfg(all(feature="unstable", any(target_arch = "x86", target_arch = "x86_64")))]
 #[inline(always)]
-pub fn pause() {
+fn pause() {
     unsafe { asm!("PAUSE") };
 }
 
 #[cfg(all(not(feature="unstable"), any(target_arch = "x86", target_arch = "x86_64")))]
 #[inline(always)]
-pub fn pause() {
+fn pause() {
     thread::sleep(Duration::from_millis(1));
 }
 
 #[cfg(all(not(target_arch = "x86"), not(target_arch = "x86_64")))]
 #[inline(always)]
-pub fn pause() {
+fn pause() {
     thread::sleep(Duration::from_millis(1));
 }

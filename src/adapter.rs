@@ -1,12 +1,23 @@
-use libc::{c_void, c_char, int8_t, uint8_t, c_int, uint32_t, uint64_t, c_double, memcpy};
+use libc::{c_void, c_char, int8_t, uint8_t, c_int, /* int32_t, */ uint32_t, uint64_t, c_double, memcpy};
 use std::slice::{from_raw_parts_mut, from_raw_parts};
+use std::sync::atomic::{Ordering, AtomicUsize};
 use std::string::FromUtf8Error;
 use std::ffi::{CStr, CString};
 use std::mem::transmute;
+use std::boxed::FnBox;
 use std::ops::Drop;
+use std::sync::Arc;
+
+use magnetic::mpsc::*;
+use magnetic::{Producer, Consumer};
+use magnetic::buffer::dynamic::DynamicBuffer;
 
 #[cfg(not(unix))]
 use kernel32;
+
+use pi_lib::atom::Atom;
+use pi_base::task::TaskType;
+use pi_base::pi_base_impl::cast_js_task;
 
 use native_object_impl::*;
 
@@ -14,12 +25,13 @@ use native_object_impl::*;
 extern "C" {
     fn dukc_register_native_object_function_call(func: extern fn(*const c_void, uint32_t, uint32_t, *const c_void, *const c_void) -> c_int);
     fn dukc_register_native_object_free(func: extern fn(*const c_void, uint32_t));
-    fn dukc_vm_create() -> *const c_void;
-    fn dukc_vm_init(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char)) -> uint32_t;
+    fn dukc_heap_create() -> *const c_void;
+    fn dukc_heap_init(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char)) -> uint32_t;
+    // fn dukc_vm_create(heap: *const c_void) -> *const c_void;
     fn dukc_compile_script(vm: *const c_void, file: *const c_char, code: *const c_char, size: *mut uint32_t, reply: extern fn(*const c_void, c_int, *const c_char)) -> *const c_void;
     fn dukc_load_code(vm: *const c_void, size: uint32_t, bytes: *const c_void) -> uint32_t;
-    fn dukc_bind_vm(vm: *const c_void);
-    fn dukc_vm_clone(size: uint32_t, bytes: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char)) -> *const c_void;
+    fn dukc_bind_vm(vm: *const c_void, handler: *const c_void);
+    // fn dukc_vm_clone(size: uint32_t, bytes: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char)) -> *const c_void;
     fn dukc_vm_run(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
     pub fn dukc_vm_status_check(vm: *const c_void, value: int8_t) -> uint8_t;
     pub fn dukc_vm_status_switch(vm: *const c_void, old_status: int8_t, new_status: int8_t) -> int8_t;
@@ -48,27 +60,92 @@ extern "C" {
     fn dukc_get_buffer(vm: *const c_void, value: uint32_t) -> *const c_void;
     fn dukc_get_native_object_instance(vm: *const c_void, value: uint32_t) -> uint64_t;
     fn dukc_get_js_function(vm: *const c_void, func: *const c_char) -> uint32_t;
-    fn dukc_call(vm: *const c_void, len: uint8_t, reply: extern fn(*const c_void, c_int, *const c_char));
+    pub fn dukc_get_callback(vm: *const c_void, index: uint32_t) -> uint32_t ;
+    pub fn dukc_call(vm: *const c_void, len: uint8_t, reply: extern fn(*const c_void, c_int, *const c_char));
     pub fn dukc_throw(vm: *const c_void, reason: *const c_char);
     pub fn dukc_wakeup(vm: *const c_void, error: c_int) -> uint32_t;
     pub fn dukc_continue(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
     pub fn dukc_switch_context(vm: *const c_void);
+    pub fn dukc_remove_callback(vm: *const c_void, index: uint32_t) -> uint32_t;
+    // fn dukc_top(vm: *const c_void) -> int32_t;
+    // fn dukc_to_string(vm: *const c_void, offset: int32_t) -> *const c_char;
+    fn dukc_pop(vm: *const c_void);
     fn dukc_vm_destroy(vm: *const c_void);
 }
 
-//js返回回调函数
+/*
+* js返回回调函数
+*
+* 当前异步任务如果没有投递其它异步任务，则当前异步任务成为同步任务，并在当前异步任务完成后执行异步消息队列中的回调函数，如果没有异步消息，则回收虚拟机
+*  否则还有其它异步任务，则回收权利交由其它异步任务
+*/
 #[no_mangle]
-pub extern "C" fn js_reply_callback(vm: *const c_void, status: c_int, err: *const c_char) {
-    if status == 0 {
-        //调用正常，则忽略
+pub extern "C" fn js_reply_callback(handler: *const c_void, status: c_int, err: *const c_char) {
+    if handler.is_null() {
+        //处理初始化异常
+        if status != 0 {
+            println!("===> JS Init Error, status: {}, err: {}", status, unsafe { CStr::from_ptr(err).to_string_lossy().into_owned() });
+        }
         return;
     }
 
-    unsafe { dukc_vm_status_sub(vm, 1); } //当前同步任务执行js错误，需要改变状态，保证虚拟机回收或异步任务被执行
-    panic!("js error, vm: {}, status: {}, err: {}", vm as usize, status, unsafe { CStr::from_ptr(err).to_string_lossy().into_owned() });
+    let js: Arc<JS>;
+    let vm: *const c_void;
+    unsafe {
+        js = JS::from_raw(handler);
+        vm = js.get_vm();
+
+        //处理执行异常
+        if status != 0 {
+            println!("===> JS Run Error, vm: {}, queue size: {}, status: {}, err: {}", 
+                                                                                vm as usize, 
+                                                                                js.queue.size.load(Ordering::Relaxed), 
+                                                                                status, 
+                                                                                CStr::from_ptr(err).to_string_lossy().into_owned());
+        }
+
+        if dukc_vm_status_check(vm, JSStatus::WaitBlock as i8) > 0 {
+            //当前虚拟机任务已执行完成且当前虚拟机状态是等待状态，则需要改变状态，保证虚拟机异步任务被执行
+            dukc_vm_status_sub(vm, 1);
+        } else if dukc_vm_status_check(vm, JSStatus::SingleTask as i8) > 0 {
+            //当前虚拟机同步任务、异步任务或异步回调已执行完成，且当前虚拟机状态是同步状态，则处理异步消息队列
+            let msg: JSMsg;
+
+            dukc_pop(vm); //移除上次同步任务、异步任务或回调函数的执行结果
+            
+            loop {
+                match js.pop() {
+                    None => {
+                        //异步消息队列为空，则需要将执行结果弹出值栈并改变状态，保证虚拟机回收或执行下一个任务
+                        dukc_vm_status_sub(vm, 1);
+                        Arc::into_raw(js);
+                        return;
+                    },
+                    Some(m) => {
+                        //异步消息队列不为空，则获取回调函数，不需要改变状态，以保证当前虚拟机可以线程安全的执行回调函数
+                        if dukc_get_callback(js.get_vm(), m.index) == 0 {
+                            //当前回调函数不存在，则获取下一个异步消息
+                            continue;
+                        }
+                        dukc_remove_callback(js.get_vm(), m.index); //移除回调函数
+                        msg = m;
+                        break;
+                    },
+                }
+            }
+            callback(js.clone(), msg);
+        } else {
+            //当前虚拟机为其它状态，则忽略
+            Arc::into_raw(js);
+            return;
+        }
+    }
+    Arc::into_raw(js);
 }
 
-//初始化注入NativeObject关联函数
+/*
+* 初始化注入NativeObject关联函数
+*/
 pub fn register_native_object() {
     unsafe {
         dukc_register_native_object_function_call(native_object_function_call);
@@ -76,72 +153,19 @@ pub fn register_native_object() {
     }
 }
 
-//执行njsc测试代码
+/*
+* 执行njsc测试代码
+*/
 pub fn dukc_test_main() {
     // unsafe { test_main(); }
 }
 
-//显示加载动态库
+/*
+* 显示加载动态库
+*/
 #[cfg(not(unix))]
 pub fn load_lib_backtrace() {
     unsafe { kernel32::LoadLibraryA(CString::new("backtrace").unwrap().as_ptr()); }
-}
-
-/*
-* js虚拟机模板
-*/
-pub struct JSTemplate {
-    ptr: *const c_void,
-    bytes: *const c_void,
-    size: u32,
-}
-
-impl Drop for JSTemplate {
-    fn drop(&mut self) {
-        unsafe {
-            let inner = self.get_inner();
-            if inner == 0 {
-                return;
-            }
-            dukc_vm_destroy(inner as *const c_void);
-        };
-    }
-}
-
-impl JSTemplate {
-    //构造一个指定脚本的js虚拟机模板
-    pub fn new(file: String, script: String) -> Option<Self> {
-        let ptr: *const c_void;
-        unsafe { ptr = dukc_vm_create() }
-        if ptr.is_null() {
-            None
-        } else {
-            let mut len = 0u32;
-            let size: *mut u32 = &mut len;
-            let bytes = unsafe { dukc_compile_script(ptr, CString::new(file).unwrap().as_ptr(), CString::new(script).unwrap().as_ptr(), size, js_reply_callback) };
-            Some(JSTemplate {
-                ptr: ptr,
-                bytes: bytes,
-                size: len,
-            })
-        }
-    }
-
-    //复制一个指定模板的js虚拟机
-    pub fn clone(&self) -> Option<JS> {
-        let ptr: *const c_void;
-        unsafe { ptr = dukc_vm_clone(self.size, self.bytes, js_reply_callback) }
-        if (ptr as usize) == 0 {
-            None
-        } else {
-            Some(JS {vm: ptr as usize})
-        }
-    }
-
-    //获取虚拟机模板的指针
-    pub unsafe fn get_inner(&self) -> usize {
-        self.ptr as usize
-    }
 }
 
 /*
@@ -156,14 +180,47 @@ pub enum JSStatus {
 }
 
 /*
+* js异步消息
+*/
+pub struct JSMsg {
+    index: u32,                         //异步回调函数的编号
+    args: Box<FnBox(Arc<JS>) -> usize>, //异步回调函数的参数
+    info: Atom,                         //消息
+}
+
+impl JSMsg {
+    //构建一个异步消息
+    pub fn new(index: u32, args: Box<FnBox(Arc<JS>) -> usize>, info: Atom) -> Self {
+        JSMsg {
+            index: index,
+            args: args,
+            info: info,
+        }
+    }
+}
+
+/*
+* js异步消息队列
+*/
+#[derive(Clone)]
+struct JSMsgQueue {
+    size: Arc<AtomicUsize>,                                     //虚拟机异步消息队列长度
+    producer: Arc<MPSCProducer<JSMsg, DynamicBuffer<JSMsg>>>,   //虚拟机异步消息队列生产者
+    consumer: Arc<MPSCConsumer<JSMsg, DynamicBuffer<JSMsg>>>,   //虚拟机异步消息队列消费者
+}
+
+/*
 * js运行环境
 */
 #[derive(Clone)]
 pub struct JS {
-    vm: usize,
+    vm: usize,                  //虚拟机
+    queue: JSMsgQueue,          //虚拟机异步消息队列
 }
 
-//尝试destroy虚拟机
+/*
+* 尝试destroy虚拟机
+*/
 pub fn try_js_destroy(js: &JS) {
     if js.vm == 0 {
         return;
@@ -186,27 +243,36 @@ impl Drop for JS {
 
 impl JS {
     //构建一个虚拟机
-    pub fn new() -> Option<Self> {
+    pub fn new(queue_max_size: u16) -> Option<Arc<Self>> {
         let ptr: *const c_void;
-        unsafe { ptr = dukc_vm_create() }
+        unsafe { ptr = dukc_heap_create() }
         if ptr.is_null() {
             None
         } else {
+            let (p, c) = mpsc_queue(DynamicBuffer::new(queue_max_size as usize).unwrap());
             unsafe {
-                if dukc_vm_init(ptr, js_reply_callback) == 0 {
+                if dukc_heap_init(ptr, js_reply_callback) == 0 {
                     dukc_vm_destroy(ptr);
                     return None;
                 }
                 dukc_vm_run(ptr, js_reply_callback);
-                dukc_bind_vm(ptr);
             }
-            Some(JS {vm: ptr as usize})
+            let arc = Arc::new(JS {
+                vm: ptr as usize,
+                queue: JSMsgQueue {
+                    size: Arc::new(AtomicUsize::new(0)),
+                    producer: Arc::new(p),
+                    consumer: Arc::new(c),
+                },
+            });
+            unsafe { dukc_bind_vm(ptr, Arc::into_raw(arc.clone()) as *const c_void); }
+            Some(arc)
         }
     }
 
     //从指针构建指定虚拟机
-    pub unsafe fn from_raw(ptr: *const c_void) -> Self {
-        JS {vm: ptr as usize}
+    pub unsafe fn from_raw(ptr: *const c_void) -> Arc<Self> {
+        Arc::from_raw(ptr as *const JS)
     }
 
     //获取内部虚拟机
@@ -251,10 +317,9 @@ impl JS {
             let status = dukc_vm_status_switch(self.vm as *const c_void, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
             if status == JSStatus::SingleTask as i8 {
                 //当前虚拟机状态错误，无法运行
-                panic!("invalid vm status with run");
+                println!("invalid vm status with run");
             } else {
                 dukc_vm_run(self.vm as *const c_void, js_reply_callback);
-                dukc_vm_status_sub(self.vm as *const c_void, 1);
             }
         }
     }
@@ -516,11 +581,29 @@ impl JS {
             let status = dukc_vm_status_switch(vm as *const c_void, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
             if status == JSStatus::SingleTask as i8 {
                 //当前虚拟机正在destroy或有任务
-                panic!("invalid vm status with call");
+                println!("invalid vm status with call");
             } else {
                 dukc_call(self.vm as *const c_void, len as u8, js_reply_callback);
-                dukc_vm_status_sub(self.vm as *const c_void, 1);
             }
+        }
+    }
+
+    //从异步消息队列中弹出消息
+    pub fn pop(&self) -> Option<JSMsg> {
+        match self.queue.consumer.try_pop() {
+            Err(_) => None,
+            Ok(msg) => {
+                self.queue.size.fetch_sub(1, Ordering::Acquire);
+                Some(msg)
+            },
+        }    
+    }
+
+    //向异步消息队列中推送消息
+    pub fn push(&self, msg: JSMsg) -> usize {
+        match self.queue.producer.try_push(msg) {
+            Err(_) => 0,
+            Ok(_) => self.queue.size.fetch_add(1, Ordering::Acquire) + 1,
         }
     }
 }
@@ -1194,3 +1277,17 @@ impl JSBuffer {
         last as isize
     }
 }
+
+/*
+* 线程安全的执行异步消息队列中的回调函数
+*/
+#[inline]
+fn callback(js: Arc<JS>, msg: JSMsg) {
+    let info = msg.info.clone();
+    let func = Box::new(move || {
+        let args_len = (msg.args)(js.clone());
+        unsafe { dukc_call(js.get_vm(), args_len as u8, js_reply_callback); }
+    });
+    cast_js_task(TaskType::Async, 5000000000, func, info);
+}
+
