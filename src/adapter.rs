@@ -1,4 +1,4 @@
-use libc::{c_void, c_char, int8_t, uint8_t, c_int, int32_t, uint32_t, uint64_t, c_double, memcpy};
+use libc::{c_void, c_char, int8_t, uint8_t, c_int, /* int32_t, */ uint32_t, uint64_t, c_double, memcpy};
 use std::slice::{from_raw_parts_mut, from_raw_parts};
 use std::sync::atomic::{Ordering, AtomicUsize};
 use std::string::FromUtf8Error;
@@ -27,11 +27,11 @@ extern "C" {
     fn dukc_register_native_object_free(func: extern fn(*const c_void, uint32_t));
     fn dukc_heap_create() -> *const c_void;
     fn dukc_heap_init(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char)) -> uint32_t;
-    fn dukc_vm_create(heap: *const c_void) -> *const c_void;
+    // fn dukc_vm_create(heap: *const c_void) -> *const c_void;
     fn dukc_compile_script(vm: *const c_void, file: *const c_char, code: *const c_char, size: *mut uint32_t, reply: extern fn(*const c_void, c_int, *const c_char)) -> *const c_void;
     fn dukc_load_code(vm: *const c_void, size: uint32_t, bytes: *const c_void) -> uint32_t;
     fn dukc_bind_vm(vm: *const c_void, handler: *const c_void);
-    fn dukc_vm_clone(size: uint32_t, bytes: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char)) -> *const c_void;
+    // fn dukc_vm_clone(size: uint32_t, bytes: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char)) -> *const c_void;
     fn dukc_vm_run(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
     pub fn dukc_vm_status_check(vm: *const c_void, value: int8_t) -> uint8_t;
     pub fn dukc_vm_status_switch(vm: *const c_void, old_status: int8_t, new_status: int8_t) -> int8_t;
@@ -67,8 +67,8 @@ extern "C" {
     pub fn dukc_continue(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
     pub fn dukc_switch_context(vm: *const c_void);
     pub fn dukc_remove_callback(vm: *const c_void, index: uint32_t) -> uint32_t;
-    fn dukc_top(vm: *const c_void) -> int32_t;
-    fn dukc_to_string(vm: *const c_void, offset: int32_t) -> *const c_char;
+    // fn dukc_top(vm: *const c_void) -> int32_t;
+    // fn dukc_to_string(vm: *const c_void, offset: int32_t) -> *const c_char;
     fn dukc_pop(vm: *const c_void);
     fn dukc_vm_destroy(vm: *const c_void);
 }
@@ -166,73 +166,6 @@ pub fn dukc_test_main() {
 #[cfg(not(unix))]
 pub fn load_lib_backtrace() {
     unsafe { kernel32::LoadLibraryA(CString::new("backtrace").unwrap().as_ptr()); }
-}
-
-/*
-* js虚拟机模板
-*/
-struct JSTemplate {
-    ptr: *const c_void,
-    bytes: *const c_void,
-    size: u32,
-}
-
-impl Drop for JSTemplate {
-    fn drop(&mut self) {
-        unsafe {
-            let inner = self.get_inner();
-            if inner == 0 {
-                return;
-            }
-            dukc_vm_destroy(inner as *const c_void);
-        };
-    }
-}
-
-impl JSTemplate {
-    //构造一个指定脚本的js虚拟机模板
-    pub fn new(file: String, script: String) -> Option<Self> {
-        let ptr: *const c_void;
-        unsafe { ptr = dukc_heap_create() }
-        if ptr.is_null() {
-            None
-        } else {
-            let mut len = 0u32;
-            let size: *mut u32 = &mut len;
-            let bytes = unsafe { dukc_compile_script(ptr, CString::new(file).unwrap().as_ptr(), CString::new(script).unwrap().as_ptr(), size, js_reply_callback) };
-            Some(JSTemplate {
-                ptr: ptr,
-                bytes: bytes,
-                size: len,
-            })
-        }
-    }
-
-    //复制一个指定模板的js虚拟机
-    pub fn clone(&self, queue_max_size: u16) -> Option<Arc<JS>> {
-        let ptr: *const c_void;
-        unsafe { ptr = dukc_vm_clone(self.size, self.bytes, js_reply_callback) }
-        if (ptr as usize) == 0 {
-            None
-        } else {
-            let (p, c) = mpsc_queue(DynamicBuffer::new(queue_max_size as usize).unwrap());
-            let arc = Arc::new(JS {
-                vm: ptr as usize,
-                queue: JSMsgQueue {
-                    size: Arc::new(AtomicUsize::new(0)),
-                    producer: Arc::new(p),
-                    consumer: Arc::new(c),
-                },
-            });
-            unsafe { dukc_bind_vm(ptr, Arc::into_raw(arc.clone()) as *const c_void); }
-            Some(arc)
-        }
-    }
-
-    //获取虚拟机模板的指针
-    pub unsafe fn get_inner(&self) -> usize {
-        self.ptr as usize
-    }
 }
 
 /*
