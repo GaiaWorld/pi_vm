@@ -27,13 +27,10 @@ impl StructMember for Property{}
 pub struct StructMeta {
 	pub name: String,
 	//pub tp:String,//struct, tuple, empty
-	//pub members:Vec<Box<StructMember>>
-}
-
-// pub struct EnumMeta {
+	//pub members:Vec<Box<StructMember\0// pub struct EnumMeta {
 // 	pub name: String,
 // 	pub members: Vec<StructMeta>
-// }
+}
 
 pub enum FnMeta {
 	CallArgNobj(fn(Arc<JS>, &BonMgr, Vec<JSType>) -> Option<CallResult>),
