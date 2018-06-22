@@ -63,7 +63,7 @@ fn base_test() {
     let opts = JS::new(0xff);
     assert!(opts.is_some());
     let js = opts.unwrap();
-    let opts = js.compile("base_test.js".to_string(), "var obj = {}; console.log(\"!!!!!!obj: \" + obj);".to_string());
+    let opts = js.compile("base_test.js".to_string(), "var obj = {a: 10, c: true, d: {a: 0.9999999, c: \"ADSFkfaf中()**&^$111\", d: [new Uint8Array(), new ArrayBuffer(), function(x) { return x; }]}}; console.log(\"!!!!!!obj:\", obj);".to_string());
     assert!(opts.is_some());
     let codes0 = opts.unwrap();
     assert!(js.load(codes0.as_slice()));
