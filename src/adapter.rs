@@ -112,10 +112,11 @@ pub extern "C" fn js_reply_callback(handler: *const c_void, status: c_int, err: 
             let msg: JSMsg;
 
             dukc_pop(vm); //移除上次同步任务、异步任务或回调函数的执行结果
-            
+            println!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!call finish, callback start");
             loop {
                 match js.pop() {
                     None => {
+                        println!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!callback empty");
                         //异步消息队列为空，则需要将执行结果弹出值栈并改变状态，保证虚拟机回收或执行下一个任务
                         dukc_vm_status_sub(vm, 1);
                         Arc::into_raw(js);
@@ -1286,6 +1287,7 @@ fn callback(js: Arc<JS>, msg: JSMsg) {
     let info = msg.info.clone();
     let func = Box::new(move || {
         let args_len = (msg.args)(js.clone());
+         println!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!callback, args_len: {}", args_len);
         unsafe { dukc_call(js.get_vm(), args_len as u8, js_reply_callback); }
     });
     cast_js_task(TaskType::Async, 5000000000, func, info);
