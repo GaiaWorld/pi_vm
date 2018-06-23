@@ -1,4 +1,4 @@
-use libc::{c_void, c_char, int8_t, uint8_t, c_int, /* int32_t, */ uint32_t, uint64_t, c_double, memcpy};
+use libc::{c_void, c_char, int8_t, uint8_t, c_int, uint32_t, uint64_t, c_double, memcpy};
 use std::slice::{from_raw_parts_mut, from_raw_parts};
 use std::sync::atomic::{Ordering, AtomicUsize};
 use std::string::FromUtf8Error;
@@ -66,6 +66,7 @@ extern "C" {
     pub fn dukc_wakeup(vm: *const c_void, error: c_int) -> uint32_t;
     pub fn dukc_continue(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
     pub fn dukc_switch_context(vm: *const c_void);
+    pub fn dukc_callback_count(vm: *const c_void) -> uint32_t;
     pub fn dukc_remove_callback(vm: *const c_void, index: uint32_t) -> uint32_t;
     // fn dukc_top(vm: *const c_void) -> int32_t;
     // fn dukc_to_string(vm: *const c_void, offset: int32_t) -> *const c_char;
@@ -109,39 +110,44 @@ pub extern "C" fn js_reply_callback(handler: *const c_void, status: c_int, err: 
             dukc_vm_status_sub(vm, 1);
         } else if dukc_vm_status_check(vm, JSStatus::SingleTask as i8) > 0 {
             //当前虚拟机同步任务、异步任务或异步回调已执行完成，且当前虚拟机状态是同步状态，则处理异步消息队列
-            let msg: JSMsg;
-
             dukc_pop(vm); //移除上次同步任务、异步任务或回调函数的执行结果
-            println!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!call finish, callback start");
-            loop {
-                match js.pop() {
-                    None => {
-                        println!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!callback empty");
-                        //异步消息队列为空，则需要将执行结果弹出值栈并改变状态，保证虚拟机回收或执行下一个任务
-                        dukc_vm_status_sub(vm, 1);
-                        Arc::into_raw(js);
-                        return;
-                    },
-                    Some(m) => {
-                        //异步消息队列不为空，则获取回调函数，不需要改变状态，以保证当前虚拟机可以线程安全的执行回调函数
-                        if dukc_get_callback(js.get_vm(), m.index) == 0 {
-                            //当前回调函数不存在，则获取下一个异步消息
-                            continue;
-                        }
-                        dukc_remove_callback(js.get_vm(), m.index); //移除回调函数
-                        msg = m;
-                        break;
-                    },
-                }
-            }
-            callback(js.clone(), msg);
-        } else {
-            //当前虚拟机为其它状态，则忽略
-            Arc::into_raw(js);
-            return;
+            handle_async_callback(js.clone(), vm);
         }
     }
     Arc::into_raw(js);
+}
+
+/*
+* 处理异步回调
+*/
+pub unsafe fn handle_async_callback(js: Arc<JS>, vm: *const c_void) {
+    let msg: JSMsg;
+    loop {
+        match js.pop() {
+            None => {
+                //异步消息队列为空
+                if dukc_callback_count(vm) == 0 {
+                    //没有已注册的异步回调函数，则需要将执行结果弹出值栈并改变状态，保证虚拟机回收或执行下一个任务
+                    dukc_vm_status_sub(vm, 1);
+                } else {
+                    //有已注册的异步回调函数，则需要等待消息异步推送到异步消息队列，保证虚拟机异步回调函数被执行
+                    dukc_vm_status_switch(vm, JSStatus::SingleTask as i8, JSStatus::WaitCallBack as i8);
+                }
+                return;
+            },
+            Some(m) => {
+                //异步消息队列不为空，则获取回调函数，不需要改变状态，以保证当前虚拟机可以线程安全的执行回调函数
+                if dukc_get_callback(js.get_vm(), m.index) == 0 {
+                    //当前回调函数不存在，则获取下一个异步消息
+                    continue;
+                }
+                dukc_remove_callback(js.get_vm(), m.index); //移除回调函数
+                msg = m;
+                break;
+            },
+        }
+    }
+    callback(js.clone(), msg);
 }
 
 /*
@@ -178,6 +184,7 @@ pub enum JSStatus {
     SingleTask,
     MultiTask,
     WaitBlock,
+    WaitCallBack,
 }
 
 /*
@@ -581,7 +588,7 @@ impl JS {
         unsafe {
             let status = dukc_vm_status_switch(vm as *const c_void, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
             if status == JSStatus::SingleTask as i8 {
-                //当前虚拟机正在destroy或有任务
+                //当前虚拟机正在destroy或有其它任务
                 println!("invalid vm status with call");
             } else {
                 dukc_call(self.vm as *const c_void, len as u8, js_reply_callback);
@@ -1287,7 +1294,6 @@ fn callback(js: Arc<JS>, msg: JSMsg) {
     let info = msg.info.clone();
     let func = Box::new(move || {
         let args_len = (msg.args)(js.clone());
-         println!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!callback, args_len: {}", args_len);
         unsafe { dukc_call(js.get_vm(), args_len as u8, js_reply_callback); }
     });
     cast_js_task(TaskType::Async, 5000000000, func, info);
