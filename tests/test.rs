@@ -16,7 +16,7 @@ use pi_base::task_pool::TaskPool;
 use pi_base::util::now_nanosecond;
 use pi_base::worker_pool::WorkerPool;
 use pi_base::pi_base_impl::{JS_TASK_POOL, cast_js_task};
-use pi_vm::pi_vm_impl::{VMFactory, block_reply, block_throw};
+use pi_vm::pi_vm_impl::{VMFactory, block_reply, block_throw, push_callback};
 use pi_vm::adapter::{load_lib_backtrace, register_native_object, dukc_remove_value, JS};
 
 // // #[test]
@@ -296,6 +296,18 @@ fn native_object_call_test() {
     js.new_u64(0xfffffffffff);
     js.new_str("Hello World!!!!!!".to_string());
     js.call(3);
+    thread::sleep(Duration::from_millis(1000));
+    let args = Box::new(move |tmp: Arc<JS>| {
+        tmp.new_u32(0);
+        1
+    });
+    push_callback(js.clone(), 0, args, Atom::from("callback by sync call"));
+    thread::sleep(Duration::from_millis(1000));
+    let args = Box::new(move |tmp: Arc<JS>| {
+        tmp.new_u32(1);
+        1
+    });
+    push_callback(js.clone(), 1, args, Atom::from("callback by sync call"));
     while !js.is_ran() {
         thread::sleep(Duration::from_millis(1));
     }
@@ -305,6 +317,18 @@ fn native_object_call_test() {
     js.new_u64(0xfffffffffff);
     js.new_str("Hello World!!!!!!".to_string());
     js.call(3);
+    thread::sleep(Duration::from_millis(1000));
+    let args = Box::new(move |tmp: Arc<JS>| {
+        tmp.new_u32(2);
+        1
+    });
+    push_callback(js.clone(), 0, args, Atom::from("callback by sync call"));
+    thread::sleep(Duration::from_millis(1000));
+    let args = Box::new(move |tmp: Arc<JS>| {
+        tmp.new_u32(3);
+        1
+    });
+    push_callback(js.clone(), 1, args, Atom::from("callback by sync call"));
     while !js.is_ran() {
         thread::sleep(Duration::from_millis(1));
     }
@@ -314,6 +338,18 @@ fn native_object_call_test() {
     js.new_u64(0xfffffffffff);
     js.new_str("你好 World!!!!!!".to_string());
     js.call(3);
+    thread::sleep(Duration::from_millis(1000));
+    let args = Box::new(move |tmp: Arc<JS>| {
+        tmp.new_u32(4);
+        1
+    });
+    push_callback(js.clone(), 0, args, Atom::from("callback by sync call"));
+    thread::sleep(Duration::from_millis(1000));
+    let args = Box::new(move |tmp: Arc<JS>| {
+        tmp.new_u32(5);
+        1
+    });
+    push_callback(js.clone(), 1, args, Atom::from("callback by sync call"));
     while !js.is_ran() {
         thread::sleep(Duration::from_millis(1));
     }

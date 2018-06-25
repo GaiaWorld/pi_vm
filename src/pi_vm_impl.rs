@@ -10,8 +10,9 @@ use magnetic::buffer::dynamic::DynamicBuffer;
 
 use pi_base::task::TaskType;
 use pi_base::pi_base_impl::cast_js_task;
-use adapter::{JSStatus, JSMsg, JS, js_reply_callback, handle_async_callback, try_js_destroy, dukc_vm_status_check, dukc_vm_status_switch, dukc_wakeup, dukc_continue};
 use pi_lib::atom::Atom;
+
+use adapter::{JSStatus, JSMsg, JS, js_reply_callback, handle_async_callback, try_js_destroy, dukc_vm_status_check, dukc_vm_status_switch, dukc_wakeup, dukc_continue};
 
 /*
 * 默认虚拟机异步消息队列最大长度
