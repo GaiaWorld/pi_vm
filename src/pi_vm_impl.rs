@@ -82,7 +82,7 @@ impl VMFactory {
     }
 
     //从虚拟机池中获取一个虚拟机，并调用指定的js全局函数
-    pub fn call(&self, uid: u32, args: Box<FnBox(Arc<JS>)>, info: Atom) {
+    pub fn call(&self, uid: u32, func: Atom, args: Box<FnBox(Arc<JS>)>, info: Atom) {
         //弹出虚拟机，以保证同一时间只有一个线程访问同一个虚拟机
         match self.consumer.try_pop() {
             Err(_) => {
@@ -91,7 +91,7 @@ impl VMFactory {
                     None => (),
                     Some(vm) => {
                         let func = Box::new(move || {
-                            vm.get_js_function("_$rpc".to_string());
+                            vm.get_js_function((&func).to_string());
                             args(vm.clone());
                             vm.call(4);
                         });
