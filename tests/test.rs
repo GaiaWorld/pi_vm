@@ -10,14 +10,16 @@ use std::thread;
 use std::time::{Instant, Duration};
 use std::sync::{Arc, Mutex, Condvar};
 
+use pi_lib::handler::{Env, GenType, Handler, Args};
 use pi_lib::atom::Atom;
 use pi_base::task::TaskType;
 use pi_base::task_pool::TaskPool;
 use pi_base::util::now_nanosecond;
 use pi_base::worker_pool::WorkerPool;
 use pi_base::pi_base_impl::{JS_TASK_POOL, cast_js_task};
-use pi_vm::pi_vm_impl::{VMFactory, block_reply, block_throw, push_callback};
+use pi_vm::pi_vm_impl::{VMFactory, block_reply, block_throw, push_callback, register_async_request};
 use pi_vm::adapter::{load_lib_backtrace, register_native_object, dukc_remove_value, JS};
+use pi_vm::channel_map::VMChannel;
 
 // // #[test]
 // fn njsc_test() {
@@ -504,6 +506,71 @@ fn native_object_call_block_reply_test_by_clone() {
 
     block_throw(js.clone(), "Throw Error".to_string(), TaskType::Sync, 10, Atom::from("block throw task"));
     thread::sleep(Duration::from_millis(1000));
+}
+
+// #[test]
+fn test_async_request_and_repsonse() {
+    let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
+    worker_pool.run(JS_TASK_POOL.clone());
+
+    struct AsyncRequestHandler;
+
+    unsafe impl Send for AsyncRequestHandler {}
+    unsafe impl Sync for AsyncRequestHandler {}
+
+    impl Handler for AsyncRequestHandler {
+        type A = Arc<Vec<u8>>;
+        type B = u32;
+        type C = ();
+        type D = ();
+        type E = ();
+        type F = ();
+        type G = ();
+        type H = ();
+        type HandleResult = ();
+
+        fn handle(&self, env: Arc<dyn Env>, name: Atom, args: Args<Self::A, Self::B, Self::C, Self::D, Self::E, Self::F, Self::G, Self::H>) -> Self::HandleResult {
+            match env.get_attr(Atom::from("_$gray")) {
+                Some(val) => {
+                    match val {
+                        GenType::USize(gray) => {
+                            println!("!!!!!!gray: {}", gray);
+                        },
+                        _ => assert!(false),
+                    }
+                },
+                _ => assert!(false),
+            }
+
+            assert!(name == Atom::from("test_async_call"));
+
+            match args {
+                Args::TwoArgs(bin, callback) => {
+                    assert!(callback == 0);
+                    println!("!!!!!!bin: {:?}", bin);
+
+                    let channel = unsafe { Arc::from_raw(Arc::into_raw(env.clone()) as *const VMChannel) };
+                    assert!(channel.response(callback, Arc::new("Async Call OK".to_string().into_bytes())))
+                },
+                _ => assert!(false)
+            }
+        }
+    }
+
+    register_async_request(Atom::from("test_async_call"), Arc::new(AsyncRequestHandler));
+
+    load_lib_backtrace();
+    register_native_object();
+    let opts = JS::new(0xff);
+    assert!(opts.is_some());
+    let js = opts.unwrap();
+    let opts = js.compile("native_async_call.js".to_string(), "var index = callbacks.register(function(result) { console.log(\"!!!!!!async call ok, result:\", result); }); var r = NativeObject.call(0x7fffffff, []); console.log(\"!!!!!!async call start, callback:\", index, \", r:\", r);".to_string());
+    assert!(opts.is_some());
+    let codes0 = opts.unwrap();
+    assert!(js.load(codes0.as_slice()));
+    while !js.is_ran() {
+        thread::sleep(Duration::from_millis(1));
+    }
 }
 
 // #[test]

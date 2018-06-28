@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::boxed::FnBox;
+use std::sync::{Arc, RwLock};
 use std::sync::atomic::{Ordering, AtomicUsize};
 
 use magnetic::mpmc::*;
@@ -8,14 +8,23 @@ use magnetic::buffer::dynamic::DynamicBuffer;
 
 use pi_base::task::TaskType;
 use pi_base::pi_base_impl::cast_js_task;
+use pi_lib::handler::Handler;
 use pi_lib::atom::Atom;
 
 use adapter::{JSStatus, JSMsg, JS, pause, js_reply_callback, handle_async_callback, try_js_destroy, dukc_vm_status_check, dukc_vm_status_switch, dukc_wakeup, dukc_continue};
+use channel_map::VMChannelMap;
 
 /*
 * 默认虚拟机异步消息队列最大长度
 */
 const VM_MSG_QUEUE_MAX_SIZE: u16 = 0xff;
+
+/*
+* 虚拟机通道
+*/
+lazy_static! {
+	pub static ref VM_CHANNELS: Arc<RwLock<VMChannelMap>> = Arc::new(RwLock::new(VMChannelMap::new(0)));
+}
 
 /*
 * 虚拟机工厂
@@ -73,7 +82,7 @@ impl VMFactory {
     }
 
     //从虚拟机池中获取一个虚拟机，并调用指定的js全局函数
-    pub fn call(&self, uid: u32, args: Box<FnBox(Arc<JS>)>, info: Atom) {
+    pub fn call(&self, uid: u32, func: Atom, args: Box<FnBox(Arc<JS>)>, info: Atom) {
         //弹出虚拟机，以保证同一时间只有一个线程访问同一个虚拟机
         match self.consumer.try_pop() {
             Err(_) => {
@@ -82,7 +91,7 @@ impl VMFactory {
                     None => (),
                     Some(vm) => {
                         let func = Box::new(move || {
-                            vm.get_js_function("_$rpc".to_string());
+                            vm.get_js_function((&func).to_string());
                             args(vm.clone());
                             vm.call(4);
                         });
@@ -199,4 +208,58 @@ pub fn push_callback(js: Arc<JS>, callback: u32, args: Box<FnBox(Arc<JS>) -> usi
         }
     }
     count
+}
+
+/*
+* 线程安全的获取虚拟机通道灰度值
+*/
+pub fn get_channels_gray() -> usize {
+    let ref lock = &**VM_CHANNELS;
+    let channels = lock.read().unwrap();
+    (*channels).get_gray()
+}
+
+/*
+* 线程安全的设置虚拟机通道灰度值
+*/
+pub fn set_channels_gray(gray: usize) -> usize {
+    let ref lock = &**VM_CHANNELS;
+    let mut channels = lock.write().unwrap();
+    (*channels).set_gray(gray)
+}
+
+/*
+* 线程安全的获取虚拟机通道异步调用数量
+*/
+pub fn get_async_request_size() -> usize {
+    let ref lock = &**VM_CHANNELS;
+    let channels = lock.read().unwrap();
+    (*channels).size()
+}
+
+/*
+* 线程安全的在虚拟机通道注册异步调用
+*/
+pub fn register_async_request(name: Atom, handler: Arc<Handler<A = Arc<Vec<u8>>, B = u32, C = (), D = (), E = (), F = (), G = (), H = (), HandleResult = ()>>) -> Option<Arc<Handler<A = Arc<Vec<u8>>, B = u32, C = (), D = (), E = (), F = (), G = (), H = (), HandleResult = ()>>> {
+    let ref lock = &**VM_CHANNELS;
+    let mut channels = lock.write().unwrap();
+    (*channels).set(name, handler)
+}
+
+/*
+* 线程安全的在虚拟机通道注销异步调用
+*/
+pub fn unregister_async_request(name: Atom) -> Option<Arc<Handler<A = Arc<Vec<u8>>, B = u32, C = (), D = (), E = (), F = (), G = (), H = (), HandleResult = ()>>> {
+    let ref lock = &**VM_CHANNELS;
+    let mut channels = lock.write().unwrap();
+    (*channels).remove(name)
+}
+
+/*
+* 线程安全的通过虚拟机通道向对端发送异步请求
+*/
+pub fn async_request(js: Arc<JS>, name: Atom, msg: Arc<Vec<u8>>, callback: u32) -> bool {
+    let ref lock = &**VM_CHANNELS;
+    let channels = lock.read().unwrap();
+    (*channels).request(js, name, msg, callback)
 }
