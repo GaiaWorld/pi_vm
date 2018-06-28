@@ -4,9 +4,11 @@ use std::sync::atomic::{Ordering, AtomicUsize};
 use std::string::FromUtf8Error;
 use std::ffi::{CStr, CString};
 use std::mem::transmute;
+use std::time::Duration;
 use std::boxed::FnBox;
-use std::ops::Drop;
 use std::sync::Arc;
+use std::ops::Drop;
+use std::thread;
 
 use magnetic::mpsc::*;
 use magnetic::{Producer, Consumer};
@@ -29,7 +31,7 @@ extern "C" {
     fn dukc_heap_init(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char)) -> uint32_t;
     // fn dukc_vm_create(heap: *const c_void) -> *const c_void;
     fn dukc_compile_script(vm: *const c_void, file: *const c_char, code: *const c_char, size: *mut uint32_t, reply: extern fn(*const c_void, c_int, *const c_char)) -> *const c_void;
-    fn dukc_load_code(vm: *const c_void, size: uint32_t, bytes: *const c_void) -> uint32_t;
+    fn dukc_load_code(vm: *const c_void, size: uint32_t, bytes: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char)) -> uint32_t;
     fn dukc_bind_vm(vm: *const c_void, handler: *const c_void);
     // fn dukc_vm_clone(size: uint32_t, bytes: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char)) -> *const c_void;
     fn dukc_vm_run(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
@@ -72,6 +74,24 @@ extern "C" {
     // fn dukc_to_string(vm: *const c_void, offset: int32_t) -> *const c_char;
     fn dukc_pop(vm: *const c_void);
     fn dukc_vm_destroy(vm: *const c_void);
+}
+
+#[cfg(all(feature="unstable", any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline(always)]
+pub fn pause() {
+    unsafe { asm!("PAUSE") };
+}
+
+#[cfg(all(not(feature="unstable"), any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline(always)]
+pub fn pause() {
+    thread::sleep(Duration::from_millis(1));
+}
+
+#[cfg(all(not(target_arch = "x86"), not(target_arch = "x86_64")))]
+#[inline(always)]
+pub fn pause() {
+    thread::sleep(Duration::from_millis(1));
 }
 
 /*
@@ -264,6 +284,7 @@ impl JS {
                     return None;
                 }
                 dukc_vm_run(ptr, js_reply_callback);
+                dukc_pop(ptr); //在初始化时需要弹出执行的结果
             }
             let arc = Arc::new(JS {
                 vm: ptr as usize,
@@ -298,11 +319,17 @@ impl JS {
         let mut len = 0u32;
         let size: *mut u32 = &mut len;
         unsafe {
-            let bytes = dukc_compile_script(self.vm as *const c_void, CString::new(file).unwrap().as_ptr(), CString::new(script).unwrap().as_ptr(), size, js_reply_callback);
-            if bytes.is_null() {
-                return None;                
+            let status = dukc_vm_status_switch(self.vm as *const c_void, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
+            if status == JSStatus::SingleTask as i8 {
+                //当前虚拟机正在destroy或有其它任务
+                None
+            } else {
+                let bytes = dukc_compile_script(self.vm as *const c_void, CString::new(file).unwrap().as_ptr(), CString::new(script).unwrap().as_ptr(), size, js_reply_callback);
+                if bytes.is_null() {
+                    return None;                
+                }
+                Some(from_raw_parts(bytes as *mut u8, len as usize).to_vec())
             }
-            Some(from_raw_parts(bytes as *mut u8, len as usize).to_vec())
         }
     }
 
@@ -311,12 +338,18 @@ impl JS {
         let size = codes.len() as u32;
         let bytes = codes.as_ptr() as *const c_void;
         unsafe {
-            if dukc_load_code(self.vm as *const c_void, size, bytes) == 0 {
-                return false;
+            let status = dukc_vm_status_switch(self.vm as *const c_void, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
+             if status == JSStatus::SingleTask as i8 {
+                //当前虚拟机正在destroy或有其它任务
+                false
+            } else {
+                if dukc_load_code(self.vm as *const c_void, size, bytes, js_reply_callback) == 0 {
+                    return false;
+                }
+                dukc_vm_run(self.vm as *const c_void, js_reply_callback);
+                true
             }
         }
-        self.run();
-        true
     }
 
     //运行js虚拟机
