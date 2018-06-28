@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::ffi::CString;
+
 use libc::{c_void, uint32_t, c_int};
 
 use bonmgr::{CallResult, bon_call};

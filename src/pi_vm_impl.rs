@@ -1,7 +1,5 @@
-use std::thread;
 use std::sync::Arc;
 use std::boxed::FnBox;
-use std::time::Duration;
 use std::sync::atomic::{Ordering, AtomicUsize};
 
 use magnetic::mpmc::*;
@@ -10,8 +8,9 @@ use magnetic::buffer::dynamic::DynamicBuffer;
 
 use pi_base::task::TaskType;
 use pi_base::pi_base_impl::cast_js_task;
-use adapter::{JSStatus, JSMsg, JS, js_reply_callback, handle_async_callback, try_js_destroy, dukc_vm_status_check, dukc_vm_status_switch, dukc_wakeup, dukc_continue};
 use pi_lib::atom::Atom;
+
+use adapter::{JSStatus, JSMsg, JS, pause, js_reply_callback, handle_async_callback, try_js_destroy, dukc_vm_status_check, dukc_vm_status_switch, dukc_wakeup, dukc_continue};
 
 /*
 * 默认虚拟机异步消息队列最大长度
@@ -23,10 +22,10 @@ const VM_MSG_QUEUE_MAX_SIZE: u16 = 0xff;
 */
 #[derive(Clone)]
 pub struct VMFactory {
-    size: Arc<AtomicUsize>,                             //虚拟机池中虚拟机的数量
-    codes: Arc<Vec<Arc<Vec<u8>>>>,                      //字节码列表
-    producer: Arc<MPMCProducer<Arc<JS>, DynamicBuffer<Arc<JS>>>>, //虚拟机生产者
-    consumer: Arc<MPMCConsumer<Arc<JS>, DynamicBuffer<Arc<JS>>>>, //虚拟机消费者
+    size: Arc<AtomicUsize>,                                         //虚拟机池中虚拟机的数量
+    codes: Arc<Vec<Arc<Vec<u8>>>>,                                  //字节码列表
+    producer: Arc<MPMCProducer<Arc<JS>, DynamicBuffer<Arc<JS>>>>,   //虚拟机生产者
+    consumer: Arc<MPMCConsumer<Arc<JS>, DynamicBuffer<Arc<JS>>>>,   //虚拟机消费者
 }
 
 impl VMFactory {
@@ -195,27 +194,9 @@ pub fn push_callback(js: Arc<JS>, callback: u32, args: Box<FnBox(Arc<JS>) -> usi
         let vm = js.get_vm();
         let status = dukc_vm_status_switch(vm, JSStatus::WaitCallBack as i8, JSStatus::SingleTask as i8);
         if status == JSStatus::WaitCallBack as i8 {
-            //当前虚拟机等待异步回调，则立即执行异步回调函数
+            //当前虚拟机等待异步回调，因为其它任务已执行完成，任务结果已经从值栈中弹出，则只需立即执行异步回调函数
             handle_async_callback(js, vm);
         }
     }
     count
-}
-
-#[cfg(all(feature="unstable", any(target_arch = "x86", target_arch = "x86_64")))]
-#[inline(always)]
-fn pause() {
-    unsafe { asm!("PAUSE") };
-}
-
-#[cfg(all(not(feature="unstable"), any(target_arch = "x86", target_arch = "x86_64")))]
-#[inline(always)]
-fn pause() {
-    thread::sleep(Duration::from_millis(1));
-}
-
-#[cfg(all(not(target_arch = "x86"), not(target_arch = "x86_64")))]
-#[inline(always)]
-fn pause() {
-    thread::sleep(Duration::from_millis(1));
 }

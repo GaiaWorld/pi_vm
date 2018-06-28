@@ -9,6 +9,7 @@
 #![feature(slice_internals)]
 #![feature(duration_from_micros)]
 
+extern crate fnv;
 extern crate core;
 extern crate time;
 extern crate libc;
@@ -27,4 +28,5 @@ extern crate pi_base;
 pub mod adapter;
 pub mod native_object_impl;
 pub mod pi_vm_impl;
+pub mod channel_map;
 pub mod bonmgr;
