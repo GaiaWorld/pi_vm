@@ -547,13 +547,13 @@ fn test_async_request_and_repsonse() {
             match args {
                 Args::ThreeArgs(bin, native_objs, callback) => {
                     assert!(callback == 0);
-                    assert!(native_objs[0].get_boolean());
-                    assert!(native_objs[1].get_u32() == 0xffffffff);
-                    assert!(native_objs[2].get_str() == "Hello World");
+                    assert!(native_objs[0].get_native_object() == 0);
+                    assert!(native_objs[1].get_native_object() == 1);
+                    assert!(native_objs[2].get_native_object() == 0xffffffff);
                     println!("!!!!!!bin: {:?}", bin);
 
                     let channel = unsafe { Arc::from_raw(Arc::into_raw(env.clone()) as *const VMChannel) };
-                    assert!(channel.response(callback, Arc::new("Async Call OK".to_string().into_bytes())))
+                    assert!(channel.response(callback, Arc::new("Async Call OK".to_string().into_bytes()), native_objs))
                 },
                 _ => assert!(false)
             }
@@ -567,7 +567,7 @@ fn test_async_request_and_repsonse() {
     let opts = JS::new(0xff);
     assert!(opts.is_some());
     let js = opts.unwrap();
-    let opts = js.compile("native_async_call.js".to_string(), "var index = callbacks.register(function(result) { console.log(\"!!!!!!async call ok, result:\", result); }); var r = NativeObject.call(0x7fffffff, []); console.log(\"!!!!!!async call start, callback:\", index, \", r:\", r);".to_string());
+    let opts = js.compile("native_async_call.js".to_string(), "var index = callbacks.register(function(result, objs) { console.log(\"!!!!!!async call ok, result:\", result); for(i = 0; i < objs.length; i++) { console.log(\"!!!!!!async call ok, objs[\" + i + \"]:\", objs[i].toString()); } }); var r = NativeObject.call(0x7fffffff, []); console.log(\"!!!!!!async call start, callback:\", index, \", r:\", r);".to_string());
     assert!(opts.is_some());
     let codes0 = opts.unwrap();
     assert!(js.load(codes0.as_slice()));

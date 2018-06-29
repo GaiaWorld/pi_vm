@@ -68,13 +68,19 @@ impl VMChannel {
     }
 
     //回应请求
-    pub fn response(&self, callback: u32, result: Arc<Vec<u8>>) -> bool {
+    pub fn response(&self, callback: u32, result: Arc<Vec<u8>>, native_objs: Vec<JSType>) -> bool {
         match self.src {
             VMChannelPeer::VM(ref js) => {
                 let args = Box::new(move |vm: Arc<JS>| -> usize {
-                    let array = vm.new_uint8_array(result.len() as u32);
-					array.from_bytes(result.as_slice());
-                    1
+                    let buffer = vm.new_uint8_array(result.len() as u32);
+					buffer.from_bytes(result.as_slice());
+                    let mut value: JSType;
+					let array = vm.new_array();
+					for i in 0..native_objs.len() {
+						value = vm.new_native_object(native_objs[i].get_native_object());
+						vm.set_index(&array, i as u32, &value);
+					}
+                    2
                 });
                 push_callback(js.clone(), callback, args, Atom::from("vm async call response task"));
                 true
