@@ -18,7 +18,7 @@ use pi_base::util::now_nanosecond;
 use pi_base::worker_pool::WorkerPool;
 use pi_base::pi_base_impl::{JS_TASK_POOL, cast_js_task};
 use pi_vm::pi_vm_impl::{VMFactory, block_reply, block_throw, push_callback, register_async_request};
-use pi_vm::adapter::{load_lib_backtrace, register_native_object, dukc_remove_value, JS};
+use pi_vm::adapter::{load_lib_backtrace, register_native_object, dukc_remove_value, JS, JSType};
 use pi_vm::channel_map::VMChannel;
 
 // // #[test]
@@ -357,7 +357,7 @@ fn native_object_call_test() {
     }
 }
 
-#[test]
+// #[test]
 fn native_object_call_block_reply_test() {
     let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
     worker_pool.run(JS_TASK_POOL.clone());
@@ -508,7 +508,7 @@ fn native_object_call_block_reply_test_by_clone() {
     thread::sleep(Duration::from_millis(1000));
 }
 
-// #[test]
+#[test]
 fn test_async_request_and_repsonse() {
     let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
     worker_pool.run(JS_TASK_POOL.clone());
@@ -520,8 +520,8 @@ fn test_async_request_and_repsonse() {
 
     impl Handler for AsyncRequestHandler {
         type A = Arc<Vec<u8>>;
-        type B = u32;
-        type C = ();
+        type B = Vec<JSType>;
+        type C = u32;
         type D = ();
         type E = ();
         type F = ();
@@ -545,8 +545,11 @@ fn test_async_request_and_repsonse() {
             assert!(name == Atom::from("test_async_call"));
 
             match args {
-                Args::TwoArgs(bin, callback) => {
+                Args::ThreeArgs(bin, native_objs, callback) => {
                     assert!(callback == 0);
+                    assert!(native_objs[0].get_boolean());
+                    assert!(native_objs[1].get_u32() == 0xffffffff);
+                    assert!(native_objs[2].get_str() == "Hello World");
                     println!("!!!!!!bin: {:?}", bin);
 
                     let channel = unsafe { Arc::from_raw(Arc::into_raw(env.clone()) as *const VMChannel) };
