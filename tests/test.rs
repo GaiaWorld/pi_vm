@@ -357,7 +357,7 @@ fn native_object_call_test() {
     }
 }
 
-// #[test]
+#[test]
 fn native_object_call_block_reply_test() {
     let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
     worker_pool.run(JS_TASK_POOL.clone());
@@ -508,7 +508,7 @@ fn native_object_call_block_reply_test_by_clone() {
     thread::sleep(Duration::from_millis(1000));
 }
 
-#[test]
+// #[test]
 fn test_async_request_and_repsonse() {
     let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
     worker_pool.run(JS_TASK_POOL.clone());
