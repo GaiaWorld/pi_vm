@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use adapter::{JSType, JS};
 use std::sync::{Arc, Mutex};
+use pi_lib::atom::Atom;
 
 lazy_static! {
 	pub static ref BON_MGR: Arc<BonMgr> = Arc::new(BonMgr::new());
@@ -129,10 +130,7 @@ impl BonMgr{
 }
 
 #[derive(Clone)]
-pub struct NativeObjMgr{
-    pub objs:Arc<Mutex<HashMap<usize, NObject>>>,
-    pub objs_ref:Arc<Mutex<HashMap<usize, NObject>>>,// 引用obj
-}
+pub struct NativeObjsAuth(Option<Arc<HashMap<Atom, ()>>>, Option<Arc<HashMap<Atom, ()>>>);
 
 //特为构建代码提供，主要用于函数参数native_object转换为ptr， 如果类型不匹配将返回一个错误
 pub fn jstype_ptr<'a>(jstype: &JSType, mgr: &NativeObjMgr, obj_type: u32 , is_ownership:bool, error_str: &'a str) -> Result<usize, &'a str>{

@@ -3,8 +3,10 @@ use std::slice::{from_raw_parts_mut, from_raw_parts};
 use std::sync::atomic::{Ordering, AtomicUsize};
 use std::string::FromUtf8Error;
 use std::ffi::{CStr, CString};
+use std::collections::HashMap;
 use std::mem::transmute;
 use std::time::Duration;
+use std::cell::RefCell;
 use std::boxed::FnBox;
 use std::sync::Arc;
 use std::ops::Drop;
@@ -22,6 +24,7 @@ use pi_base::task::TaskType;
 use pi_base::pi_base_impl::cast_js_task;
 
 use native_object_impl::*;
+use bonmgr::{NObject, NativeObjsAuth};
 
 #[link(name = "libdukc")]
 extern "C" {
@@ -242,8 +245,11 @@ struct JSMsgQueue {
 */
 #[derive(Clone)]
 pub struct JS {
-    vm: usize,                  //虚拟机
-    queue: JSMsgQueue,          //虚拟机异步消息队列
+    vm: usize,                                          //虚拟机
+    queue: JSMsgQueue,                                  //虚拟机异步消息队列
+    auth: Arc<NativeObjsAuth>,                          //虚拟机本地对象授权
+    objs: Arc<RefCell<HashMap<usize, NObject>>>,        //虚拟机本地对象表
+    objs_ref: Arc<RefCell<HashMap<usize, NObject>>>,    //虚拟机本地对象引用表
 }
 
 /*
@@ -271,7 +277,7 @@ impl Drop for JS {
 
 impl JS {
     //构建一个虚拟机
-    pub fn new(queue_max_size: u16) -> Option<Arc<Self>> {
+    pub fn new(queue_max_size: u16, auth: Arc<NativeObjsAuth>) -> Option<Arc<Self>> {
         let ptr: *const c_void;
         unsafe { ptr = dukc_heap_create() }
         if ptr.is_null() {
@@ -293,6 +299,9 @@ impl JS {
                     producer: Arc::new(p),
                     consumer: Arc::new(c),
                 },
+                auth: auth.clone(),
+                objs: Arc::new(RefCell::new(HashMap::new())),
+                objs_ref: Arc::new(RefCell::new(HashMap::new())),
             });
             unsafe { dukc_bind_vm(ptr, Arc::into_raw(arc.clone()) as *const c_void); }
             Some(arc)
@@ -307,6 +316,21 @@ impl JS {
     //获取内部虚拟机
     pub unsafe fn get_vm(&self) -> *const c_void {
         self.vm as *const c_void
+    }
+
+    //获取指定虚拟机的本地对象授权
+    pub fn get_auth(&self) -> Arc<NativeObjsAuth> {
+        self.auth.clone()
+    }
+
+    //获取虚拟机本地对象表
+    pub fn get_objs(&self) -> Arc<RefCell<HashMap<usize, NObject>>> {
+        self.objs.clone()
+    }
+
+    //获取虚拟机本地对象引用表
+    pub fn get_objs_ref(&self) -> Arc<RefCell<HashMap<usize, NObject>>> {
+        self.objs_ref.clone()
     }
 
     //判断js虚拟机是否完成运行

@@ -13,6 +13,7 @@ use pi_lib::atom::Atom;
 
 use adapter::{JSStatus, JSMsg, JS, JSType, pause, js_reply_callback, handle_async_callback, try_js_destroy, dukc_vm_status_check, dukc_vm_status_switch, dukc_wakeup, dukc_continue};
 use channel_map::VMChannelMap;
+use bonmgr::NativeObjsAuth;
 
 /*
 * 默认虚拟机异步消息队列最大长度
@@ -35,11 +36,12 @@ pub struct VMFactory {
     codes: Arc<Vec<Arc<Vec<u8>>>>,                                  //字节码列表
     producer: Arc<MPMCProducer<Arc<JS>, DynamicBuffer<Arc<JS>>>>,   //虚拟机生产者
     consumer: Arc<MPMCConsumer<Arc<JS>, DynamicBuffer<Arc<JS>>>>,   //虚拟机消费者
+    auth: Arc<NativeObjsAuth>,                                      //虚拟机工厂本地对象授权
 }
 
 impl VMFactory {
     //构建一个虚拟机工厂
-    pub fn new(mut size: usize) -> Self {
+    pub fn new(mut size: usize, auth: Arc<NativeObjsAuth>) -> Self {
         if size == 0 {
             size = 1;
         }
@@ -49,6 +51,7 @@ impl VMFactory {
             codes: Arc::new(Vec::new()),
             producer: Arc::new(p),
             consumer: Arc::new(c),
+            auth: auth.clone(),
         }
     }
 
@@ -70,7 +73,7 @@ impl VMFactory {
 
     //生成一个虚拟机，返回生成前虚拟机池中虚拟机数量，0表示生成失败     
     pub fn produce(&self) -> usize {
-        match self.new_vm(VM_MSG_QUEUE_MAX_SIZE) {
+        match self.new_vm(VM_MSG_QUEUE_MAX_SIZE, self.auth.clone()) {
             None => 0,
             Some(vm) => {
                 match self.producer.try_push(vm) {
@@ -87,7 +90,7 @@ impl VMFactory {
         match self.consumer.try_pop() {
             Err(_) => {
                 //没有空闲虚拟机，则立即构建临时虚拟机
-                match self.new_vm(VM_MSG_QUEUE_MAX_SIZE) {
+                match self.new_vm(VM_MSG_QUEUE_MAX_SIZE, self.auth.clone()) {
                     None => (),
                     Some(vm) => {
                         let func = Box::new(move || {
@@ -116,9 +119,9 @@ impl VMFactory {
         }
     }
 
-    //构建一个虚拟机，并加载所有字节码
-    fn new_vm(&self, queue_max_size: u16) -> Option<Arc<JS>> {
-        match JS::new(queue_max_size) {
+    //构建一个虚拟机，加载所有字节码，并提供虚拟机本地对象授权
+    fn new_vm(&self, queue_max_size: u16, auth: Arc<NativeObjsAuth>) -> Option<Arc<JS>> {
+        match JS::new(queue_max_size, auth.clone()) {
             None => None,
             Some(vm) => {
                 for code in self.codes.iter() {
