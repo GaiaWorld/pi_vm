@@ -1,6 +1,8 @@
+use std::sync::{Arc, Mutex};
+use std::cell::RefCell;
+
 use std::collections::HashMap;
 use adapter::{JSType, JS};
-use std::sync::{Arc, Mutex};
 use pi_lib::atom::Atom;
 
 lazy_static! {
@@ -33,9 +35,7 @@ pub struct StructMeta {
 }
 
 pub enum FnMeta {
-	CallArgNobj(fn(Arc<JS>, &BonMgr, Vec<JSType>) -> Option<CallResult>),
-	CallNobj(fn(Arc<JS>, &BonMgr) -> Option<CallResult>),
-    CallArg(fn(Arc<JS>, Vec<JSType>) -> Option<CallResult>),
+	CallArg(fn(Arc<JS>, Vec<JSType>) -> Option<CallResult>),
     Call(fn(Arc<JS>) -> Option<CallResult>),
 }
 
@@ -103,12 +103,6 @@ impl BonMgr{
 		};
 
 		match func{
-			&FnMeta::CallArgNobj(ref f) => {
-				f(js, self, args.unwrap())
-			},
-			&FnMeta::CallNobj(ref f) => {
-				f(js, self)
-			},
             &FnMeta::CallArg(ref f) => {
 				f(js, args.unwrap())
 			},
@@ -132,15 +126,23 @@ impl BonMgr{
 #[derive(Clone)]
 pub struct NativeObjsAuth(Option<Arc<HashMap<Atom, ()>>>, Option<Arc<HashMap<Atom, ()>>>);
 
+impl NativeObjsAuth{
+    pub fn new(white: Option<Arc<HashMap<Atom, ()>>>, black: Option<Arc<HashMap<Atom, ()>>>) -> NativeObjsAuth{
+        NativeObjsAuth(white, black)
+    }
+}
+
 //特为构建代码提供，主要用于函数参数native_object转换为ptr， 如果类型不匹配将返回一个错误
-pub fn jstype_ptr<'a>(jstype: &JSType, mgr: &NativeObjMgr, obj_type: u32 , is_ownership:bool, error_str: &'a str) -> Result<usize, &'a str>{
+pub fn jstype_ptr<'a>(jstype: &JSType, js: Arc<JS>, obj_type: u32 , is_ownership:bool, error_str: &'a str) -> Result<usize, &'a str>{
 	if !jstype.is_native_object(){
 		return Err(error_str);
 	}
 	let ptr = jstype.get_native_object();
-    let mut objs = mgr.objs.lock().unwrap();
+    let objs = js.get_objs();
+    let mut objs = objs.borrow_mut();
 	let r = {
-        let objs_ref = mgr.objs_ref.lock().unwrap();
+        let objs_ref = js.get_objs_ref();
+        let objs_ref = objs_ref.borrow();
         let obj = match objs.get(&ptr){//先从拥有所有权的obj列表中获取NObject
             Some(v) => v,
             None => {
@@ -173,8 +175,9 @@ pub fn jstype_ptr<'a>(jstype: &JSType, mgr: &NativeObjMgr, obj_type: u32 , is_ow
 }
 
 //特为构建代码提供，主要用于函数返回时ptr转换为native_object， 同时将根据返回类型构建NObject并注册
-pub fn ptr_jstype(objs: Arc<Mutex<HashMap<usize, NObject>>>,js: Arc<JS>, ptr: usize, meta_hash: u32) -> JSType{
+pub fn ptr_jstype(objs: Arc<RefCell<HashMap<usize, NObject>>>,js: Arc<JS>, ptr: usize, meta_hash: u32) -> JSType{
+    let mut objs = objs.borrow_mut();
 	let nobj = NObject{meta_hash: meta_hash};
-    objs.lock().unwrap().insert(ptr, nobj);
+    objs.insert(ptr, nobj);
 	js.new_native_object(ptr)
 }
