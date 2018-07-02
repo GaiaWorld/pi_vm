@@ -358,7 +358,7 @@ fn native_object_call_test() {
     }
 }
 
-#[test]
+// #[test]
 fn native_object_call_block_reply_test() {
     let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
     worker_pool.run(JS_TASK_POOL.clone());
@@ -570,7 +570,7 @@ fn test_async_request_and_repsonse() {
     let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
     assert!(opts.is_some());
     let js = opts.unwrap();
-    let opts = js.compile("native_async_call.js".to_string(), "var index = callbacks.register(function(result, objs) { console.log(\"!!!!!!async call ok, result:\", result); for(i = 0; i < objs.length; i++) { console.log(\"!!!!!!async call ok, objs[\" + i + \"]:\", objs[i].toString()); } }); var r = NativeObject.call(0x7fffffff, []); console.log(\"!!!!!!async call start, callback:\", index, \", r:\", r);".to_string());
+    let opts = js.compile("native_async_call.js".to_string(), "var index = callbacks.register(function(result, objs) { console.log(\"!!!!!!async call ok, result:\", result); for(i = 0; i < objs.length; i++) { console.log(\"!!!!!!async call ok, objs[\" + i + \"]:\", objs[i].toString(), is_native_object(objs[i])); } }); var r = NativeObject.call(0x7fffffff, []); console.log(\"!!!!!!async call start, callback:\", index, \", r:\", r);".to_string());
     assert!(opts.is_some());
     let codes0 = opts.unwrap();
     assert!(js.load(codes0.as_slice()));
@@ -638,7 +638,7 @@ fn test_async_block_request_and_repsonse() {
     let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
     assert!(opts.is_some());
     let js = opts.unwrap();
-    let opts = js.compile("native_async_block_call.js".to_string(), "function async_block_call() { var r = NativeObject.call(0x7fffffff, []); console.log(\"!!!!!!async block call start, r: \" + r); r = __thread_yield(); console.log(\"!!!!!!async block call ok, result:\", r); var objs = r[1]; for(i = 0; i < objs.length; i++) { console.log(\"!!!!!!objs[\" + i + \"]:\", objs[i].toString()); } }".to_string());
+    let opts = js.compile("native_async_block_call.js".to_string(), "function async_block_call() { var r = NativeObject.call(0x7fffffff, []); console.log(\"!!!!!!async block call start, r: \" + r); r = __thread_yield(); console.log(\"!!!!!!async block call ok, result:\", r); var objs = r[1]; for(i = 0; i < objs.length; i++) { console.log(\"!!!!!!objs[\" + i + \"]:\", objs[i].toString(), is_native_object(objs[i])); } }".to_string());
     assert!(opts.is_some());
     let codes0 = opts.unwrap();
     assert!(js.load(codes0.as_slice()));
