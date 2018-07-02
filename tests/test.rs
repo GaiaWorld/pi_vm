@@ -20,6 +20,7 @@ use pi_base::pi_base_impl::{JS_TASK_POOL, cast_js_task};
 use pi_vm::pi_vm_impl::{VMFactory, block_reply, block_throw, push_callback, register_async_request};
 use pi_vm::adapter::{load_lib_backtrace, register_native_object, dukc_remove_value, JS, JSType};
 use pi_vm::channel_map::VMChannel;
+use pi_vm::bonmgr::NativeObjsAuth;
 
 // // #[test]
 // fn njsc_test() {
@@ -32,7 +33,7 @@ use pi_vm::channel_map::VMChannel;
 fn test_vm_performance() {
     register_native_object();
 
-    let opts = JS::new(0xff);
+    let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("test_vm_clone_performance.js".to_string(), "function call(x, y, z) { var r = [0, 0, 0]; r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); };".to_string());
@@ -40,12 +41,12 @@ fn test_vm_performance() {
     let codes = opts.unwrap();
     let time = Instant::now();
     for _ in 0..10000 {
-        JS::new(0xff).unwrap().load(codes.as_slice());
+        JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None))).unwrap().load(codes.as_slice());
     }
     let finish_time = time.elapsed();
     println!("!!!!!!load time: {}", finish_time.as_secs() * 1000000 + (finish_time.subsec_micros() as u64));
 
-    let opts = JS::new(0xff);
+    let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("test_vm_run_performance.js".to_string(), "var x = 0; for(var n = 0; n < 100000000; n++) { x++; }".to_string());
@@ -62,7 +63,7 @@ fn test_vm_performance() {
 fn base_test() {
     load_lib_backtrace();
     register_native_object();
-    let opts = JS::new(0xff);
+    let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("base_test.js".to_string(), "var obj = {a: 10, c: true, d: {a: 0.9999999, c: \"ADSFkfaf中()**&^$111\", d: [new Uint8Array(), new ArrayBuffer(), function(x) { return x; }]}}; console.log(\"!!!!!!obj:\", obj);".to_string());
@@ -210,7 +211,7 @@ fn base_test() {
 fn test_js_string() {
     load_lib_backtrace();
     register_native_object();
-    let opts = JS::new(0xff);
+    let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("test_js_string.js".to_string(), "console.log(\"!!!!!!string: \" + \"你好!!!!!!\".length); var view = (new TextEncoder()).encode(\"你好!!!!!!\"); console.log(\"!!!!!!view: \" + view); var r = NativeObject.call(0xffffffff, [view]); console.log(\"!!!!!!r: \" + r); console.log(\"!!!!!!string: \" + (new TextDecoder()).decode(view));".to_string());
@@ -224,7 +225,7 @@ fn test_js_this() {
     load_lib_backtrace();
     register_native_object();
 
-    let opts = JS::new(0xff);
+    let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("test_js_this0.js".to_string(), "var obj = {}; function call() { console.log(\"!!!!!!obj: \" + obj); obj.a = 100; var a = 10; console.log(\"!!!!!!obj.a: \" + obj.a + \", a: \" + a); obj.func = function call0() { console.log(\"!!!!!!this.a: \" + this.a); }; obj.func();}; call();".to_string());
@@ -232,7 +233,7 @@ fn test_js_this() {
     let codes0 = opts.unwrap();
     assert!(js.load(codes0.as_slice()));
 
-    let opts = JS::new(0xff);
+    let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("test_js_this1.js".to_string(), "var obj = {str: \"Hello\", func: function() { console.log(\"!!!!!!this.str: \" + this.str); this.str = 10; console.log(\"!!!!!!this.str: \" + this.str); } }; obj.func();".to_string());
@@ -240,7 +241,7 @@ fn test_js_this() {
     let codes0 = opts.unwrap();
     assert!(js.load(codes0.as_slice()));
 
-    let opts = JS::new(0xff);
+    let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("test_js_this2.js".to_string(), "var obj = {x: 10, y: { func: function() { console.log(\"!!!!!!this.x: \" + this.x); this.x = \"Hello\"; console.log(\"!!!!!!this.x: \" + this.x); } } }; obj.y.func();".to_string());
@@ -248,7 +249,7 @@ fn test_js_this() {
     let codes0 = opts.unwrap();
     assert!(js.load(codes0.as_slice()));
 
-    let opts = JS::new(0xff);
+    let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("test_js_this3.js".to_string(), "var obj = {name : 'linxin'}; function func(firstName, lastName) { console.log(firstName + ' ' + this.name + ' ' + lastName); } func.apply(obj, ['A', 'B']);".to_string());
@@ -264,7 +265,7 @@ fn native_object_call_test() {
 
     load_lib_backtrace();
     register_native_object();
-    let opts = JS::new(0xff);
+    let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("native_object_call_test.js".to_string(), "var obj = {};\n
@@ -357,14 +358,14 @@ fn native_object_call_test() {
     }
 }
 
-#[test]
+// #[test]
 fn native_object_call_block_reply_test() {
     let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
     worker_pool.run(JS_TASK_POOL.clone());
 
     load_lib_backtrace();
     register_native_object();
-    let opts = JS::new(0xff);
+    let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("native_object_call_block_reply_test_0.js".to_string(), "var obj = {}; console.log(\"!!!!!!obj: \" + obj); __thread_call(function() { var r = NativeObject.call(0xffffffff, [true, 0.999, \"你好\"]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); }); function callback(index) { console.log(\"!!!!!!callback ok, index: \" + index); var r = NativeObject.call(0xffffffff, [index]); r = __thread_yield(); console.log(\"!!!!!!callback ok, r: \" + r); }; function async_call(func) { var index = callbacks.register(func); NativeObject.call(index, []); __thread_yield(); console.log(\"!!!!!!register callback ok, index: \" + index); };\n".to_string());
@@ -457,7 +458,7 @@ fn native_object_call_block_reply_test_by_clone() {
 
     load_lib_backtrace();
     register_native_object();
-    let opts = JS::new(0xff);
+    let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("native_object_call_block_reply_test_by_clone.js".to_string(), "var obj = {}; console.log(\"!!!!!!obj: \" + obj); __thread_call(function() { var r = NativeObject.call(0xffffffff, [true, 0.999, \"你好\"]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); }); function call(x, y, z) { var r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); try{ __thread_yield() } catch(e) { console.log(\"!!!!!!e: \" + e) } };".to_string());
@@ -521,7 +522,7 @@ fn test_async_request_and_repsonse() {
     impl Handler for AsyncRequestHandler {
         type A = Arc<Vec<u8>>;
         type B = Vec<JSType>;
-        type C = u32;
+        type C = Option<u32>;
         type D = ();
         type E = ();
         type F = ();
@@ -546,14 +547,16 @@ fn test_async_request_and_repsonse() {
 
             match args {
                 Args::ThreeArgs(bin, native_objs, callback) => {
-                    assert!(callback == 0);
+                    assert!(callback.is_some());
+                    let index = callback.unwrap();
+                    assert!(index == 0);
                     assert!(native_objs[0].get_native_object() == 0);
                     assert!(native_objs[1].get_native_object() == 1);
                     assert!(native_objs[2].get_native_object() == 0xffffffff);
                     println!("!!!!!!bin: {:?}", bin);
 
                     let channel = unsafe { Arc::from_raw(Arc::into_raw(env.clone()) as *const VMChannel) };
-                    assert!(channel.response(callback, Arc::new("Async Call OK".to_string().into_bytes()), native_objs))
+                    assert!(channel.response(Some(index), Arc::new("Async Call OK".to_string().into_bytes()), native_objs))
                 },
                 _ => assert!(false)
             }
@@ -564,10 +567,10 @@ fn test_async_request_and_repsonse() {
 
     load_lib_backtrace();
     register_native_object();
-    let opts = JS::new(0xff);
+    let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
     assert!(opts.is_some());
     let js = opts.unwrap();
-    let opts = js.compile("native_async_call.js".to_string(), "var index = callbacks.register(function(result, objs) { console.log(\"!!!!!!async call ok, result:\", result); for(i = 0; i < objs.length; i++) { console.log(\"!!!!!!async call ok, objs[\" + i + \"]:\", objs[i].toString()); } }); var r = NativeObject.call(0x7fffffff, []); console.log(\"!!!!!!async call start, callback:\", index, \", r:\", r);".to_string());
+    let opts = js.compile("native_async_call.js".to_string(), "var index = callbacks.register(function(result, objs) { console.log(\"!!!!!!async call ok, result:\", result); for(i = 0; i < objs.length; i++) { console.log(\"!!!!!!async call ok, objs[\" + i + \"]:\", objs[i].toString(), is_native_object(objs[i])); } }); var r = NativeObject.call(0x7fffffff, []); console.log(\"!!!!!!async call start, callback:\", index, \", r:\", r);".to_string());
     assert!(opts.is_some());
     let codes0 = opts.unwrap();
     assert!(js.load(codes0.as_slice()));
@@ -577,13 +580,91 @@ fn test_async_request_and_repsonse() {
 }
 
 // #[test]
+fn test_async_block_request_and_repsonse() {
+    let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
+    worker_pool.run(JS_TASK_POOL.clone());
+
+    struct AsyncBlockRequestHandler;
+
+    unsafe impl Send for AsyncBlockRequestHandler {}
+    unsafe impl Sync for AsyncBlockRequestHandler {}
+
+    impl Handler for AsyncBlockRequestHandler {
+        type A = Arc<Vec<u8>>;
+        type B = Vec<JSType>;
+        type C = Option<u32>;
+        type D = ();
+        type E = ();
+        type F = ();
+        type G = ();
+        type H = ();
+        type HandleResult = ();
+
+        fn handle(&self, env: Arc<dyn Env>, name: Atom, args: Args<Self::A, Self::B, Self::C, Self::D, Self::E, Self::F, Self::G, Self::H>) -> Self::HandleResult {
+            match env.get_attr(Atom::from("_$gray")) {
+                Some(val) => {
+                    match val {
+                        GenType::USize(gray) => {
+                            println!("!!!!!!gray: {}", gray);
+                        },
+                        _ => assert!(false),
+                    }
+                },
+                _ => assert!(false),
+            }
+
+            assert!(name == Atom::from("test_async_block_call"));
+
+            match args {
+                Args::ThreeArgs(bin, native_objs, callback) => {
+                    assert!(callback.is_none());
+                    assert!(native_objs[0].get_native_object() == 0);
+                    assert!(native_objs[1].get_native_object() == 1);
+                    assert!(native_objs[2].get_native_object() == 0xffffffff);
+                    println!("!!!!!!bin: {:?}", bin);
+
+                    let channel = unsafe { Arc::from_raw(Arc::into_raw(env.clone()) as *const VMChannel) };
+                    assert!(channel.response(callback, Arc::new("Async Block Call OK".to_string().into_bytes()), native_objs))
+                },
+                _ => assert!(false)
+            }
+        }
+    }
+
+    register_async_request(Atom::from("test_async_block_call"), Arc::new(AsyncBlockRequestHandler));
+
+    load_lib_backtrace();
+    register_native_object();
+    let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
+    assert!(opts.is_some());
+    let js = opts.unwrap();
+    let opts = js.compile("native_async_block_call.js".to_string(), "function async_block_call() { var r = NativeObject.call(0x7fffffff, []); console.log(\"!!!!!!async block call start, r: \" + r); r = __thread_yield(); console.log(\"!!!!!!async block call ok, result:\", r); var objs = r[1]; for(i = 0; i < objs.length; i++) { console.log(\"!!!!!!objs[\" + i + \"]:\", objs[i].toString(), is_native_object(objs[i])); } }".to_string());
+    assert!(opts.is_some());
+    let codes0 = opts.unwrap();
+    assert!(js.load(codes0.as_slice()));
+    while !js.is_ran() {
+        thread::sleep(Duration::from_millis(1));
+    }
+
+    let copy = js.clone();
+    let task_type = TaskType::Async;
+    let priority = 10;
+    let func = Box::new(move|| {
+        copy.get_js_function("async_block_call".to_string());
+        copy.call(0);
+    });
+    cast_js_task(task_type, priority, func, Atom::from("async block call task"));
+    thread::sleep(Duration::from_millis(5000)); //保证异步阻塞调用执行
+}
+
+// #[test]
 fn task_test() {
     let mut worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
     worker_pool.run(JS_TASK_POOL.clone());
     
     load_lib_backtrace();
     register_native_object();
-    let opts = JS::new(0xff);
+    let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("task_test.js".to_string(), "var obj = {}; console.log(\"!!!!!!obj: \" + obj); function echo(x, y, z) { console.log(\"!!!!!!x: \" + x + \" y: \" + y + \" z: \" + z); };".to_string());
@@ -658,14 +739,14 @@ fn test_vm_factory() {
 
     load_lib_backtrace();
     register_native_object();
-    let opts = JS::new(0xff);
+    let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("test_vm_factory.js".to_string(), "function call(x, y) { console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", y length: \" + y.length); var r = NativeObject.call(0xffffffff, [x, y]); console.log(\"!!!!!!r: \" + r); };".to_string());
     assert!(opts.is_some());
     let code = opts.unwrap();
 
-    let factory = VMFactory::new(0);
+    let factory = VMFactory::new(0, Arc::new(NativeObjsAuth::new(None, None)));
     assert!(factory.size() == 0);
     // factory.append(Arc::new(code))
     //         .call(1, Atom::from("Hello World"), Arc::new(vec![100, 100, 100, 100, 100, 100]), "factory call");

@@ -85,7 +85,7 @@ impl VMFactory {
     }
 
     //从虚拟机池中获取一个虚拟机，并调用指定的js全局函数
-    pub fn call(&self, uid: u32, func: Atom, args: Box<FnBox(Arc<JS>)>, info: Atom) {
+    pub fn call(&self, uid: u32, port: Atom, args: Box<FnBox(Arc<JS>)>, info: Atom) {
         //弹出虚拟机，以保证同一时间只有一个线程访问同一个虚拟机
         match self.consumer.try_pop() {
             Err(_) => {
@@ -94,7 +94,7 @@ impl VMFactory {
                     None => (),
                     Some(vm) => {
                         let func = Box::new(move || {
-                            vm.get_js_function((&func).to_string());
+                            vm.get_js_function((&port).to_string());
                             args(vm.clone());
                             vm.call(4);
                         });
@@ -105,7 +105,7 @@ impl VMFactory {
             Ok(vm) => {
                 let producer = self.producer.clone();
                 let func = Box::new(move || {
-                    vm.get_js_function("_$rpc".to_string());
+                    vm.get_js_function(port.to_string());
                     args(vm.clone());
                     vm.call(4);
                     //调用完成后复用虚拟机
@@ -243,7 +243,7 @@ pub fn get_async_request_size() -> usize {
 /*
 * 线程安全的在虚拟机通道注册异步调用
 */
-pub fn register_async_request(name: Atom, handler: Arc<Handler<A = Arc<Vec<u8>>, B = Vec<JSType>, C = u32, D = (), E = (), F = (), G = (), H = (), HandleResult = ()>>) -> Option<Arc<Handler<A = Arc<Vec<u8>>, B = Vec<JSType>, C = u32, D = (), E = (), F = (), G = (), H = (), HandleResult = ()>>> {
+pub fn register_async_request(name: Atom, handler: Arc<Handler<A = Arc<Vec<u8>>, B = Vec<JSType>, C = Option<u32>, D = (), E = (), F = (), G = (), H = (), HandleResult = ()>>) -> Option<Arc<Handler<A = Arc<Vec<u8>>, B = Vec<JSType>, C = Option<u32>, D = (), E = (), F = (), G = (), H = (), HandleResult = ()>>> {
     let ref lock = &**VM_CHANNELS;
     let mut channels = lock.write().unwrap();
     (*channels).set(name, handler)
@@ -252,7 +252,7 @@ pub fn register_async_request(name: Atom, handler: Arc<Handler<A = Arc<Vec<u8>>,
 /*
 * 线程安全的在虚拟机通道注销异步调用
 */
-pub fn unregister_async_request(name: Atom) -> Option<Arc<Handler<A = Arc<Vec<u8>>, B = Vec<JSType>, C = u32, D = (), E = (), F = (), G = (), H = (), HandleResult = ()>>> {
+pub fn unregister_async_request(name: Atom) -> Option<Arc<Handler<A = Arc<Vec<u8>>, B = Vec<JSType>, C = Option<u32>, D = (), E = (), F = (), G = (), H = (), HandleResult = ()>>> {
     let ref lock = &**VM_CHANNELS;
     let mut channels = lock.write().unwrap();
     (*channels).remove(name)
@@ -261,7 +261,7 @@ pub fn unregister_async_request(name: Atom) -> Option<Arc<Handler<A = Arc<Vec<u8
 /*
 * 线程安全的通过虚拟机通道向对端发送异步请求
 */
-pub fn async_request(js: Arc<JS>, name: Atom, msg: Arc<Vec<u8>>, native_objs: Vec<JSType>, callback: u32) -> bool {
+pub fn async_request(js: Arc<JS>, name: Atom, msg: Arc<Vec<u8>>, native_objs: Vec<JSType>, callback: Option<u32>) -> bool {
     let ref lock = &**VM_CHANNELS;
     let channels = lock.read().unwrap();
     (*channels).request(js, name, msg, native_objs, callback)
