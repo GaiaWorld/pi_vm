@@ -243,7 +243,7 @@ pub fn get_async_request_size() -> usize {
 /*
 * 线程安全的在虚拟机通道注册异步调用
 */
-pub fn register_async_request(name: Atom, handler: Arc<Handler<A = Arc<Vec<u8>>, B = Vec<JSType>, C = u32, D = (), E = (), F = (), G = (), H = (), HandleResult = ()>>) -> Option<Arc<Handler<A = Arc<Vec<u8>>, B = Vec<JSType>, C = u32, D = (), E = (), F = (), G = (), H = (), HandleResult = ()>>> {
+pub fn register_async_request(name: Atom, handler: Arc<Handler<A = Arc<Vec<u8>>, B = Vec<JSType>, C = Option<u32>, D = (), E = (), F = (), G = (), H = (), HandleResult = ()>>) -> Option<Arc<Handler<A = Arc<Vec<u8>>, B = Vec<JSType>, C = Option<u32>, D = (), E = (), F = (), G = (), H = (), HandleResult = ()>>> {
     let ref lock = &**VM_CHANNELS;
     let mut channels = lock.write().unwrap();
     (*channels).set(name, handler)
@@ -252,7 +252,7 @@ pub fn register_async_request(name: Atom, handler: Arc<Handler<A = Arc<Vec<u8>>,
 /*
 * 线程安全的在虚拟机通道注销异步调用
 */
-pub fn unregister_async_request(name: Atom) -> Option<Arc<Handler<A = Arc<Vec<u8>>, B = Vec<JSType>, C = u32, D = (), E = (), F = (), G = (), H = (), HandleResult = ()>>> {
+pub fn unregister_async_request(name: Atom) -> Option<Arc<Handler<A = Arc<Vec<u8>>, B = Vec<JSType>, C = Option<u32>, D = (), E = (), F = (), G = (), H = (), HandleResult = ()>>> {
     let ref lock = &**VM_CHANNELS;
     let mut channels = lock.write().unwrap();
     (*channels).remove(name)
@@ -261,7 +261,7 @@ pub fn unregister_async_request(name: Atom) -> Option<Arc<Handler<A = Arc<Vec<u8
 /*
 * 线程安全的通过虚拟机通道向对端发送异步请求
 */
-pub fn async_request(js: Arc<JS>, name: Atom, msg: Arc<Vec<u8>>, native_objs: Vec<JSType>, callback: u32) -> bool {
+pub fn async_request(js: Arc<JS>, name: Atom, msg: Arc<Vec<u8>>, native_objs: Vec<JSType>, callback: Option<u32>) -> bool {
     let ref lock = &**VM_CHANNELS;
     let channels = lock.read().unwrap();
     (*channels).request(js, name, msg, native_objs, callback)
