@@ -94,7 +94,7 @@ impl VMFactory {
                     None => (),
                     Some(vm) => {
                         let func = Box::new(move || {
-                            vm.get_js_function((&func).to_string());
+                            vm.get_js_function((&port).to_string());
                             args(vm.clone());
                             vm.call(4);
                         });
