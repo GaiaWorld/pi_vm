@@ -5,6 +5,19 @@ use std::collections::HashMap;
 use adapter::{JSType, JS};
 use pi_lib::atom::Atom;
 
+#[derive(Clone)]
+pub struct NativeObjsAuth(Option<Arc<HashMap<Atom, ()>>>, Option<Arc<HashMap<Atom, ()>>>);
+
+impl NativeObjsAuth{
+    pub fn new(white: Option<Arc<HashMap<Atom, ()>>>, black: Option<Arc<HashMap<Atom, ()>>>) -> NativeObjsAuth{
+        NativeObjsAuth(white, black)
+    }
+
+    pub fn with_none() -> Arc<NativeObjsAuth>{
+        Arc::new(NativeObjsAuth(None, None))
+    }
+}
+
 lazy_static! {
 	pub static ref BON_MGR: Arc<BonMgr> = Arc::new(BonMgr::new());
 }
@@ -123,15 +136,6 @@ impl BonMgr{
 	}
 }
 
-#[derive(Clone)]
-pub struct NativeObjsAuth(Option<Arc<HashMap<Atom, ()>>>, Option<Arc<HashMap<Atom, ()>>>);
-
-impl NativeObjsAuth{
-    pub fn new(white: Option<Arc<HashMap<Atom, ()>>>, black: Option<Arc<HashMap<Atom, ()>>>) -> NativeObjsAuth{
-        NativeObjsAuth(white, black)
-    }
-}
-
 //特为构建代码提供，主要用于函数参数native_object转换为ptr， 如果类型不匹配将返回一个错误
 pub fn jstype_ptr<'a>(jstype: &JSType, js: Arc<JS>, obj_type: u32 , is_ownership:bool, error_str: &'a str) -> Result<usize, &'a str>{
 	if !jstype.is_native_object(){
@@ -168,7 +172,8 @@ pub fn jstype_ptr<'a>(jstype: &JSType, js: Arc<JS>, obj_type: u32 , is_ownership
         }
     };
 
-    if is_ownership{//如果参数要求所有权， 需要从所有权obj列表中删除
+    if is_ownership{//如果参数要求所有权， 需要从所有权obj列表中删
+        //println!("-----------------------------------------------------------------------------------------{}", &ptr);
         objs.remove(&ptr);
     }
     r
