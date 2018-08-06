@@ -5,6 +5,11 @@ use std::collections::HashMap;
 use adapter::{JSType, JS};
 use pi_lib::atom::Atom;
 
+lazy_static! {
+	pub static ref BON_MGR: Arc<BonMgr> = Arc::new(BonMgr::new());
+}
+
+//权限表
 #[derive(Clone)]
 pub struct NativeObjsAuth(Option<Arc<HashMap<Atom, ()>>>, Option<Arc<HashMap<Atom, ()>>>);
 
@@ -18,8 +23,28 @@ impl NativeObjsAuth{
     }
 }
 
-lazy_static! {
-	pub static ref BON_MGR: Arc<BonMgr> = Arc::new(BonMgr::new());
+#[derive(Clone)]
+pub struct NativeObjs(pub Arc<RefCell<HashMap<usize, NObject>>>);
+
+impl NativeObjs{
+    pub fn new() -> Self{
+        NativeObjs(Arc::new(RefCell::new(HashMap::new())))
+    }
+    pub fn insert(&self, ptr: usize, obj: NObject){
+        self.0.borrow_mut().insert(ptr, obj);
+    }
+}
+
+impl Drop for NativeObjs{
+    fn drop(&mut self){
+        println!("drop nativeobj!");
+        let map = self.0.borrow();
+        let struct_metas = BON_MGR.struct_metas.lock().unwrap();
+        for (ptr, nobj) in map.iter(){
+            let meta = struct_metas.get(&nobj.meta_hash).unwrap();
+            (meta.drop_fn)(*ptr);
+        }
+    }
 }
 
 pub fn bon_call(js: Arc<JS>, fun_hash: u32, args: Option<Vec<JSType>>) -> Option<CallResult>{
@@ -41,6 +66,7 @@ impl StructMember for Property{}
 
 pub struct StructMeta {
 	pub name: String,
+    pub drop_fn: fn(ptr: usize),
 	//pub tp:String,//struct, tuple, empty
 	//pub members:Vec<Box<StructMember\0// pub struct EnumMeta {
 // 	pub name: String,
@@ -94,7 +120,7 @@ pub struct NObject {
 
 pub struct BonMgr{
 	fun_metas: Arc<Mutex<HashMap<u32, FnMeta>>>,
-	struct_metas:Arc<Mutex<HashMap<u32, StructMeta>>>,
+	pub struct_metas:Arc<Mutex<HashMap<u32, StructMeta>>>,
 }
 
 impl BonMgr{
@@ -131,8 +157,7 @@ impl BonMgr{
 	}
 
 	pub fn regist_struct_meta(&self, meta: StructMeta, hash: u32){
-        let mut struct_ref = self.struct_metas.lock().unwrap();
-		struct_ref.insert(hash, meta);
+		self.struct_metas.lock().unwrap().insert(hash, meta);
 	}
 }
 

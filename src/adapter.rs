@@ -24,7 +24,7 @@ use pi_base::task::TaskType;
 use pi_base::pi_base_impl::cast_js_task;
 
 use native_object_impl::*;
-use bonmgr::{NObject, NativeObjsAuth};
+use bonmgr::{NativeObjs, NObject, NativeObjsAuth};
 
 #[link(name = "libdukc")]
 extern "C" {
@@ -248,7 +248,7 @@ pub struct JS {
     vm: usize,                                          //虚拟机
     queue: JSMsgQueue,                                  //虚拟机异步消息队列
     auth: Arc<NativeObjsAuth>,                          //虚拟机本地对象授权
-    objs: Arc<RefCell<HashMap<usize, NObject>>>,        //虚拟机本地对象表
+    objs: NativeObjs,        //虚拟机本地对象表
     objs_ref: Arc<RefCell<HashMap<usize, NObject>>>,    //虚拟机本地对象引用表
 }
 
@@ -256,6 +256,7 @@ pub struct JS {
 * 尝试destroy虚拟机
 */
 pub fn try_js_destroy(js: &JS) {
+    println!("try_js_destroy----------------------------------");
     if js.vm == 0 {
         return;
     }
@@ -271,6 +272,7 @@ pub fn try_js_destroy(js: &JS) {
 
 impl Drop for JS {
     fn drop(&mut self) {
+        println!("drop----------------------------------");
         try_js_destroy(self);
     }
 }
@@ -300,7 +302,7 @@ impl JS {
                     consumer: Arc::new(c),
                 },
                 auth: auth.clone(),
-                objs: Arc::new(RefCell::new(HashMap::new())),
+                objs: NativeObjs::new(),
                 objs_ref: Arc::new(RefCell::new(HashMap::new())),
             });
             unsafe { dukc_bind_vm(ptr, Arc::into_raw(arc.clone()) as *const c_void); }
@@ -325,7 +327,7 @@ impl JS {
 
     //获取虚拟机本地对象表
     pub fn get_objs(&self) -> Arc<RefCell<HashMap<usize, NObject>>> {
-        self.objs.clone()
+        self.objs.0.clone()
     }
 
     //获取虚拟机本地对象引用表
