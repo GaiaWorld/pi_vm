@@ -358,7 +358,7 @@ fn native_object_call_test() {
     }
 }
 
-// #[test]
+#[test]
 fn native_object_call_block_reply_test() {
     let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
     worker_pool.run(JS_TASK_POOL.clone());
