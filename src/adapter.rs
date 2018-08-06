@@ -271,6 +271,7 @@ pub fn try_js_destroy(js: &JS) {
 
 impl Drop for JS {
     fn drop(&mut self) {
+        println!("!!!!!!!!!!!!!!!drop js");
         try_js_destroy(self);
     }
 }
@@ -303,7 +304,11 @@ impl JS {
                 objs: Arc::new(RefCell::new(HashMap::new())),
                 objs_ref: Arc::new(RefCell::new(HashMap::new())),
             });
-            unsafe { dukc_bind_vm(ptr, Arc::into_raw(arc.clone()) as *const c_void); }
+            unsafe {
+                let handler = Arc::into_raw(arc.clone()) as *const c_void;
+                dukc_bind_vm(ptr, handler);
+                Arc::from_raw(handler); //保证被clone的Arc的释放
+            }
             Some(arc)
         }
     }
