@@ -162,6 +162,7 @@ impl VMChannelMap {
 
     //移除指定名称的处理器，返回处理器
     pub fn remove(&mut self, name: Atom) -> Option<Arc<Handler<A = Arc<Vec<u8>>, B = Vec<JSType>, C = Option<u32>, D = (), E = (), F = (), G = (), H = (), HandleResult = ()>>> {
+        println!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!remove, name: {:?}", name);
         self.map.remove(&name)
     }
 
@@ -169,6 +170,7 @@ impl VMChannelMap {
     pub fn request(&self, js: Arc<JS>, name: Atom, msg: Arc<Vec<u8>>, native_objs: Vec<JSType>, callback: Option<u32>) -> bool {
         let handler = match self.map.get(&name) {
             None => {
+                println!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!name: {:?}", name);
                 return false;
             },
             Some(h) => {
