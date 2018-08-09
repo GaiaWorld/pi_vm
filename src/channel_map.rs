@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::clone::Clone;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::cell::RefCell;
 
 use pi_lib::atom::Atom;
 use pi_lib::handler::{Env, GenType, Handler, Args};
@@ -24,19 +25,19 @@ pub enum VMChannelPeer {
 pub struct VMChannel {
     src: VMChannelPeer,             //源
     dst: VMChannelPeer,             //目标
-    attrs: HashMap<Atom, GenType>,  //属性表
+    attrs: RefCell<HashMap<Atom, GenType>>,  //属性表
 }
 
 impl Env for VMChannel {
     fn get_attr(&self, key: Atom) -> Option<GenType> {
-        match self.attrs.get(&key) {
+        match self.attrs.borrow().get(&key) {
             None => None,
             Some(value) => Some(value.clone()),
         }
     }
 
-    fn set_attr(&mut self, key: Atom, value: GenType) -> Option<GenType> {
-        match self.attrs.entry(key) {
+    fn set_attr(&self, key: Atom, value: GenType) -> Option<GenType> {
+        match self.attrs.borrow_mut().entry(key) {
             Entry::Occupied(ref mut e) => {
                 Some(e.insert(value))
             },
@@ -47,8 +48,8 @@ impl Env for VMChannel {
         }
     }
 
-    fn remove_attr(&mut self, key: Atom) -> Option<GenType> {
-        self.attrs.remove(&key)
+    fn remove_attr(&self, key: Atom) -> Option<GenType> {
+        self.attrs.borrow_mut().remove(&key)
     }
 }
 
@@ -58,7 +59,7 @@ impl VMChannel {
         VMChannel {
             src: src,
             dst: dst,
-            attrs: HashMap::new(),
+            attrs: RefCell::new(HashMap::new()),
         }
     }
 
