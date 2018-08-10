@@ -1,4 +1,4 @@
-use libc::{c_void, c_char, int8_t, uint8_t, c_int, uint32_t, uint64_t, c_double, memcpy};
+use libc::{c_void, c_char, int8_t, uint8_t, c_int, uint32_t, int32_t, uint64_t, c_double, memcpy};
 use std::slice::{from_raw_parts_mut, from_raw_parts};
 use std::sync::atomic::{Ordering, AtomicUsize};
 use std::string::FromUtf8Error;
@@ -47,6 +47,7 @@ extern "C" {
     fn dukc_new_number(vm: *const c_void, num: c_double) -> uint32_t;
     fn dukc_new_string(vm: *const c_void, str: *const c_char) -> uint32_t;
     fn dukc_new_object(vm: *const c_void) -> uint32_t;
+    fn dukc_new_type_object(vm: *const c_void, name: *const c_char) -> int32_t;
     fn dukc_set_object_field(vm: *const c_void, object: uint32_t, key: *const c_char, value: uint32_t) -> uint32_t;
     fn dukc_new_array(vm: *const c_void) -> uint32_t;
     fn dukc_set_array_index(vm: *const c_void, array: uint32_t, index: uint32_t, value: uint32_t) -> uint32_t;
@@ -73,6 +74,7 @@ extern "C" {
     pub fn dukc_switch_context(vm: *const c_void);
     pub fn dukc_callback_count(vm: *const c_void) -> uint32_t;
     pub fn dukc_remove_callback(vm: *const c_void, index: uint32_t) -> uint32_t;
+    fn dukc_set_global_var(vm: *const c_void, key: *const c_char) -> uint32_t;
     // fn dukc_top(vm: *const c_void) -> int32_t;
     // fn dukc_to_string(vm: *const c_void, offset: int32_t) -> *const c_char;
     fn dukc_pop(vm: *const c_void);
@@ -563,6 +565,27 @@ impl JS {
             value: ptr as usize,
         }
     }
+
+    //构建指定类型的对象，构建失败返回undefined
+    pub fn new_type_object(&self, name: String) -> JSType {
+        let ptr: i32;
+        let t = match name.as_str() {
+            "Array" => JSValueType::Array as u8,
+            "ArrayBuffer" => JSValueType::ArrayBuffer as u8,
+            "Uint8Array" => JSValueType::Uint8Array as u8,
+            _ => JSValueType::Object as u8,
+        };
+        unsafe { ptr = dukc_new_type_object(self.vm as *const c_void, CString::new(name).unwrap().as_ptr()) }
+        if ptr < 0 {
+            self.new_undefined()
+        } else {
+            JSType {
+                type_id: t,
+                vm: self.vm,
+                value: ptr as usize,
+            }
+        }
+    }
     
     //设置指定对象的域
     pub fn set_field(&self, object: &JSType, key: String, value: &JSType) -> bool {
@@ -599,7 +622,7 @@ impl JS {
         unsafe { if dukc_set_array_index(self.vm as *const c_void, array.value as u32, index, value.value as u32) == 0 {
             return false;
         }}
-        return true;
+        true
     }
 
     //构建ArrayBuffer
@@ -640,7 +663,7 @@ impl JS {
         unsafe { if dukc_get_js_function(self.vm as *const c_void, CString::new(func).unwrap().as_ptr()) == 0 {
             return false;
         }}
-        return true;
+        true
     }
 
     //调用指定函数
@@ -673,6 +696,16 @@ impl JS {
         match self.queue.producer.try_push(msg) {
             Err(_) => 0,
             Ok(_) => self.queue.size.fetch_add(1, Ordering::Acquire) + 1,
+        }
+    }
+
+    //设置指定全局变量的值
+    pub fn set_global_var(&self, key: String) -> bool {
+        unsafe {
+            if dukc_set_global_var(self.vm as *const c_void, CString::new(key).unwrap().as_ptr()) == 0 {
+                return false;
+            }
+            true
         }
     }
 }

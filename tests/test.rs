@@ -114,6 +114,14 @@ fn base_test() {
     let tmp = object.get_field("c".to_string());
     assert!(object.is_object() &&tmp.is_none()); //key不存在
 
+    let array = js.new_type_object("Array".to_string());
+    assert!(array.is_array() && array.get_array_length() == 0);
+    let object = js.new_object();
+    let val = js.new_str("Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
+    js.set_field(&object, "x".to_string(), &val);
+    js.set_index(&array, 3, &object);
+    assert!(js.set_global_var("$array".to_string()));
+
     let array = js.new_array();
     assert!(array.is_array() && array.get_array_length() == 0);
     let object = js.new_object();
