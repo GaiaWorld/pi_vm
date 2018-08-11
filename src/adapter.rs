@@ -26,7 +26,7 @@ use pi_base::pi_base_impl::cast_js_task;
 use native_object_impl::*;
 use bonmgr::{NativeObjs, NObject, NativeObjsAuth};
 
-#[link(name = "libdukc")]
+#[link(name = "dukc")]
 extern "C" {
     fn dukc_register_native_object_function_call(func: extern fn(*const c_void, uint32_t, uint32_t, *const c_void, *const c_void) -> c_int);
     fn dukc_register_native_object_free(func: extern fn(*const c_void, uint32_t));
@@ -589,7 +589,7 @@ impl JS {
     
     //设置指定对象的域
     pub fn set_field(&self, object: &JSType, key: String, value: &JSType) -> bool {
-        if (self.vm != object.vm) || (self.vm != value.vm){
+        if (self.vm != object.vm) || (self.vm != value.vm) {
             //如果对象和值不是在指定虚拟机上创建的，则忽略
             return false;
         }
@@ -615,7 +615,7 @@ impl JS {
 
     //设置指定数组指定偏移的值
     pub fn set_index(&self, array: &JSType, index: u32, value: &JSType) -> bool {
-        if (self.vm != array.vm) || (self.vm != value.vm){
+        if (self.vm != array.vm) || (self.vm != value.vm) {
             //如果数组和值不是在指定虚拟机上创建的，则忽略
             return false;
         }
