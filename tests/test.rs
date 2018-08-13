@@ -6,6 +6,7 @@ extern crate pi_lib;
 extern crate pi_base;
 extern crate threadpool;
 
+use std::mem;
 use std::thread;
 use std::time::{Instant, Duration};
 use std::sync::{Arc, Mutex, Condvar};
@@ -18,7 +19,7 @@ use pi_base::util::now_nanosecond;
 use pi_base::worker_pool::WorkerPool;
 use pi_base::pi_base_impl::{JS_TASK_POOL, cast_js_task};
 use pi_vm::pi_vm_impl::{VMFactory, block_reply, block_throw, push_callback, register_async_request};
-use pi_vm::adapter::{load_lib_backtrace, register_native_object, dukc_remove_value, JS, JSType};
+use pi_vm::adapter::{load_lib_backtrace, register_native_object, dukc_remove_value, dukc_top, JS, JSType};
 use pi_vm::channel_map::VMChannel;
 use pi_vm::bonmgr::NativeObjsAuth;
 
@@ -213,6 +214,45 @@ fn base_test() {
 
     let val = js.new_native_object(0xffffffffusize);
     assert!(val.is_native_object() && val.get_native_object() == 0xffffffffusize);
+}
+
+// #[test]
+fn test_stack_length() {
+    load_lib_backtrace();
+    register_native_object();
+    let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
+    assert!(opts.is_some());
+    let js = opts.unwrap();
+    let opts = js.compile("base_test.js".to_string(), "var obj = {a: 10, c: true, d: {a: 0.9999999, c: \"ADSFkfaf中()**&^$111\", d: [new Uint8Array(), new ArrayBuffer(), function(x) { return x; }]}}; console.log(\"!!!!!!obj:\", obj);".to_string());
+    assert!(opts.is_some());
+    let codes0 = opts.unwrap();
+    assert!(js.load(codes0.as_slice()));
+
+    let mut member: JSType;
+    let array = js.new_array();
+    assert!(array.is_array() && array.get_array_length() == 0);
+    for idx in 0..200 {
+        member = js.new_u8(255);
+        js.set_index(&array, idx, &member);
+    }
+
+    unsafe {
+        for idx in 0..200 {
+            let n = array.get_index(idx as u32);
+            assert!(n.is_number());
+            println!("!!!!!!top: {}", dukc_top(js.get_vm()));
+        }
+    }
+
+    //out of stack
+    unsafe {
+        let mut arr: [JSType; 200] = unsafe { mem::zeroed() };
+        for idx in 0..200 {
+            arr[idx] = array.get_index(idx as u32);
+            assert!(arr[idx].is_number());
+            println!("!!!!!!top: {}", dukc_top(js.get_vm()));
+        }
+    }
 }
 
 // #[test]

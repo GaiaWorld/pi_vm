@@ -75,7 +75,7 @@ extern "C" {
     pub fn dukc_callback_count(vm: *const c_void) -> uint32_t;
     pub fn dukc_remove_callback(vm: *const c_void, index: uint32_t) -> uint32_t;
     fn dukc_set_global_var(vm: *const c_void, key: *const c_char) -> uint32_t;
-    // fn dukc_top(vm: *const c_void) -> int32_t;
+    pub fn dukc_top(vm: *const c_void) -> int32_t;
     // fn dukc_to_string(vm: *const c_void, offset: int32_t) -> *const c_char;
     fn dukc_pop(vm: *const c_void);
     fn dukc_vm_destroy(vm: *const c_void);
@@ -257,23 +257,21 @@ pub struct JS {
 /*
 * 尝试destroy虚拟机
 */
-pub fn try_js_destroy(js: &JS) {
+pub unsafe fn try_js_destroy(js: &JS) {
     if js.vm == 0 {
         return;
     }
 
-    unsafe {
-        let old_status = dukc_vm_status_switch(js.vm as *const c_void, JSStatus::NoTask as i8, JSStatus::Destroy as i8);
-        if old_status == JSStatus::NoTask as i8 {
-            //当前js虚拟机无任务，则可以destroy
-            dukc_vm_destroy(js.vm as *const c_void);
-        }
+    let old_status = dukc_vm_status_switch(js.vm as *const c_void, JSStatus::NoTask as i8, JSStatus::Destroy as i8);
+    if old_status == JSStatus::NoTask as i8 {
+        //当前js虚拟机无任务，则可以destroy
+        dukc_vm_destroy(js.vm as *const c_void);
     }
 }
 
 impl Drop for JS {
     fn drop(&mut self) {
-        try_js_destroy(self);
+        unsafe { try_js_destroy(self); }
     }
 }
 
@@ -401,6 +399,7 @@ impl JS {
         unsafe { ptr = dukc_new_undefined(self.vm as *const c_void) }
         JSType {
             type_id: JSValueType::Undefined as u8,
+            is_drop: false,
             vm: self.vm,
             value: ptr as usize,
         }
@@ -412,6 +411,7 @@ impl JS {
         unsafe { ptr = dukc_new_null(self.vm as *const c_void) }
         JSType {
             type_id: JSValueType::Null as u8,
+            is_drop: false,
             vm: self.vm,
             value: ptr as usize,
         }
@@ -429,6 +429,7 @@ impl JS {
         }
         JSType {
             type_id: JSValueType::Boolean as u8,
+            is_drop: false,
             vm: self.vm,
             value: ptr as usize,
         }
@@ -440,6 +441,7 @@ impl JS {
         unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
+            is_drop: false,
             vm: self.vm,
             value: ptr as usize,
         }
@@ -451,6 +453,7 @@ impl JS {
         unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
+            is_drop: false,
             vm: self.vm,
             value: ptr as usize,
         }
@@ -462,6 +465,7 @@ impl JS {
         unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
+            is_drop: false,
             vm: self.vm,
             value: ptr as usize,
         }
@@ -473,6 +477,7 @@ impl JS {
         unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
+            is_drop: false,
             vm: self.vm,
             value: ptr as usize,
         }
@@ -484,6 +489,7 @@ impl JS {
         unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
+            is_drop: false,
             vm: self.vm,
             value: ptr as usize,
         }
@@ -495,6 +501,7 @@ impl JS {
         unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
+            is_drop: false,
             vm: self.vm,
             value: ptr as usize,
         }
@@ -506,6 +513,7 @@ impl JS {
         unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
+            is_drop: false,
             vm: self.vm,
             value: ptr as usize,
         }
@@ -517,6 +525,7 @@ impl JS {
         unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
+            is_drop: false,
             vm: self.vm,
             value: ptr as usize,
         }
@@ -528,6 +537,7 @@ impl JS {
         unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
+            is_drop: false,
             vm: self.vm,
             value: ptr as usize,
         }
@@ -539,6 +549,7 @@ impl JS {
         unsafe { ptr = dukc_new_number(self.vm as *const c_void, num) }
         JSType {
             type_id: JSValueType::Number as u8,
+            is_drop: false,
             vm: self.vm,
             value: ptr as usize,
         }
@@ -550,6 +561,7 @@ impl JS {
         unsafe { ptr = dukc_new_string(self.vm as *const c_void, CString::new(str).unwrap().as_ptr()) }
         JSType {
             type_id: JSValueType::String as u8,
+            is_drop: false,
             vm: self.vm,
             value: ptr as usize,
         }
@@ -561,6 +573,7 @@ impl JS {
         unsafe { ptr = dukc_new_object(self.vm as *const c_void) }
         JSType {
             type_id: JSValueType::Object as u8,
+            is_drop: false,
             vm: self.vm,
             value: ptr as usize,
         }
@@ -581,6 +594,7 @@ impl JS {
         } else {
             JSType {
                 type_id: t,
+                is_drop: false,
                 vm: self.vm,
                 value: ptr as usize,
             }
@@ -608,6 +622,7 @@ impl JS {
         unsafe { ptr = dukc_new_array(self.vm as *const c_void) }
         JSType {
             type_id: JSValueType::Array as u8,
+            is_drop: false,
             vm: self.vm,
             value: ptr as usize,
         }
@@ -631,6 +646,7 @@ impl JS {
         unsafe { ptr = dukc_new_array_buffer(self.vm as *const c_void, length) }
         JSType {
             type_id: JSValueType::ArrayBuffer as u8,
+            is_drop: false,
             vm: self.vm,
             value: ptr as usize,
         }
@@ -642,6 +658,7 @@ impl JS {
         unsafe { ptr = dukc_new_uint8_array(self.vm as *const c_void, length) }
         JSType {
             type_id: JSValueType::Uint8Array as u8,
+            is_drop: false,
             vm: self.vm,
             value: ptr as usize,
         }
@@ -653,6 +670,7 @@ impl JS {
         unsafe { ptr = dukc_new_native_object(self.vm as *const c_void, instance as u64) }
         JSType {
             type_id: JSValueType::NativeObject as u8,
+            is_drop: false,
             vm: self.vm,
             value: ptr as usize,
         }
@@ -733,15 +751,34 @@ pub enum JSValueType {
 #[derive(Clone)]
 pub struct JSType {
     type_id:    u8,
+    is_drop:    bool,
     vm:         usize,
     value:      usize,
 }
 
+/*
+* 尝试destroy虚拟机的值
+*/
+pub unsafe fn try_value_destroy(js: &JSType) {
+    if !js.is_drop {
+        return;
+    }
+
+    dukc_remove_value(js.vm as *const c_void, js.value as u32);
+}
+
+impl Drop for JSType {
+    fn drop(&mut self) {
+        unsafe { try_value_destroy(self); }
+    }
+}
+
 impl JSType {
     //构建一个指定js类型
-    pub unsafe fn new(type_id: u8, vm: *const c_void, ptr: *const c_void) -> Self {
+    pub unsafe fn new(type_id: u8, is_drop: bool, vm: *const c_void, ptr: *const c_void) -> Self {
         JSType {
             type_id: type_id,
+            is_drop: is_drop,
             vm: vm as usize,
             value: ptr as usize,
         }
@@ -928,6 +965,7 @@ impl JSType {
         unsafe { ptr = dukc_get_object_field(self.vm as *const c_void, self.value as u32, CString::new(key).unwrap().as_ptr()) }
         JSType {
             type_id: self.get_type_id(ptr),
+            is_drop: true, //对象成员自动drop
             vm: self.vm,
             value: ptr as usize,
         }
@@ -944,6 +982,7 @@ impl JSType {
         unsafe { ptr = dukc_get_array_index(self.vm as *const c_void, self.value as u32, index) }
         JSType {
             type_id: self.get_type_id(ptr),
+            is_drop: true,  //数组成员需要自动drop
             vm: self.vm,
             value: ptr as usize,
         }
