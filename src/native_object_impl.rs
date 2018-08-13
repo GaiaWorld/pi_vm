@@ -61,7 +61,7 @@ fn args_to_vec(vm: *const c_void, args_size: u32, args_type: *const u8, args: *c
         unsafe {
             type_id = args_type.wrapping_offset(offset as isize).read();
             arg = args.wrapping_offset(offset as isize).read();
-            vec.insert(offset as usize, JSType::new(type_id, vm, arg as *const c_void));
+            vec.insert(offset as usize, JSType::new(type_id, false, vm, arg as *const c_void));
         }
     }
     Some(vec)
