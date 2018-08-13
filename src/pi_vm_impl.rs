@@ -261,7 +261,7 @@ pub fn unregister_async_request(name: Atom) -> Option<Arc<Handler<A = Arc<Vec<u8
 /*
 * 线程安全的通过虚拟机通道向对端发送异步请求
 */
-pub fn async_request(js: Arc<JS>, name: Atom, msg: Arc<Vec<u8>>, native_objs: Vec<JSType>, callback: Option<u32>) -> bool {
+pub fn async_request(js: Arc<JS>, name: Atom, msg: Arc<Vec<u8>>, native_objs: Vec<usize>, callback: Option<u32>) -> bool {
     let ref lock = &**VM_CHANNELS;
     let channels = lock.read().unwrap();
     (*channels).request(js, name, msg, native_objs, callback)

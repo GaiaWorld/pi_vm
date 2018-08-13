@@ -231,17 +231,17 @@ fn test_stack_length() {
     let mut member: JSType;
     let array = js.new_array();
     assert!(array.is_array() && array.get_array_length() == 0);
-    for idx in 0..200 {
-        member = js.new_u8(255);
+    for idx in 0..10 {
+        member = js.new_u8(idx as u8);
         js.set_index(&array, idx, &member);
     }
 
     unsafe {
-        for idx in 0..200 {
+        for idx in 0..10 {
             let n = array.get_index(idx as u32);
             assert!(n.is_number());
-            println!("!!!!!!top: {}", dukc_top(js.get_vm()));
         }
+        println!("!!!!!!top: {}", dukc_top(js.get_vm()));
     }
 
     //out of stack
@@ -603,8 +603,12 @@ fn test_async_request_and_repsonse() {
                     assert!(native_objs[2].get_native_object() == 0xffffffff);
                     println!("!!!!!!bin: {:?}", bin);
 
+                    let mut objs = Vec::new();
+                    for idx in 0..native_objs.len() {
+                        objs.push(native_objs[idx].get_native_object());
+                    }
                     let channel = unsafe { Arc::from_raw(Arc::into_raw(env.clone()) as *const VMChannel) };
-                    assert!(channel.response(Some(index), Arc::new("Async Call OK".to_string().into_bytes()), native_objs))
+                    assert!(channel.response(Some(index), Arc::new("Async Call OK".to_string().into_bytes()), objs))
                 },
                 _ => assert!(false)
             }
@@ -671,8 +675,12 @@ fn test_async_block_request_and_repsonse() {
                     assert!(native_objs[2].get_native_object() == 0xffffffff);
                     println!("!!!!!!bin: {:?}", bin);
 
+                    let mut objs = Vec::new();
+                    for idx in 0..native_objs.len() {
+                        objs.push(native_objs[idx].get_native_object());
+                    }
                     let channel = unsafe { Arc::from_raw(Arc::into_raw(env.clone()) as *const VMChannel) };
-                    assert!(channel.response(callback, Arc::new("Async Block Call OK".to_string().into_bytes()), native_objs))
+                    assert!(channel.response(callback, Arc::new("Async Block Call OK".to_string().into_bytes()), objs))
                 },
                 _ => assert!(false)
             }
