@@ -1,4 +1,5 @@
 use std::boxed::FnBox;
+use std::ffi::CString;
 use std::sync::{Arc, RwLock};
 use std::sync::atomic::{Ordering, AtomicUsize};
 
@@ -11,7 +12,7 @@ use pi_base::pi_base_impl::cast_js_task;
 use pi_lib::handler::Handler;
 use pi_lib::atom::Atom;
 
-use adapter::{JSStatus, JSMsg, JS, JSType, pause, js_reply_callback, handle_async_callback, try_js_destroy, dukc_vm_status_check, dukc_vm_status_switch, dukc_wakeup, dukc_continue};
+use adapter::{JSStatus, JSMsg, JS, JSType, pause, js_reply_callback, handle_async_callback, try_js_destroy, dukc_vm_status_check, dukc_vm_status_switch, dukc_new_error, dukc_wakeup, dukc_continue};
 use channel_map::VMChannelMap;
 use bonmgr::NativeObjsAuth;
 
@@ -185,7 +186,7 @@ pub fn block_throw(js: Arc<JS>, reason: String, task_type: TaskType, priority: u
                 if status == JSStatus::MultiTask as i8 {
                     //同步任务已阻塞虚拟机，则抛出指定原因的错误，并唤醒虚拟机继续同步执行
                     dukc_wakeup(copy_js.get_vm(), 1);
-                    copy_js.new_str(reason);
+                    dukc_new_error(copy_js.get_vm(), CString::new(reason).unwrap().as_ptr());
                     dukc_continue(copy_js.get_vm(), js_reply_callback);
                 } else {
                     try_js_destroy(&copy_js);
