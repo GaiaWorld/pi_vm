@@ -54,6 +54,7 @@ extern "C" {
     fn dukc_new_array_buffer(vm: *const c_void, length: uint32_t) -> uint32_t;
     fn dukc_new_uint8_array(vm: *const c_void, length: uint32_t) -> uint32_t;
     fn dukc_new_native_object(vm: *const c_void, ptr: uint64_t) -> uint32_t;
+    pub fn dukc_new_error(vm: *const c_void, reason: *const c_char) -> uint32_t;
     pub fn dukc_remove_value(vm: *const c_void, value: uint32_t);
     fn dukc_get_value_type(vm: *const c_void, value: uint32_t) -> uint8_t;
     fn dukc_get_boolean(vm: *const c_void, value: uint32_t) -> uint8_t;
