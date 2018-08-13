@@ -70,7 +70,7 @@ impl VMChannel {
     }
 
     //回应请求
-    pub fn response(&self, callback: Option<u32>, result: Arc<Vec<u8>>, native_objs: Vec<JSType>) -> bool {
+    pub fn response(&self, callback: Option<u32>, result: Arc<Vec<u8>>, native_objs: Vec<usize>) -> bool {
         match self.src {
             VMChannelPeer::VM(ref js) => {
                 match callback {
@@ -84,7 +84,7 @@ impl VMChannel {
                             let mut value: JSType;
                             let sub_array = vm.new_array();
                             for i in 0..native_objs.len() {
-                                value = vm.new_native_object(native_objs[i].get_native_object());
+                                value = vm.new_native_object(native_objs[i]);
                                 vm.set_index(&sub_array, i as u32, &value);
                             }
                             vm.set_index(&array, 1, &sub_array);
@@ -99,7 +99,7 @@ impl VMChannel {
                             let mut value: JSType;
                             let array = vm.new_array();
                             for i in 0..native_objs.len() {
-                                value = vm.new_native_object(native_objs[i].get_native_object());
+                                value = vm.new_native_object(native_objs[i]);
                                 vm.set_index(&array, i as u32, &value);
                             }
                             2
@@ -167,7 +167,7 @@ impl VMChannelMap {
     }
 
     //请求
-    pub fn request(&self, js: Arc<JS>, name: Atom, msg: Arc<Vec<u8>>, native_objs: Vec<JSType>, callback: Option<u32>) -> bool {
+    pub fn request(&self, js: Arc<JS>, name: Atom, msg: Arc<Vec<u8>>, native_objs: Vec<usize>, callback: Option<u32>) -> bool {
         let handler = match self.map.get(&name) {
             None => {
                 return false;
@@ -177,9 +177,14 @@ impl VMChannelMap {
             },
         };
 
+        let mut objs = Vec::new();
+        for index in 0..native_objs.len() {
+            objs.push(js.new_native_object(native_objs[index]));
+        }
+
         let mut channel = VMChannel::new(VMChannelPeer::VM(js), VMChannelPeer::Any);
         channel.set_attr(Atom::from("_$gray"), GenType::USize(self.gray));
-        handler.handle(Arc::new(channel), name, Args::ThreeArgs(msg, native_objs, callback));
+        handler.handle(Arc::new(channel), name, Args::ThreeArgs(msg, objs, callback));
         true
     }
 }

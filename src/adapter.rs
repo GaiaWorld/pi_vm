@@ -76,7 +76,7 @@ extern "C" {
     pub fn dukc_remove_callback(vm: *const c_void, index: uint32_t) -> uint32_t;
     fn dukc_set_global_var(vm: *const c_void, key: *const c_char) -> uint32_t;
     pub fn dukc_top(vm: *const c_void) -> int32_t;
-    // fn dukc_to_string(vm: *const c_void, offset: int32_t) -> *const c_char;
+    pub fn dukc_to_string(vm: *const c_void, offset: int32_t) -> *const c_char;
     fn dukc_pop(vm: *const c_void);
     fn dukc_vm_destroy(vm: *const c_void);
 }
@@ -763,7 +763,6 @@ pub unsafe fn try_value_destroy(js: &JSType) {
     if !js.is_drop {
         return;
     }
-
     dukc_remove_value(js.vm as *const c_void, js.value as u32);
 }
 
