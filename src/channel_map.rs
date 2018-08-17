@@ -6,6 +6,7 @@ use std::cell::RefCell;
 
 use pi_lib::atom::Atom;
 use pi_lib::handler::{Env, GenType, Handler, Args};
+use pi_lib::gray::GrayVersion;
 use pi_base::task::TaskType;
 
 use adapter::{JS, JSType};
@@ -26,6 +27,17 @@ pub struct VMChannel {
     src: VMChannelPeer,             //源
     dst: VMChannelPeer,             //目标
     attrs: RefCell<HashMap<Atom, GenType>>,  //属性表
+    gray: Option<usize>,
+}
+
+impl GrayVersion for VMChannel {
+    fn get_gray(&self) -> &Option<usize> {
+        &self.gray
+    }
+
+    fn set_gray(&mut self, gray: Option<usize>) {
+        self.gray = gray
+    }
 }
 
 impl Env for VMChannel {
@@ -59,6 +71,7 @@ impl VMChannel {
         VMChannel {
             src: src,
             dst: dst,
+            gray: None,
             attrs: RefCell::new(HashMap::new()),
         }
     }
@@ -182,8 +195,7 @@ impl VMChannelMap {
             objs.push(js.new_native_object(native_objs[index]));
         }
 
-        let mut channel = VMChannel::new(VMChannelPeer::VM(js), VMChannelPeer::Any);
-        channel.set_attr(Atom::from("_$gray"), GenType::USize(self.gray));
+        let channel = VMChannel::new(VMChannelPeer::VM(js), VMChannelPeer::Any);
         handler.handle(Arc::new(channel), name, Args::ThreeArgs(msg, objs, callback));
         true
     }
