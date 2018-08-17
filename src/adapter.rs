@@ -13,9 +13,6 @@ use std::ops::Drop;
 use std::thread;
 
 use npnc::bounded::mpmc::{channel as npnc_channel, Producer, Consumer};
-// use magnetic::mpsc::*;
-// use magnetic::{Producer, Consumer};
-// use magnetic::buffer::dynamic::DynamicBuffer;
 
 #[cfg(not(unix))]
 use kernel32;
@@ -285,7 +282,6 @@ impl JS {
         if ptr.is_null() {
             None
         } else {
-            // let (p, c) = mpsc_queue(DynamicBuffer::new(queue_max_size).unwrap());
             let (p, c) = npnc_channel(queue_max_size);
             unsafe {
                 if dukc_heap_init(ptr, js_reply_callback) == 0 {
