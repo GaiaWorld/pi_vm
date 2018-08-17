@@ -12,9 +12,10 @@ use std::sync::Arc;
 use std::ops::Drop;
 use std::thread;
 
-use magnetic::mpsc::*;
-use magnetic::{Producer, Consumer};
-use magnetic::buffer::dynamic::DynamicBuffer;
+use npnc::bounded::mpmc::{channel as npnc_channel, Producer, Consumer};
+// use magnetic::mpsc::*;
+// use magnetic::{Producer, Consumer};
+// use magnetic::buffer::dynamic::DynamicBuffer;
 
 #[cfg(not(unix))]
 use kernel32;
@@ -238,9 +239,9 @@ impl JSMsg {
 */
 #[derive(Clone)]
 struct JSMsgQueue {
-    size: Arc<AtomicUsize>,                                     //虚拟机异步消息队列长度
-    producer: Arc<MPSCProducer<JSMsg, DynamicBuffer<JSMsg>>>,   //虚拟机异步消息队列生产者
-    consumer: Arc<MPSCConsumer<JSMsg, DynamicBuffer<JSMsg>>>,   //虚拟机异步消息队列消费者
+    size: Arc<AtomicUsize>,         //虚拟机异步消息队列长度
+    producer: Arc<Producer<JSMsg>>, //虚拟机异步消息队列生产者
+    consumer: Arc<Consumer<JSMsg>>, //虚拟机异步消息队列消费者
 }
 
 /*
@@ -284,7 +285,8 @@ impl JS {
         if ptr.is_null() {
             None
         } else {
-            let (p, c) = mpsc_queue(DynamicBuffer::new(queue_max_size).unwrap());
+            // let (p, c) = mpsc_queue(DynamicBuffer::new(queue_max_size).unwrap());
+            let (p, c) = npnc_channel(queue_max_size);
             unsafe {
                 if dukc_heap_init(ptr, js_reply_callback) == 0 {
                     dukc_vm_destroy(ptr);
@@ -701,7 +703,7 @@ impl JS {
 
     //从异步消息队列中弹出消息
     pub fn pop(&self) -> Option<JSMsg> {
-        match self.queue.consumer.try_pop() {
+        match self.queue.consumer.consume() {
             Err(_) => None,
             Ok(msg) => {
                 self.queue.size.fetch_sub(1, Ordering::Acquire);
@@ -712,7 +714,7 @@ impl JS {
 
     //向异步消息队列中推送消息
     pub fn push(&self, msg: JSMsg) -> usize {
-        match self.queue.producer.try_push(msg) {
+        match self.queue.producer.produce(msg) {
             Err(_) => 0,
             Ok(_) => self.queue.size.fetch_add(1, Ordering::Acquire) + 1,
         }

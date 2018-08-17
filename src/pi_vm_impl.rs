@@ -17,9 +17,9 @@ use channel_map::VMChannelMap;
 use bonmgr::NativeObjsAuth;
 
 /*
-* 默认虚拟机异步消息队列最大字节数
+* 默认虚拟机异步消息队列最大长度
 */
-const VM_MSG_QUEUE_MAX_SIZE: usize = 0xffffff;
+const VM_MSG_QUEUE_MAX_SIZE: usize = 0x100;
 
 /*
 * 虚拟机通道
