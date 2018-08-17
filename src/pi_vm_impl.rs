@@ -17,9 +17,9 @@ use channel_map::VMChannelMap;
 use bonmgr::NativeObjsAuth;
 
 /*
-* 默认虚拟机异步消息队列最大长度
+* 默认虚拟机异步消息队列最大字节数
 */
-const VM_MSG_QUEUE_MAX_SIZE: u16 = 0xff;
+const VM_MSG_QUEUE_MAX_SIZE: usize = 0xffffff;
 
 /*
 * 虚拟机通道
@@ -121,7 +121,7 @@ impl VMFactory {
     }
 
     //构建一个虚拟机，加载所有字节码，并提供虚拟机本地对象授权
-    fn new_vm(&self, queue_max_size: u16, auth: Arc<NativeObjsAuth>) -> Option<Arc<JS>> {
+    fn new_vm(&self, queue_max_size: usize, auth: Arc<NativeObjsAuth>) -> Option<Arc<JS>> {
         match JS::new(queue_max_size, auth.clone()) {
             None => None,
             Some(vm) => {
