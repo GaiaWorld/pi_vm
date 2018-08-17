@@ -251,7 +251,7 @@ pub struct JS {
     vm: usize,                                          //虚拟机
     queue: JSMsgQueue,                                  //虚拟机异步消息队列
     auth: Arc<NativeObjsAuth>,                          //虚拟机本地对象授权
-    objs: NativeObjs,        //虚拟机本地对象表
+    objs: NativeObjs,                                   //虚拟机本地对象表
     objs_ref: Arc<RefCell<HashMap<usize, NObject>>>,    //虚拟机本地对象引用表
 }
 
@@ -278,13 +278,13 @@ impl Drop for JS {
 
 impl JS {
     //构建一个虚拟机
-    pub fn new(queue_max_size: u16, auth: Arc<NativeObjsAuth>) -> Option<Arc<Self>> {
+    pub fn new(queue_max_size: usize, auth: Arc<NativeObjsAuth>) -> Option<Arc<Self>> {
         let ptr: *const c_void;
         unsafe { ptr = dukc_heap_create() }
         if ptr.is_null() {
             None
         } else {
-            let (p, c) = mpsc_queue(DynamicBuffer::new(queue_max_size as usize).unwrap());
+            let (p, c) = mpsc_queue(DynamicBuffer::new(queue_max_size).unwrap());
             unsafe {
                 if dukc_heap_init(ptr, js_reply_callback) == 0 {
                     dukc_vm_destroy(ptr);
