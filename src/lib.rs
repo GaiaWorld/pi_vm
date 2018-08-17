@@ -14,6 +14,7 @@ extern crate core;
 extern crate time;
 extern crate libc;
 extern crate rand;
+extern crate npnc;
 extern crate magnetic;
 
 #[macro_use]

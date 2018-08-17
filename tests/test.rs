@@ -413,7 +413,7 @@ fn native_object_call_block_reply_test() {
 
     load_lib_backtrace();
     register_native_object();
-    let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
+    let opts = JS::new(0x100, Arc::new(NativeObjsAuth::new(None, None)));
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("native_object_call_block_reply_test_0.js".to_string(), "var obj = {}; console.log(\"!!!!!!obj: \" + obj); __thread_call(function() { var r = NativeObject.call(0xffffffff, [true, 0.999, \"你好\"]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); }); function callback(index) { console.log(\"!!!!!!callback ok, index: \" + index); var r = NativeObject.call(0xffffffff, [index]); r = __thread_yield(); console.log(\"!!!!!!callback ok, r: \" + r); }; function async_call(func) { var index = callbacks.register(func); NativeObject.call(index, []); __thread_yield(); console.log(\"!!!!!!register callback ok, index: \" + index); };\n".to_string());
