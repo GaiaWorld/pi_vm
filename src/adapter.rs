@@ -65,6 +65,7 @@ extern "C" {
     fn dukc_get_buffer(vm: *const c_void, value: uint32_t) -> *const c_void;
     fn dukc_get_native_object_instance(vm: *const c_void, value: uint32_t) -> uint64_t;
     fn dukc_get_js_function(vm: *const c_void, func: *const c_char) -> uint32_t;
+    fn dukc_link_js_function(vm: *const c_void, func: *const c_char) -> uint32_t;
     pub fn dukc_get_callback(vm: *const c_void, index: uint32_t) -> uint32_t ;
     pub fn dukc_call(vm: *const c_void, len: uint8_t, reply: extern fn(*const c_void, c_int, *const c_char));
     pub fn dukc_throw(vm: *const c_void, reason: *const c_char);
@@ -678,6 +679,14 @@ impl JS {
     //获取指定函数
     pub fn get_js_function(&self, func: String) -> bool {
         unsafe { if dukc_get_js_function(self.vm as *const c_void, CString::new(func).unwrap().as_ptr()) == 0 {
+            return false;
+        }}
+        true
+    }
+
+    //链式获取指定函数
+    pub fn get_link_function(&self, func: String) -> bool {
+        unsafe { if dukc_link_js_function(self.vm as *const c_void, CString::new(func).unwrap().as_ptr()) == 0 {
             return false;
         }}
         true
