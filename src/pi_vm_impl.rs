@@ -95,7 +95,7 @@ impl VMFactory {
                     None => (),
                     Some(vm) => {
                         let func = Box::new(move || {
-                            vm.get_js_function((&port).to_string());
+                            vm.get_link_function((&port).to_string());
                             let args_size = args(vm.clone());
                             vm.call(args_size);
                         });
@@ -106,7 +106,7 @@ impl VMFactory {
             Ok(vm) => {
                 let producer = self.producer.clone();
                 let func = Box::new(move || {
-                    vm.get_js_function(port.to_string());
+                    vm.get_link_function(port.to_string());
                     let args_size = args(vm.clone());
                     vm.call(args_size);
                     //调用完成后复用虚拟机
