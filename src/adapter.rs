@@ -45,7 +45,8 @@ extern "C" {
     fn dukc_new_number(vm: *const c_void, num: c_double) -> uint32_t;
     fn dukc_new_string(vm: *const c_void, str: *const c_char) -> uint32_t;
     fn dukc_new_object(vm: *const c_void) -> uint32_t;
-    fn dukc_new_type_object(vm: *const c_void, name: *const c_char) -> int32_t;
+    fn dukc_get_type(vm: *const c_void, name: *const c_char) -> uint32_t;
+    fn dukc_new_type(vm: *const c_void, len: uint8_t) -> int32_t;
     fn dukc_set_object_field(vm: *const c_void, object: uint32_t, key: *const c_char, value: uint32_t) -> uint32_t;
     fn dukc_new_array(vm: *const c_void) -> uint32_t;
     fn dukc_set_array_index(vm: *const c_void, array: uint32_t, index: uint32_t, value: uint32_t) -> uint32_t;
@@ -579,8 +580,13 @@ impl JS {
         }
     }
 
+    //获取指定类型
+    pub fn get_type(&self, name: String) -> bool {
+        unsafe { dukc_get_type(self.vm as *const c_void, CString::new(name).unwrap().as_ptr()) != 0 }
+    }
+
     //构建指定类型的对象，构建失败返回undefined
-    pub fn new_type_object(&self, name: String) -> JSType {
+    pub fn new_type(&self, name: String, len: usize) -> JSType {
         let ptr: i32;
         let t = match name.as_str() {
             "Array" => JSValueType::Array as u8,
@@ -588,7 +594,7 @@ impl JS {
             "Uint8Array" => JSValueType::Uint8Array as u8,
             _ => JSValueType::Object as u8,
         };
-        unsafe { ptr = dukc_new_type_object(self.vm as *const c_void, CString::new(name).unwrap().as_ptr()) }
+        unsafe { ptr = dukc_new_type(self.vm as *const c_void, len as u8) }
         if ptr < 0 {
             self.new_undefined()
         } else {
@@ -970,9 +976,14 @@ impl JSType {
 	pub fn get_field(&self, key: String) -> JSType {
         let ptr: u32;
         unsafe { ptr = dukc_get_object_field(self.vm as *const c_void, self.value as u32, CString::new(key).unwrap().as_ptr()) }
+        let is_drop = if self.get_type_id(ptr) == JSValueType::None as u8 {
+            false //无值则不需要自运drop
+        } else {
+            true //对象成员自动drop
+        };
         JSType {
             type_id: self.get_type_id(ptr),
-            is_drop: true, //对象成员自动drop
+            is_drop: is_drop,
             vm: self.vm,
             value: ptr as usize,
         }
@@ -987,9 +998,14 @@ impl JSType {
 	pub fn get_index(&self, index: u32) -> JSType {
         let ptr: u32;
         unsafe { ptr = dukc_get_array_index(self.vm as *const c_void, self.value as u32, index) }
+        let is_drop = if self.get_type_id(ptr) == JSValueType::None as u8 {
+            false //无值则不需要自运drop
+        } else {
+            true //数组成员需要自动drop
+        };
         JSType {
             type_id: self.get_type_id(ptr),
-            is_drop: true,  //数组成员需要自动drop
+            is_drop: is_drop,
             vm: self.vm,
             value: ptr as usize,
         }

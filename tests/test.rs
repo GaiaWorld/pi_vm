@@ -64,7 +64,7 @@ fn test_vm_performance() {
 fn base_test() {
     load_lib_backtrace();
     register_native_object();
-    let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
+    let opts = JS::new(0x100, Arc::new(NativeObjsAuth::new(None, None)));
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("base_test.js".to_string(), "var obj = {a: 10, c: true, d: {a: 0.9999999, c: \"ADSFkfaf中()**&^$111\", d: [new Uint8Array(), new ArrayBuffer(), function(x) { return x; }]}}; console.log(\"!!!!!!obj:\", obj);".to_string());
@@ -109,14 +109,19 @@ fn base_test() {
     assert!(object.is_object());
     let val = js.new_str("Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
     js.set_field(&object, "x".to_string(), &val);
-    let tmp = object.get_field("x".to_string());
-    assert!(object.is_object() && tmp.is_string() && tmp.get_str() == "Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
-    unsafe { dukc_remove_value(js.get_vm(), tmp.get_value() as u32); }
-    let tmp = object.get_field("c".to_string());
-    assert!(object.is_object() &&tmp.is_none()); //key不存在
+    {
+        let tmp = object.get_field("x".to_string());
+        assert!(object.is_object() && tmp.is_string() && tmp.get_str() == "Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
+    }
+    {
+        let tmp = object.get_field("c".to_string());
+        assert!(object.is_object() && tmp.is_none()); //key不存在
+    }
 
-    let array = js.new_type_object("Array".to_string());
-    assert!(array.is_array() && array.get_array_length() == 0);
+    assert!(js.get_type("Array".to_string()));
+    js.new_u8(10);
+    let array = js.new_type("Array".to_string(), 1);
+    assert!(array.is_array() && array.get_array_length() == 10);
     let object = js.new_object();
     let val = js.new_str("Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
     js.set_field(&object, "x".to_string(), &val);
@@ -131,14 +136,18 @@ fn base_test() {
     js.set_index(&array, 3, &object);
     let val = js.new_str("Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
     js.set_index(&array, 30, &val); //数组自动扩容
-    let tmp = array.get_index(3);
-    assert!(array.is_array() && tmp.is_object() && tmp.get_field("x".to_string()).get_str() == "Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
-    unsafe { dukc_remove_value(js.get_vm(), tmp.get_value() as u32); }
-    let tmp = array.get_index(30);
-    assert!(array.is_array() && tmp.is_string() && tmp.get_str() == "Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
-    unsafe { dukc_remove_value(js.get_vm(), tmp.get_value() as u32); }
-    let tmp = array.get_index(0);
-    assert!(array.is_array() && tmp.is_none()); //index不存在
+    {
+        let tmp = array.get_index(3);
+        assert!(array.is_array() && tmp.is_object() && tmp.get_field("x".to_string()).get_str() == "Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
+    }
+    {
+        let tmp = array.get_index(30);
+        assert!(array.is_array() && tmp.is_string() && tmp.get_str() == "Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
+    }
+    {
+        let tmp = array.get_index(0);
+        assert!(array.is_array() && tmp.is_none()); //index不存在
+    }
 
     let val = js.new_array_buffer(32);
     let mut tmp = val.into_vec();
@@ -558,160 +567,160 @@ fn native_object_call_block_reply_test_by_clone() {
 }
 
 // #[test]
-fn test_async_request_and_repsonse() {
-    let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
-    worker_pool.run(JS_TASK_POOL.clone());
+// fn test_async_request_and_repsonse() {
+//     let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
+//     worker_pool.run(JS_TASK_POOL.clone());
 
-    struct AsyncRequestHandler;
+//     struct AsyncRequestHandler;
 
-    unsafe impl Send for AsyncRequestHandler {}
-    unsafe impl Sync for AsyncRequestHandler {}
+//     unsafe impl Send for AsyncRequestHandler {}
+//     unsafe impl Sync for AsyncRequestHandler {}
 
-    impl Handler for AsyncRequestHandler {
-        type A = Arc<Vec<u8>>;
-        type B = Vec<JSType>;
-        type C = Option<u32>;
-        type D = ();
-        type E = ();
-        type F = ();
-        type G = ();
-        type H = ();
-        type HandleResult = ();
+//     impl Handler for AsyncRequestHandler {
+//         type A = Arc<Vec<u8>>;
+//         type B = Vec<JSType>;
+//         type C = Option<u32>;
+//         type D = ();
+//         type E = ();
+//         type F = ();
+//         type G = ();
+//         type H = ();
+//         type HandleResult = ();
 
-        fn handle(&self, env: Arc<dyn Env>, name: Atom, args: Args<Self::A, Self::B, Self::C, Self::D, Self::E, Self::F, Self::G, Self::H>) -> Self::HandleResult {
-            match env.get_attr(Atom::from("_$gray")) {
-                Some(val) => {
-                    match val {
-                        GenType::USize(gray) => {
-                            println!("!!!!!!gray: {}", gray);
-                        },
-                        _ => assert!(false),
-                    }
-                },
-                _ => assert!(false),
-            }
+//         fn handle(&self, env: Arc<dyn Env>, name: Atom, args: Args<Self::A, Self::B, Self::C, Self::D, Self::E, Self::F, Self::G, Self::H>) -> Self::HandleResult {
+//             match env.get_attr(Atom::from("_$gray")) {
+//                 Some(val) => {
+//                     match val {
+//                         GenType::USize(gray) => {
+//                             println!("!!!!!!gray: {}", gray);
+//                         },
+//                         _ => assert!(false),
+//                     }
+//                 },
+//                 _ => assert!(false),
+//             }
 
-            assert!(name == Atom::from("test_async_call"));
+//             assert!(name == Atom::from("test_async_call"));
 
-            match args {
-                Args::ThreeArgs(bin, native_objs, callback) => {
-                    assert!(callback.is_some());
-                    let index = callback.unwrap();
-                    assert!(index == 0);
-                    assert!(native_objs[0].get_native_object() == 0);
-                    assert!(native_objs[1].get_native_object() == 1);
-                    assert!(native_objs[2].get_native_object() == 0xffffffff);
-                    println!("!!!!!!bin: {:?}", bin);
+//             match args {
+//                 Args::ThreeArgs(bin, native_objs, callback) => {
+//                     assert!(callback.is_some());
+//                     let index = callback.unwrap();
+//                     assert!(index == 0);
+//                     assert!(native_objs[0].get_native_object() == 0);
+//                     assert!(native_objs[1].get_native_object() == 1);
+//                     assert!(native_objs[2].get_native_object() == 0xffffffff);
+//                     println!("!!!!!!bin: {:?}", bin);
 
-                    let mut objs = Vec::new();
-                    for idx in 0..native_objs.len() {
-                        objs.push(native_objs[idx].get_native_object());
-                    }
-                    let channel = unsafe { Arc::from_raw(Arc::into_raw(env.clone()) as *const VMChannel) };
-                    assert!(channel.response(Some(index), Arc::new("Async Call OK".to_string().into_bytes()), objs))
-                },
-                _ => assert!(false)
-            }
-        }
-    }
+//                     let mut objs = Vec::new();
+//                     for idx in 0..native_objs.len() {
+//                         objs.push(native_objs[idx].get_native_object());
+//                     }
+//                     let channel = unsafe { Arc::from_raw(Arc::into_raw(env.clone()) as *const VMChannel) };
+//                     assert!(channel.response(Some(index), Arc::new("Async Call OK".to_string().into_bytes()), objs))
+//                 },
+//                 _ => assert!(false)
+//             }
+//         }
+//     }
 
-    register_async_request(Atom::from("test_async_call"), Arc::new(AsyncRequestHandler));
+//     register_async_request(Atom::from("test_async_call"), Arc::new(AsyncRequestHandler));
 
-    load_lib_backtrace();
-    register_native_object();
-    let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
-    assert!(opts.is_some());
-    let js = opts.unwrap();
-    let opts = js.compile("native_async_call.js".to_string(), "var index = callbacks.register(function(result, objs) { console.log(\"!!!!!!async call ok, result:\", result); for(i = 0; i < objs.length; i++) { console.log(\"!!!!!!async call ok, objs[\" + i + \"]:\", objs[i].toString(), is_native_object(objs[i])); } }); var r = NativeObject.call(0x7fffffff, []); console.log(\"!!!!!!async call start, callback:\", index, \", r:\", r);".to_string());
-    assert!(opts.is_some());
-    let codes0 = opts.unwrap();
-    assert!(js.load(codes0.as_slice()));
-    while !js.is_ran() {
-        thread::sleep(Duration::from_millis(1));
-    }
-}
+//     load_lib_backtrace();
+//     register_native_object();
+//     let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
+//     assert!(opts.is_some());
+//     let js = opts.unwrap();
+//     let opts = js.compile("native_async_call.js".to_string(), "var index = callbacks.register(function(result, objs) { console.log(\"!!!!!!async call ok, result:\", result); for(i = 0; i < objs.length; i++) { console.log(\"!!!!!!async call ok, objs[\" + i + \"]:\", objs[i].toString(), is_native_object(objs[i])); } }); var r = NativeObject.call(0x7fffffff, []); console.log(\"!!!!!!async call start, callback:\", index, \", r:\", r);".to_string());
+//     assert!(opts.is_some());
+//     let codes0 = opts.unwrap();
+//     assert!(js.load(codes0.as_slice()));
+//     while !js.is_ran() {
+//         thread::sleep(Duration::from_millis(1));
+//     }
+// }
 
 // #[test]
-fn test_async_block_request_and_repsonse() {
-    let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
-    worker_pool.run(JS_TASK_POOL.clone());
+// fn test_async_block_request_and_repsonse() {
+//     let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
+//     worker_pool.run(JS_TASK_POOL.clone());
 
-    struct AsyncBlockRequestHandler;
+//     struct AsyncBlockRequestHandler;
 
-    unsafe impl Send for AsyncBlockRequestHandler {}
-    unsafe impl Sync for AsyncBlockRequestHandler {}
+//     unsafe impl Send for AsyncBlockRequestHandler {}
+//     unsafe impl Sync for AsyncBlockRequestHandler {}
 
-    impl Handler for AsyncBlockRequestHandler {
-        type A = Arc<Vec<u8>>;
-        type B = Vec<JSType>;
-        type C = Option<u32>;
-        type D = ();
-        type E = ();
-        type F = ();
-        type G = ();
-        type H = ();
-        type HandleResult = ();
+//     impl Handler for AsyncBlockRequestHandler {
+//         type A = Arc<Vec<u8>>;
+//         type B = Vec<JSType>;
+//         type C = Option<u32>;
+//         type D = ();
+//         type E = ();
+//         type F = ();
+//         type G = ();
+//         type H = ();
+//         type HandleResult = ();
 
-        fn handle(&self, env: Arc<dyn Env>, name: Atom, args: Args<Self::A, Self::B, Self::C, Self::D, Self::E, Self::F, Self::G, Self::H>) -> Self::HandleResult {
-            match env.get_attr(Atom::from("_$gray")) {
-                Some(val) => {
-                    match val {
-                        GenType::USize(gray) => {
-                            println!("!!!!!!gray: {}", gray);
-                        },
-                        _ => assert!(false),
-                    }
-                },
-                _ => assert!(false),
-            }
+//         fn handle(&self, env: Arc<dyn Env>, name: Atom, args: Args<Self::A, Self::B, Self::C, Self::D, Self::E, Self::F, Self::G, Self::H>) -> Self::HandleResult {
+//             match env.get_attr(Atom::from("_$gray")) {
+//                 Some(val) => {
+//                     match val {
+//                         GenType::USize(gray) => {
+//                             println!("!!!!!!gray: {}", gray);
+//                         },
+//                         _ => assert!(false),
+//                     }
+//                 },
+//                 _ => assert!(false),
+//             }
 
-            assert!(name == Atom::from("test_async_block_call"));
+//             assert!(name == Atom::from("test_async_block_call"));
 
-            match args {
-                Args::ThreeArgs(bin, native_objs, callback) => {
-                    assert!(callback.is_none());
-                    assert!(native_objs[0].get_native_object() == 0);
-                    assert!(native_objs[1].get_native_object() == 1);
-                    assert!(native_objs[2].get_native_object() == 0xffffffff);
-                    println!("!!!!!!bin: {:?}", bin);
+//             match args {
+//                 Args::ThreeArgs(bin, native_objs, callback) => {
+//                     assert!(callback.is_none());
+//                     assert!(native_objs[0].get_native_object() == 0);
+//                     assert!(native_objs[1].get_native_object() == 1);
+//                     assert!(native_objs[2].get_native_object() == 0xffffffff);
+//                     println!("!!!!!!bin: {:?}", bin);
 
-                    let mut objs = Vec::new();
-                    for idx in 0..native_objs.len() {
-                        objs.push(native_objs[idx].get_native_object());
-                    }
-                    let channel = unsafe { Arc::from_raw(Arc::into_raw(env.clone()) as *const VMChannel) };
-                    assert!(channel.response(callback, Arc::new("Async Block Call OK".to_string().into_bytes()), objs))
-                },
-                _ => assert!(false)
-            }
-        }
-    }
+//                     let mut objs = Vec::new();
+//                     for idx in 0..native_objs.len() {
+//                         objs.push(native_objs[idx].get_native_object());
+//                     }
+//                     let channel = unsafe { Arc::from_raw(Arc::into_raw(env.clone()) as *const VMChannel) };
+//                     assert!(channel.response(callback, Arc::new("Async Block Call OK".to_string().into_bytes()), objs))
+//                 },
+//                 _ => assert!(false)
+//             }
+//         }
+//     }
 
-    register_async_request(Atom::from("test_async_block_call"), Arc::new(AsyncBlockRequestHandler));
+//     register_async_request(Atom::from("test_async_block_call"), Arc::new(AsyncBlockRequestHandler));
 
-    load_lib_backtrace();
-    register_native_object();
-    let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
-    assert!(opts.is_some());
-    let js = opts.unwrap();
-    let opts = js.compile("native_async_block_call.js".to_string(), "function async_block_call() { var r = NativeObject.call(0x7fffffff, []); console.log(\"!!!!!!async block call start, r: \" + r); r = __thread_yield(); console.log(\"!!!!!!async block call ok, result:\", r); var objs = r[1]; for(i = 0; i < objs.length; i++) { console.log(\"!!!!!!objs[\" + i + \"]:\", objs[i].toString(), is_native_object(objs[i])); } }".to_string());
-    assert!(opts.is_some());
-    let codes0 = opts.unwrap();
-    assert!(js.load(codes0.as_slice()));
-    while !js.is_ran() {
-        thread::sleep(Duration::from_millis(1));
-    }
+//     load_lib_backtrace();
+//     register_native_object();
+//     let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
+//     assert!(opts.is_some());
+//     let js = opts.unwrap();
+//     let opts = js.compile("native_async_block_call.js".to_string(), "function async_block_call() { var r = NativeObject.call(0x7fffffff, []); console.log(\"!!!!!!async block call start, r: \" + r); r = __thread_yield(); console.log(\"!!!!!!async block call ok, result:\", r); var objs = r[1]; for(i = 0; i < objs.length; i++) { console.log(\"!!!!!!objs[\" + i + \"]:\", objs[i].toString(), is_native_object(objs[i])); } }".to_string());
+//     assert!(opts.is_some());
+//     let codes0 = opts.unwrap();
+//     assert!(js.load(codes0.as_slice()));
+//     while !js.is_ran() {
+//         thread::sleep(Duration::from_millis(1));
+//     }
 
-    let copy = js.clone();
-    let task_type = TaskType::Async;
-    let priority = 10;
-    let func = Box::new(move|| {
-        copy.get_js_function("async_block_call".to_string());
-        copy.call(0);
-    });
-    cast_js_task(task_type, priority, func, Atom::from("async block call task"));
-    thread::sleep(Duration::from_millis(5000)); //保证异步阻塞调用执行
-}
+//     let copy = js.clone();
+//     let task_type = TaskType::Async;
+//     let priority = 10;
+//     let func = Box::new(move|| {
+//         copy.get_js_function("async_block_call".to_string());
+//         copy.call(0);
+//     });
+//     cast_js_task(task_type, priority, func, Atom::from("async block call task"));
+//     thread::sleep(Duration::from_millis(5000)); //保证异步阻塞调用执行
+// }
 
 // #[test]
 fn task_test() {
