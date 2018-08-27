@@ -76,6 +76,7 @@ extern "C" {
     pub fn dukc_callback_count(vm: *const c_void) -> uint32_t;
     pub fn dukc_remove_callback(vm: *const c_void, index: uint32_t) -> uint32_t;
     fn dukc_set_global_var(vm: *const c_void, key: *const c_char) -> uint32_t;
+    fn dukc_eval(vm: *const c_void, script: *const c_char) -> int32_t;
     pub fn dukc_top(vm: *const c_void) -> int32_t;
     pub fn dukc_to_string(vm: *const c_void, offset: int32_t) -> *const c_char;
     fn dukc_pop(vm: *const c_void);
@@ -738,6 +739,31 @@ impl JS {
                 return false;
             }
             true
+        }
+    }
+
+    //执行指定脚本，并返回
+    pub fn eval(&self, script: String) -> JSType {
+        let ptr: i32;
+        let vm = self.vm as *const c_void;
+        unsafe {
+            ptr = dukc_eval(vm, CString::new(script).unwrap().as_ptr());
+            if ptr < 0 {
+                JSType {
+                    type_id: JSValueType::None as u8,
+                    is_drop: false, //执行脚本失败没有返回值，不需要回收
+                    vm: self.vm,
+                    value: 0,
+                }
+            } else {
+                let t = dukc_get_value_type(vm, ptr as u32);
+                JSType {
+                    type_id: t,
+                    is_drop: true, //执行脚本成功的返回值，需要被回收
+                    vm: self.vm,
+                    value: ptr as usize,
+                }
+            }
         }
     }
 }
