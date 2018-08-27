@@ -128,6 +128,11 @@ fn base_test() {
     js.set_index(&array, 3, &object);
     assert!(js.set_global_var("$array".to_string()));
 
+    {
+        let val = js.eval("var _obj = {};_obj;".to_string());
+        assert!(val.is_object());   
+    }
+
     let array = js.new_array();
     assert!(array.is_array() && array.get_array_length() == 0);
     let object = js.new_object();
