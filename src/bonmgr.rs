@@ -176,13 +176,13 @@ pub fn jstype_ptr<'a>(jstype: &JSType, js: Arc<JS>, obj_type: u32 , is_ownership
             Some(v) => v,
             None => {
                 if is_ownership {//如果需要所有权， 直接抛出错误
-                    println!("NObject is not found in objs, ptr:{}", ptr);
+                    println!("NObject is not found in objs, ptr:{}, type:{}", ptr, obj_type);
                     return Err("NObject is not found in objs");
                 }else{//如果不需要所有权， 从引用类obj列表中获取NObject
                     match objs_ref.get(&ptr){
                         Some(v) => v,
                         None => {
-                            println!("NObject is not found in objs_ref, ptr:{}", ptr);
+                            println!("NObject is not found in objs_ref, ptr:{}, type: {}", ptr, obj_type);
                             return Err("NObject is not found in objs_ref");
                         }
                     }

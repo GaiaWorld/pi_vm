@@ -38,6 +38,10 @@ impl GrayVersion for VMChannel {
     fn set_gray(&mut self, gray: Option<usize>) {
         self.gray = gray
     }
+    
+    fn get_id(&self) -> usize{
+        0
+    }
 }
 
 impl Env for VMChannel {
