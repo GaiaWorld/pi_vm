@@ -133,6 +133,13 @@ fn base_test() {
         assert!(val.is_object());   
     }
 
+    {
+        assert!(js.check_function("Math.log10".to_string()));
+        let n = js.new_u16(1000);
+        let val = js.invoke(1);
+        assert!(val.is_number());
+    }
+
     let array = js.new_array();
     assert!(array.is_array() && array.get_array_length() == 0);
     let object = js.new_object();
