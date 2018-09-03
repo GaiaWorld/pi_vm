@@ -66,7 +66,8 @@ extern "C" {
     fn dukc_get_buffer(vm: *const c_void, value: uint32_t) -> *const c_void;
     fn dukc_get_native_object_instance(vm: *const c_void, value: uint32_t) -> uint64_t;
     fn dukc_get_js_function(vm: *const c_void, func: *const c_char) -> uint32_t;
-    fn dukc_link_js_function(vm: *const c_void, func: *const c_char) -> uint32_t;
+    pub fn dukc_link_js_function(vm: *const c_void, func: *const c_char) -> uint32_t;
+    fn dukc_check_js_function(vm: *const c_void, func: *const c_char) -> uint32_t;
     pub fn dukc_get_callback(vm: *const c_void, index: uint32_t) -> uint32_t ;
     pub fn dukc_call(vm: *const c_void, len: uint8_t, reply: extern fn(*const c_void, c_int, *const c_char));
     pub fn dukc_throw(vm: *const c_void, reason: *const c_char);
@@ -76,6 +77,7 @@ extern "C" {
     pub fn dukc_callback_count(vm: *const c_void) -> uint32_t;
     pub fn dukc_remove_callback(vm: *const c_void, index: uint32_t) -> uint32_t;
     fn dukc_set_global_var(vm: *const c_void, key: *const c_char) -> uint32_t;
+    fn dukc_invoke(vm: *const c_void, len: uint8_t) -> int32_t;
     fn dukc_eval(vm: *const c_void, script: *const c_char) -> int32_t;
     pub fn dukc_top(vm: *const c_void) -> int32_t;
     pub fn dukc_to_string(vm: *const c_void, offset: int32_t) -> *const c_char;
@@ -699,6 +701,14 @@ impl JS {
         true
     }
 
+    //链式检查指定函数
+    pub fn check_function(&self, func: String) -> bool {
+        unsafe { if dukc_check_js_function(self.vm as *const c_void, CString::new(func).unwrap().as_ptr()) == 0 {
+            return false;
+        }}
+        true
+    }
+
     //调用指定函数
     pub fn call(&self, len: usize) {
         let vm = self.vm;
@@ -739,6 +749,31 @@ impl JS {
                 return false;
             }
             true
+        }
+    }
+
+    //调用指定函数，并返回
+    pub fn invoke(&self, len: usize) -> JSType {
+        let ptr: i32;
+        let vm = self.vm as *const c_void;
+        unsafe {
+            ptr = dukc_invoke(vm, len as u8);
+            if ptr < 0 {
+                JSType {
+                    type_id: JSValueType::None as u8,
+                    is_drop: false, //执行函数失败没有返回值，不需要回收
+                    vm: self.vm,
+                    value: 0,
+                }
+            } else {
+                let t = dukc_get_value_type(vm, ptr as u32);
+                JSType {
+                    type_id: t,
+                    is_drop: true, //执行函数成功的返回值，需要被回收
+                    vm: self.vm,
+                    value: ptr as usize,
+                }
+            }
         }
     }
 
