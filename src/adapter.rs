@@ -81,6 +81,7 @@ extern "C" {
     fn dukc_eval(vm: *const c_void, script: *const c_char) -> int32_t;
     pub fn dukc_top(vm: *const c_void) -> int32_t;
     pub fn dukc_to_string(vm: *const c_void, offset: int32_t) -> *const c_char;
+    fn dukc_dump_stack(vm: *const c_void) -> *const c_char;
     fn dukc_pop(vm: *const c_void);
     fn dukc_vm_destroy(vm: *const c_void);
 }
@@ -800,6 +801,11 @@ impl JS {
                 }
             }
         }
+    }
+
+    //获取当前虚拟机堆栈信息
+    pub fn dump_stack(&self) -> String {
+        unsafe { CStr::from_ptr(dukc_dump_stack(self.vm as *const c_void)).to_string_lossy().into_owned() }
     }
 }
 

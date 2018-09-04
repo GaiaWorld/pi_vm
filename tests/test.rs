@@ -234,6 +234,7 @@ fn base_test() {
     println!("buffer: {:?}", tmp);
 
     let val = js.new_native_object(0xffffffffusize);
+    println!("stack: {}", js.dump_stack());
     assert!(val.is_native_object() && val.get_native_object() == 0xffffffffusize);
 }
 
