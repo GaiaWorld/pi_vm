@@ -779,26 +779,26 @@ impl JS {
     }
 
     //执行指定脚本，并返回
-    pub fn eval(&self, script: String) -> JSType {
+    pub fn eval(&self, script: String) -> AJSType {
         let ptr: i32;
         let vm = self.vm as *const c_void;
         unsafe {
             ptr = dukc_eval(vm, CString::new(script).unwrap().as_ptr());
             if ptr < 0 {
-                JSType {
+                Arc::new(JSType {
                     type_id: JSValueType::None as u8,
                     is_drop: false, //执行脚本失败没有返回值，不需要回收
                     vm: self.vm,
                     value: 0,
-                }
+                })
             } else {
                 let t = dukc_get_value_type(vm, ptr as u32);
-                JSType {
+                Arc::new(JSType {
                     type_id: t,
                     is_drop: true, //执行脚本成功的返回值，需要被回收
                     vm: self.vm,
                     value: ptr as usize,
-                }
+                })
             }
         }
     }
@@ -825,6 +825,11 @@ pub enum JSValueType {
     ArrayBuffer,
     Uint8Array,
 }
+
+/*
+* 只读js类型，不允许用于js运行，只用于rust读取
+*/
+type AJSType = Arc<JSType>;
 
 /*
 * js类型

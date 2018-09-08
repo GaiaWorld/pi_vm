@@ -335,7 +335,7 @@ fn native_object_call_test() {
 
     load_lib_backtrace();
     register_native_object();
-    let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
+    let opts = JS::new(0x100, Arc::new(NativeObjsAuth::new(None, None)));
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("native_object_call_test.js".to_string(), "var obj = {};\n
@@ -528,7 +528,7 @@ fn native_object_call_block_reply_test_by_clone() {
 
     load_lib_backtrace();
     register_native_object();
-    let opts = JS::new(0xff, Arc::new(NativeObjsAuth::new(None, None)));
+    let opts = JS::new(0x100, Arc::new(NativeObjsAuth::new(None, None)));
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("native_object_call_block_reply_test_by_clone.js".to_string(), "var obj = {}; console.log(\"!!!!!!obj: \" + obj); __thread_call(function() { var r = NativeObject.call(0xffffffff, [true, 0.999, \"你好\"]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); }); function call(x, y, z) { var r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); r = __thread_yield(); console.log(\"!!!!!!r: \" + r); r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); try{ __thread_yield() } catch(e) { console.log(\"!!!!!!e: \" + e) } };".to_string());
