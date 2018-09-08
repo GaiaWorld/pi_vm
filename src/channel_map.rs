@@ -91,16 +91,16 @@ impl VMChannel {
                         //同步阻塞返回
                         let result = Box::new(move |vm: Arc<JS>| {
                             let array = vm.new_array();
-                            let buffer = vm.new_uint8_array(result.len() as u32);
+                            let mut buffer = vm.new_uint8_array(result.len() as u32);
                             buffer.from_bytes(result.as_slice());
-                            vm.set_index(&array, 0, &buffer);
+                            vm.set_index(&array, 0, &mut buffer);
                             let mut value: JSType;
-                            let sub_array = vm.new_array();
+                            let mut sub_array = vm.new_array();
                             for i in 0..native_objs.len() {
                                 value = vm.new_native_object(native_objs[i]);
-                                vm.set_index(&sub_array, i as u32, &value);
+                                vm.set_index(&sub_array, i as u32, &mut value);
                             }
-                            vm.set_index(&array, 1, &sub_array);
+                            vm.set_index(&array, 1, &mut sub_array);
                         });
                         block_reply(js.clone(), result, TaskType::Sync, 1000000000, Atom::from("vm async block call response task"));
                     },
@@ -113,7 +113,7 @@ impl VMChannel {
                             let array = vm.new_array();
                             for i in 0..native_objs.len() {
                                 value = vm.new_native_object(native_objs[i]);
-                                vm.set_index(&array, i as u32, &value);
+                                vm.set_index(&array, i as u32, &mut value);
                             }
                             2
                         });
