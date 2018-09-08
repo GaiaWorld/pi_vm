@@ -751,11 +751,16 @@ impl JS {
         }
     }
 
-    //设置指定全局变量的值
-    pub fn set_global_var(&self, key: String) -> bool {
+    //设置指定全局变量的值，需要传递值的所有权，所以只读的值不允许设置为全局变量
+    pub fn set_global_var(&self, key: String, value: JSType) -> bool {
         unsafe {
             if dukc_set_global_var(self.vm as *const c_void, CString::new(key).unwrap().as_ptr()) == 0 {
                 return false;
+            }
+            if value.is_drop {
+                //已使用，则设置为不自动释放
+                let mut value_mut = value;
+                value_mut.is_drop = false;
             }
             true
         }
