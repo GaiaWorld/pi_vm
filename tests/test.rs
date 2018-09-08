@@ -107,8 +107,8 @@ fn base_test() {
 
     let object = js.new_object();
     assert!(object.is_object());
-    let val = js.new_str("Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
-    js.set_field(&object, "x".to_string(), &val);
+    let mut val = js.new_str("Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
+    js.set_field(&object, "x".to_string(), &mut val);
     {
         let tmp = object.get_field("x".to_string());
         assert!(object.is_object() && tmp.is_string() && tmp.get_str() == "Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
@@ -122,10 +122,10 @@ fn base_test() {
     js.new_u8(10);
     let array = js.new_type("Array".to_string(), 1);
     assert!(array.is_array() && array.get_array_length() == 10);
-    let object = js.new_object();
-    let val = js.new_str("Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
-    js.set_field(&object, "x".to_string(), &val);
-    js.set_index(&array, 3, &object);
+    let mut object = js.new_object();
+    let mut val = js.new_str("Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
+    js.set_field(&object, "x".to_string(), &mut val);
+    js.set_index(&array, 3, &mut object);
     assert!(js.set_global_var("$array".to_string()));
 
     {
@@ -142,12 +142,12 @@ fn base_test() {
 
     let array = js.new_array();
     assert!(array.is_array() && array.get_array_length() == 0);
-    let object = js.new_object();
-    let val = js.new_str("Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
-    js.set_field(&object, "x".to_string(), &val);
-    js.set_index(&array, 3, &object);
-    let val = js.new_str("Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
-    js.set_index(&array, 30, &val); //数组自动扩容
+    let mut object = js.new_object();
+    let mut val = js.new_str("Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
+    js.set_field(&object, "x".to_string(), &mut val);
+    js.set_index(&array, 3, &mut object);
+    let mut val = js.new_str("Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
+    js.set_index(&array, 30, &mut val); //数组自动扩容
     {
         let tmp = array.get_index(3);
         assert!(array.is_array() && tmp.is_object() && tmp.get_field("x".to_string()).get_str() == "Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
@@ -255,7 +255,7 @@ fn test_stack_length() {
     assert!(array.is_array() && array.get_array_length() == 0);
     for idx in 0..10 {
         member = js.new_u8(idx as u8);
-        js.set_index(&array, idx, &member);
+        js.set_index(&array, idx, &mut member);
     }
 
     unsafe {

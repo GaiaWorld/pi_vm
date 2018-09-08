@@ -612,7 +612,7 @@ impl JS {
     }
     
     //设置指定对象的域
-    pub fn set_field(&self, object: &JSType, key: String, value: &JSType) -> bool {
+    pub fn set_field(&self, object: &JSType, key: String, value: &mut JSType) -> bool {
         if (self.vm != object.vm) || (self.vm != value.vm) {
             //如果对象和值不是在指定虚拟机上创建的，则忽略
             return false;
@@ -621,6 +621,10 @@ impl JS {
             if dukc_set_object_field(self.vm as *const c_void, object.value as u32, CString::new(key).unwrap().as_ptr(), 
                 value.value as u32) == 0 {
                     return false;
+            }
+            if value.is_drop {
+                //已使用，则设置为不自动释放
+                value.is_drop = false;
             }
             true
         }
@@ -639,7 +643,7 @@ impl JS {
     }
 
     //设置指定数组指定偏移的值
-    pub fn set_index(&self, array: &JSType, index: u32, value: &JSType) -> bool {
+    pub fn set_index(&self, array: &JSType, index: u32, value: &mut JSType) -> bool {
         if (self.vm != array.vm) || (self.vm != value.vm) {
             //如果数组和值不是在指定虚拟机上创建的，则忽略
             return false;
@@ -647,6 +651,10 @@ impl JS {
         unsafe { if dukc_set_array_index(self.vm as *const c_void, array.value as u32, index, value.value as u32) == 0 {
             return false;
         }}
+        if value.is_drop {
+                //已使用，则设置为不自动释放
+                value.is_drop = false;
+            }
         true
     }
 
@@ -778,7 +786,7 @@ impl JS {
         }
     }
 
-    //执行指定脚本，并返回
+    //执行指定脚本，返回值无法绑定全局变量，为了使用安全返回只读值
     pub fn eval(&self, script: String) -> AJSType {
         let ptr: i32;
         let vm = self.vm as *const c_void;
