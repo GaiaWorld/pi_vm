@@ -126,7 +126,7 @@ fn base_test() {
     let mut val = js.new_str("Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
     js.set_field(&object, "x".to_string(), &mut val);
     js.set_index(&array, 3, &mut object);
-    assert!(js.set_global_var("$array".to_string()));
+    assert!(js.set_global_var("$array".to_string(), array));
 
     {
         let val = js.eval("var _obj = {};_obj;".to_string());
