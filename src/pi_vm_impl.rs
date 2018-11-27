@@ -148,7 +148,7 @@ pub fn block_reply(js: Arc<JS>, result: Box<FnBox(Arc<JS>)>, task_type: TaskType
     let copy_info = info.clone();
     let func = Box::new(move || {
         unsafe {
-            if dukc_vm_status_check(copy_js.get_vm(), JSStatus::WaitBlock as i8) > 0 || 
+            if dukc_vm_status_check(copy_js.get_vm(), JSStatus::WaitBlock as i8) > 0 ||
                 dukc_vm_status_check(copy_js.get_vm(), JSStatus::SingleTask as i8) > 0 {
                 //同步任务还未阻塞虚拟机，重新投递当前异步任务，并等待同步任务阻塞虚拟机
                 block_reply(copy_js, result, task_type, priority, copy_info);
@@ -159,6 +159,10 @@ pub fn block_reply(js: Arc<JS>, result: Box<FnBox(Arc<JS>)>, task_type: TaskType
                     dukc_wakeup(copy_js.get_vm(), 0);
                     result(copy_js.clone());
                     dukc_continue(copy_js.get_vm(), js_reply_callback);
+                } else if dukc_vm_status_check(copy_js.get_vm(), JSStatus::WaitBlock as i8) > 0 ||
+                    dukc_vm_status_check(copy_js.get_vm(), JSStatus::SingleTask as i8) > 0 {
+                    //再次检查同步任务还未阻塞虚拟机，重新投递当前异步任务，并等待同步任务阻塞虚拟机
+                    block_reply(copy_js, result, task_type, priority, copy_info);
                 } else {
                     try_js_destroy(&copy_js);
                     panic!("cast block reply task failed");
@@ -188,6 +192,10 @@ pub fn block_throw(js: Arc<JS>, reason: String, task_type: TaskType, priority: u
                     dukc_wakeup(copy_js.get_vm(), 1);
                     dukc_new_error(copy_js.get_vm(), CString::new(reason).unwrap().as_ptr());
                     dukc_continue(copy_js.get_vm(), js_reply_callback);
+                } else if dukc_vm_status_check(copy_js.get_vm(), JSStatus::WaitBlock as i8) > 0 ||
+                    dukc_vm_status_check(copy_js.get_vm(), JSStatus::SingleTask as i8) > 0 {
+                    //再次检查同步任务还未阻塞虚拟机，重新投递当前异步任务，并等待同步任务阻塞虚拟机
+                    block_throw(copy_js, reason, task_type, priority, copy_info);
                 } else {
                     try_js_destroy(&copy_js);
                     panic!("cast block throw task failed");

@@ -60,7 +60,7 @@ fn test_vm_performance() {
     println!("!!!!!!run time: {}", finish_time.as_secs() * 1000000 + (finish_time.subsec_micros() as u64));
 }
 
-// #[test]
+#[test]
 fn base_test() {
     load_lib_backtrace();
     register_native_object();
@@ -328,7 +328,7 @@ fn test_js_this() {
     assert!(js.load(codes0.as_slice()));
 }
 
-// #[test]
+#[test]
 fn native_object_call_test() {
     let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000));
     worker_pool.run(JS_TASK_POOL.clone());

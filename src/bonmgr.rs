@@ -41,8 +41,9 @@ impl Drop for NativeObjs{
         let map = self.0.borrow();
         let struct_metas = BON_MGR.struct_metas.lock().unwrap();
         for (ptr, nobj) in map.iter(){
-            let meta = struct_metas.get(&nobj.meta_hash).unwrap();
-            (meta.drop_fn)(*ptr);
+            if let Some(meta) = struct_metas.get(&nobj.meta_hash) {
+				(meta.drop_fn)(*ptr);
+			}
         }
     }
 }
