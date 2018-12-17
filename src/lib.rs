@@ -23,8 +23,10 @@ extern crate lazy_static;
 #[cfg(not(unix))]
 extern crate kernel32;
 
-extern crate pi_lib;
-extern crate pi_base;
+extern crate atom;
+extern crate worker;
+extern crate handler;
+extern crate gray;
 
 pub mod adapter;
 pub mod native_object_impl;

@@ -7,10 +7,10 @@ use magnetic::mpmc::*;
 use magnetic::{Producer, Consumer};
 use magnetic::buffer::dynamic::DynamicBuffer;
 
-use pi_base::task::TaskType;
-use pi_base::pi_base_impl::cast_js_task;
-use pi_lib::handler::Handler;
-use pi_lib::atom::Atom;
+use worker::task::TaskType;
+use worker::impls::cast_js_task;
+use handler::Handler;
+use atom::Atom;
 
 use adapter::{JSStatus, JSMsg, JS, JSType, pause, js_reply_callback, handle_async_callback, try_js_destroy, dukc_vm_status_check, dukc_vm_status_switch, dukc_new_error, dukc_wakeup, dukc_continue};
 use channel_map::VMChannelMap;

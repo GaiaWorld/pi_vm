@@ -17,9 +17,9 @@ use npnc::bounded::mpmc::{channel as npnc_channel, Producer, Consumer};
 #[cfg(not(unix))]
 use kernel32;
 
-use pi_lib::atom::Atom;
-use pi_base::task::TaskType;
-use pi_base::pi_base_impl::cast_js_task;
+use atom::Atom;
+use worker::task::TaskType;
+use worker::impls::cast_js_task;
 
 use native_object_impl::*;
 use bonmgr::{NativeObjs, NObject, NativeObjsAuth};

@@ -14,5 +14,8 @@ threadpool = "*"
 lazy_static = "*"
 kernel32-sys = "*"
 
-pi_lib = { path = "../pi_lib" }
-pi_base = { path = "../pi_base" }
+atom = { path = "../pi_lib/atom" }
+worker = { path = "../pi_lib/worker" }
+handler = { path = "../pi_lib/handler" }
+gray = { path = "../pi_lib/gray" }
+util = { path = "../pi_lib/util" }

@@ -4,10 +4,10 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::cell::RefCell;
 
-use pi_lib::atom::Atom;
-use pi_lib::handler::{Env, GenType, Handler, Args};
-use pi_lib::gray::GrayVersion;
-use pi_base::task::TaskType;
+use atom::Atom;
+use handler::{Env, GenType, Handler, Args};
+use gray::GrayVersion;
+use worker::task::TaskType;
 
 use adapter::{JS, JSType};
 use pi_vm_impl::{block_reply, push_callback};

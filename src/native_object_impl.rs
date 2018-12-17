@@ -27,7 +27,7 @@ pub extern "C" fn native_object_function_call(
             Some(CallResult::Err(reason)) => {
                 unsafe {
                     dukc_switch_context(vm); //必须先切换上下文，再抛出异常
-                    dukc_throw(vm, CString::new(reason).unwrap().as_ptr()); 
+                    dukc_throw(vm, CString::new(reason).unwrap().as_ptr());
                 }
                 Arc::into_raw(js);
                 return 0;

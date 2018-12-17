@@ -3,7 +3,7 @@ use std::cell::RefCell;
 
 use std::collections::HashMap;
 use adapter::{JSType, JS};
-use pi_lib::atom::Atom;
+use atom::Atom;
 
 lazy_static! {
 	pub static ref BON_MGR: Arc<BonMgr> = Arc::new(BonMgr::new());
@@ -74,6 +74,7 @@ pub struct StructMeta {
 // 	pub members: Vec<StructMeta>
 }
 
+#[derive(Clone)]
 pub enum FnMeta {
 	CallArg(fn(Arc<JS>, Vec<JSType>) -> Option<CallResult>),
     Call(fn(Arc<JS>) -> Option<CallResult>),
@@ -134,19 +135,21 @@ impl BonMgr{
 
 	//有参数的调用
 	pub fn call(&self, js: Arc<JS>, fun_hash: u32, args: Option<Vec<JSType>>) -> Option<CallResult> {
-        let fun_ref = self.fun_metas.lock().unwrap();
-		let func = match fun_ref.get(&fun_hash){
-			Some(v) => v,
-			None => {
-				panic!("FnMeta is not finded, hash:{}", fun_hash);
-			}
-		};
+        let func = {
+            let fun_ref = self.fun_metas.lock().unwrap();
+            match fun_ref.get(&fun_hash){
+                Some(v) => v.clone(),
+                None => {
+                    panic!("FnMeta is not finded, hash:{}", fun_hash);
+                }
+            }
+        };
 
 		match func{
-            &FnMeta::CallArg(ref f) => {
+            FnMeta::CallArg(f) => {
 				f(js, args.unwrap())
 			},
-            &FnMeta::Call(ref f) => {
+            FnMeta::Call(f) => {
 				f(js)
 			},
 		}
@@ -177,13 +180,13 @@ pub fn jstype_ptr<'a>(jstype: &JSType, js: Arc<JS>, obj_type: u32 , is_ownership
             Some(v) => v,
             None => {
                 if is_ownership {//如果需要所有权， 直接抛出错误
-                    println!("NObject is not found in objs, ptr:{}", ptr);
+                    println!("NObject is not found in objs, ptr:{}, type:{}", ptr, obj_type);
                     return Err("NObject is not found in objs");
                 }else{//如果不需要所有权， 从引用类obj列表中获取NObject
                     match objs_ref.get(&ptr){
                         Some(v) => v,
                         None => {
-                            println!("NObject is not found in objs_ref, ptr:{}", ptr);
+                            println!("NObject is not found in objs_ref, ptr:{}, type: {}", ptr, obj_type);
                             return Err("NObject is not found in objs_ref");
                         }
                     }

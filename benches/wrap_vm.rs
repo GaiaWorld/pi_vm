@@ -357,8 +357,8 @@ fn js_async_block_call_small_small(b: &mut Bencher) {
 
     register_native_object();
     init_async_request_env("test_async_block_call", "benches/pref/test_js_async_remote_small.js");
-    register_native_function(0x1, js_async_block_call_request); //注册异步调用的本地请求函数
-    register_native_function(0x10, js_async_block_call_response); //注册异步调用的本地回应函数
+    register_native_function(0x1, js_async_block_call_request); //注册异步阻塞调用的本地请求函数
+    register_native_function(0x10, js_async_block_call_response); //注册异步阻塞调用的本地回应函数
 
     let js = create_js(0x100);
     load_js(js.clone(), "benches/pref/test_js_async_block_call_small.js");
@@ -374,8 +374,8 @@ fn js_async_block_call_big_big(b: &mut Bencher) {
 
     register_native_object();
     init_async_request_env("test_async_block_call", "benches/pref/test_js_async_remote_big.js");
-    register_native_function(0x1, js_async_block_call_request); //注册异步调用的本地请求函数
-    register_native_function(0x10, js_async_block_call_response); //注册异步调用的本地回应函数
+    register_native_function(0x1, js_async_block_call_request); //注册异步阻塞调用的本地请求函数
+    register_native_function(0x10, js_async_block_call_response); //注册异步阻塞调用的本地回应函数
 
     let js = create_js(0x100);
     load_js(js.clone(), "benches/pref/test_js_async_block_call_big.js");
