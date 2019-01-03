@@ -3,6 +3,8 @@ use std::ffi::CString;
 
 use libc::{c_void, uint32_t, c_int};
 
+use worker::task::TaskType;
+
 use bonmgr::{CallResult, bon_call};
 use adapter::{JSStatus, JS, JSType, dukc_vm_status_switch, dukc_throw, dukc_switch_context};
 
@@ -11,7 +13,7 @@ use adapter::{JSStatus, JS, JSType, dukc_vm_status_switch, dukc_throw, dukc_swit
 pub extern "C" fn native_object_function_call(
     handler: *const c_void, 
     hash: uint32_t, 
-    args_size: uint32_t, 
+    args_size: uint32_t,
     args_type: *const c_void,
     args: *const c_void) -> c_int {
         let js = unsafe { JS::from_raw(handler) };

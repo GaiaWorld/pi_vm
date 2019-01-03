@@ -20,7 +20,7 @@ fn create_vm(b: &mut Bencher) {
     register_native_object();
 
     b.iter(|| {
-        if let None = JS::new(0x100, Arc::new(NativeObjsAuth::new(None, None))) {
+        if let None = JS::new(Arc::new(NativeObjsAuth::new(None, None))) {
             panic!("!!!> Create Vm Error");
         }
     });
@@ -35,7 +35,7 @@ fn vm_compile_small(b: &mut Bencher) {
     if let Ok(mut file) = File::open("benches/first.js") {
         let mut contents = String::new();
         if let Ok(_) = file.read_to_string(&mut contents) {
-            if let Some(ref js) = JS::new(0x100, Arc::new(NativeObjsAuth::new(None, None))) {
+            if let Some(ref js) = JS::new(Arc::new(NativeObjsAuth::new(None, None))) {
                 b.iter(|| {
                     if let None = js.compile(file_name.clone(), (&contents).clone()) {
                         panic!("!!!> Vm Compile Error");
@@ -55,7 +55,7 @@ fn vm_compile_big(b: &mut Bencher) {
     if let Ok(mut file) = File::open("benches/core.js") {
         let mut contents = String::new();
         if let Ok(_) = file.read_to_string(&mut contents) {
-            if let Some(ref js) = JS::new(0x100, Arc::new(NativeObjsAuth::new(None, None))) {
+            if let Some(ref js) = JS::new(Arc::new(NativeObjsAuth::new(None, None))) {
                 b.iter(|| {
                     if let None = js.compile(file_name.clone(), (&contents).clone()) {
                         panic!("!!!> Vm Compile Error");
@@ -75,7 +75,7 @@ fn vm_load_small(b: &mut Bencher) {
     if let Ok(mut file) = File::open("benches/first.js") {
         let mut contents = String::new();
         if let Ok(_) = file.read_to_string(&mut contents) {
-            if let Some(ref js) = JS::new(0x100, Arc::new(NativeObjsAuth::new(None, None))) {
+            if let Some(ref js) = JS::new(Arc::new(NativeObjsAuth::new(None, None))) {
                 if let Some(ref code) = js.compile(file_name.clone(), (&contents).clone()) {
                     b.iter(|| {
                        js.load(code);
@@ -95,7 +95,7 @@ fn vm_load_big(b: &mut Bencher) {
     if let Ok(mut file) = File::open("benches/core.js") {
         let mut contents = String::new();
         if let Ok(_) = file.read_to_string(&mut contents) {
-            if let Some(ref js) = JS::new(0x100, Arc::new(NativeObjsAuth::new(None, None))) {
+            if let Some(ref js) = JS::new(Arc::new(NativeObjsAuth::new(None, None))) {
                 if let Some(ref code) = js.compile(file_name.clone(), (&contents).clone()) {
                     b.iter(|| {
                         js.load(code);

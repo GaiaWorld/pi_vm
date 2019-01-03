@@ -2062,7 +2062,7 @@ fn try_finally_throw(b: &mut Bencher) {
 
 //创建虚拟机
 fn create_js() -> Arc<JS> {
-    if let Some(js) = JS::new(0x100, Arc::new(NativeObjsAuth::new(None, None))) {
+    if let Some(js) = JS::new(Arc::new(NativeObjsAuth::new(None, None))) {
         load_js(js.clone(), "benches/core.js");
         return js;
     }

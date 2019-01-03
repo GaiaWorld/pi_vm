@@ -37,7 +37,7 @@ impl NativeObjs{
 
 impl Drop for NativeObjs{
     fn drop(&mut self){
-        println!("drop nativeobj!");
+//        println!("drop nativeobj!");
         let map = self.0.borrow();
         let struct_metas = BON_MGR.struct_metas.lock().unwrap();
         for (ptr, nobj) in map.iter(){

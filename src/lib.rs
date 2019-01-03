@@ -5,9 +5,8 @@
 #![feature(drain_filter)]
 #![feature(rustc_private)]
 #![feature(type_ascription)]
-#![feature(duration_extras)]
 #![feature(slice_internals)]
-#![feature(duration_from_micros)]
+#![feature(proc_macro_hygiene)]
 
 extern crate fnv;
 extern crate core;
@@ -22,6 +21,10 @@ extern crate lazy_static;
 
 #[cfg(not(unix))]
 extern crate kernel32;
+
+extern crate flame;
+#[macro_use]
+extern crate flamer;
 
 extern crate atom;
 extern crate worker;

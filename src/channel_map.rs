@@ -7,7 +7,6 @@ use std::cell::RefCell;
 use atom::Atom;
 use handler::{Env, GenType, Handler, Args};
 use gray::GrayVersion;
-use worker::task::TaskType;
 
 use adapter::{JS, JSType};
 use pi_vm_impl::{block_reply, push_callback};
@@ -106,7 +105,7 @@ impl VMChannel {
                             }
                             vm.set_index(&array, 1, &mut sub_array);
                         });
-                        block_reply(js.clone(), result, TaskType::Sync, 1000000000, Atom::from("vm async block call response task"));
+                        block_reply(js.clone(), result, Atom::from("vm async block call response task"));
                     },
                     Some(index) => {
                         //异步回调

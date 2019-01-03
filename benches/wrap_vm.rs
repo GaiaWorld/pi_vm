@@ -1,13 +1,21 @@
 #![feature(test)]
+#![feature(proc_macro_hygiene)]
 
 extern crate test;
 
 #[macro_use]
 extern crate lazy_static;
 
-extern crate pi_lib;
+extern crate flame;
+#[macro_use]
+extern crate flamer;
+
+extern crate atom;
 extern crate pi_vm;
-extern crate pi_base;
+extern crate handler;
+extern crate gray;
+extern crate task_pool;
+extern crate worker;
 
 use std::sync::{Arc, RwLock};
 use std::fs::File;
@@ -15,19 +23,19 @@ use std::io::prelude::*;
 
 use test::Bencher;
 
-use pi_lib::atom::Atom;
-use pi_lib::handler::{GenType, Handler, Args};
-use pi_lib::gray::{GrayVersion, Gray, GrayTab};
+use atom::Atom;
+use handler::{GenType, Handler, Args};
+use gray::{GrayVersion, Gray, GrayTab};
 
 use pi_vm::pi_vm_impl::{VMFactory, block_reply, block_throw, push_callback, register_async_request, async_request};
 use pi_vm::adapter::{register_native_object, JS, JSType};
 use pi_vm::channel_map::VMChannel;
 use pi_vm::bonmgr::{BON_MGR, NativeObjsAuth, FnMeta, CallResult, ptr_jstype, jstype_ptr};
 
-use pi_base::task::TaskType;
-use pi_base::task_pool::TaskPool;
-use pi_base::worker_pool::WorkerPool;
-use pi_base::pi_base_impl::{JS_TASK_POOL, cast_js_task};
+use worker::task::TaskType;
+use worker::worker_pool::WorkerPool;
+use worker::impls::{JS_WORKER_WALKER, JS_TASK_POOL, cast_js_task};
+use task_pool::TaskPool;
 
 lazy_static! {
 	pub static ref BINARY: Vec<u8> = vec![0xff; 4096];
@@ -38,10 +46,17 @@ lazy_static! {
 fn empty_call(b: &mut Bencher) {
     register_native_object();
 
-    let js = create_js(0x100);
+    let js = create_js();
     load_js(js.clone(), "benches/pref/test-empty-call.js");
 
-    start(b, js);
+    b.iter(|| {
+        for _ in 0..10000 {
+            js.get_js_function("test".to_string());
+            js.call(0);
+        }
+        js.get_js_function("__gc".to_string());
+        js.call(0);
+    });
 }
 
 //有参数和返回值的空调用
@@ -49,18 +64,22 @@ fn empty_call(b: &mut Bencher) {
 fn base_call(b: &mut Bencher) {
     register_native_object();
 
-    let js = create_js(0x100);
+    let js = create_js();
     load_js(js.clone(), "benches/pref/test-base-call.js");
 
     b.iter(|| {
-        js.get_js_function("test".to_string());
-        js.new_undefined();
-        js.new_boolean(false);
-        js.new_u32(0xffffffff);
-        js.new_u64(0xfffffffffff);
-        js.new_f64(0.999999999);
-        js.new_str("Hello World!!!!!!".to_string());
-        js.call(6);
+        for _ in 0..10000 {
+            js.get_js_function("test".to_string());
+            js.new_undefined();
+            js.new_boolean(false);
+            js.new_u32(0xffffffff);
+            js.new_u64(0xfffffffffff);
+            js.new_f64(0.999999999);
+            js.new_str("Hello World!!!!!!".to_string());
+            js.call(6);
+        }
+        js.get_js_function("__gc".to_string());
+        js.call(0);
     });
 }
 
@@ -70,7 +89,7 @@ fn js_sync_call_small_small(b: &mut Bencher) {
     register_native_object();
     register_native_function(0x1, js_sync_call_return_small);
 
-    let js = create_js(0x100);
+    let js = create_js();
     load_js(js.clone(), "benches/pref/test_js_sync_call_args_small.js");
 
     start(b, js);
@@ -82,7 +101,7 @@ fn js_sync_call_small_big(b: &mut Bencher) {
     register_native_object();
     register_native_function(0x1, js_sync_call_return_big);
 
-    let js = create_js(0x100);
+    let js = create_js();
     load_js(js.clone(), "benches/pref/test_js_sync_call_args_small.js");
 
     start(b, js);
@@ -94,7 +113,7 @@ fn js_sync_call_big_small(b: &mut Bencher) {
     register_native_object();
     register_native_function(0x1, js_sync_call_return_small);
 
-    let js = create_js(0x100);
+    let js = create_js();
     load_js(js.clone(), "benches/pref/test_js_sync_call_args_big.js");
 
     start(b, js);
@@ -106,7 +125,7 @@ fn js_sync_call_big_big(b: &mut Bencher) {
     register_native_object();
     register_native_function(0x1, js_sync_call_return_big);
 
-    let js = create_js(0x100);
+    let js = create_js();
     load_js(js.clone(), "benches/pref/test_js_sync_call_args_big.js");
 
     start(b, js);
@@ -118,7 +137,7 @@ fn js_sync_call_error(b: &mut Bencher) {
     register_native_object();
     register_native_function(0x1, js_sync_call_return_error);
 
-    let js = create_js(0x100);
+    let js = create_js();
     load_js(js.clone(), "benches/pref/test_js_sync_call.js");
 
     start(b, js);
@@ -142,13 +161,13 @@ fn js_sync_call_return_error(_js: Arc<JS>, _args: Vec<JSType>) -> Option<CallRes
 //小参数小返回同步阻塞调用
 #[bench]
 fn js_sync_block_call_small_small(b: &mut Bencher) {
-    let worker_pool = Box::new(WorkerPool::new(4, 1024 * 1024, 10000));
+    let worker_pool = Box::new(WorkerPool::new(1, 1024 * 1024, 100000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     register_native_object();
     register_native_function(0x1, js_sync_block_call_return_small);
 
-    let js = create_js(0x100);
+    let js = create_js();
     load_js(js.clone(), "benches/pref/test_js_sync_block_call_args_small.js");
 
     start(b, js);
@@ -157,13 +176,13 @@ fn js_sync_block_call_small_small(b: &mut Bencher) {
 //小参数大返回同步阻塞调用
 #[bench]
 fn js_sync_block_call_small_big(b: &mut Bencher) {
-    let worker_pool = Box::new(WorkerPool::new(4, 1024 * 1024, 100000));
+    let worker_pool = Box::new(WorkerPool::new(1, 1024 * 1024, 1000000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     register_native_object();
     register_native_function(0x1, js_sync_block_call_return_big);
 
-    let js = create_js(0x100);
+    let js = create_js();
     load_js(js.clone(), "benches/pref/test_js_sync_block_call_args_small.js");
 
     start(b, js);
@@ -172,13 +191,13 @@ fn js_sync_block_call_small_big(b: &mut Bencher) {
 //大参数小返回同步阻塞调用
 #[bench]
 fn js_sync_block_call_big_small(b: &mut Bencher) {
-    let worker_pool = Box::new(WorkerPool::new(4, 1024 * 1024, 10000));
+    let worker_pool = Box::new(WorkerPool::new(1, 1024 * 1024, 100000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     register_native_object();
     register_native_function(0x1, js_sync_block_call_return_small);
 
-    let js = create_js(0x100);
+    let js = create_js();
     load_js(js.clone(), "benches/pref/test_js_sync_block_call_args_big.js");
 
     start(b, js);
@@ -187,13 +206,13 @@ fn js_sync_block_call_big_small(b: &mut Bencher) {
 //大参数大返回同步阻塞调用
 #[bench]
 fn js_sync_block_call_big_big(b: &mut Bencher) {
-    let worker_pool = Box::new(WorkerPool::new(4, 1024 * 1024, 100000));
+    let worker_pool = Box::new(WorkerPool::new(1, 1024 * 1024, 1000000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     register_native_object();
     register_native_function(0x1, js_sync_block_call_return_big);
 
-    let js = create_js(0x100);
+    let js = create_js();
     load_js(js.clone(), "benches/pref/test_js_sync_block_call_args_big.js");
 
     start(b, js);
@@ -202,13 +221,13 @@ fn js_sync_block_call_big_big(b: &mut Bencher) {
 //错误返回同步阻塞调用
 #[bench]
 fn js_sync_block_call_error(b: &mut Bencher) {
-    let worker_pool = Box::new(WorkerPool::new(4, 1024 * 1024, 100000));
+    let worker_pool = Box::new(WorkerPool::new(1, 1024 * 1024, 1000000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     register_native_object();
     register_native_function(0x1, js_sync_block_call_return_error);
 
-    let js = create_js(0x100);
+    let js = create_js();
     load_js(js.clone(), "benches/pref/test_js_sync_block_call.js");
 
     start(b, js);
@@ -218,7 +237,7 @@ fn js_sync_block_call_return_small(js: Arc<JS>, _args: Vec<JSType>) -> Option<Ca
     let result = Box::new(|vm: Arc<JS>| {
         vm.new_u32(0xffffffff);
     });
-    block_reply(js, result, TaskType::Sync, 10, Atom::from("block reply task"));
+    block_reply(js, result, Atom::from("block reply task"));
     None
 }
 
@@ -227,12 +246,12 @@ fn js_sync_block_call_return_big(js: Arc<JS>, _args: Vec<JSType>) -> Option<Call
         let buffer = vm.new_array_buffer(4096);
         buffer.from_bytes(BINARY.as_slice());
     });
-    block_reply(js, result, TaskType::Sync, 10, Atom::from("block reply task"));
+    block_reply(js, result, Atom::from("block reply task"));
     None
 }
 
 fn js_sync_block_call_return_error(js: Arc<JS>, _args: Vec<JSType>) -> Option<CallResult> {
-    block_throw(js, "What is Error?".to_string(), TaskType::Sync, 10, Atom::from("block throw task"));
+    block_throw(js, "What is Error?".to_string(), Atom::from("block throw task"));
     None
 }
 
@@ -242,7 +261,7 @@ fn js_async_callback_register(b: &mut Bencher) {
     register_native_object();
     register_native_function(0x1, js_async_callback_register_no_push);
 
-    let js = create_js(0x100);
+    let js = create_js();
     load_js(js.clone(), "benches/pref/test_js_async_callback_register.js");
 
     //因为不执行异步回调，所以虚拟机状态为有任务未完成，无法使用start正常结束测试
@@ -255,13 +274,13 @@ fn js_async_callback_register(b: &mut Bencher) {
 //异步回调
 #[bench]
 fn js_async_callback(b: &mut Bencher) {
-    let worker_pool = Box::new(WorkerPool::new(4, 1024 * 1024, 100000));
+    let worker_pool = Box::new(WorkerPool::new(1, 1024 * 1024, 100000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     register_native_object();
     register_native_function(0x1, js_async_callback_register_push);
 
-    let js = create_js(0x10000);
+    let js = create_js();
     load_js(js.clone(), "benches/pref/test_js_async_callback_register.js");
 
     start(b, js);
@@ -288,7 +307,7 @@ fn js_async_callback_register_push(js: Arc<JS>, args: Vec<JSType>) -> Option<Cal
 //小参数小返回异步调用
 #[bench]
 fn js_async_call_small_small(b: &mut Bencher) {
-    let worker_pool = Box::new(WorkerPool::new(4, 1024 * 1024, 100000));
+    let worker_pool = Box::new(WorkerPool::new(1, 1024 * 1024, 100000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     register_native_object();
@@ -296,7 +315,7 @@ fn js_async_call_small_small(b: &mut Bencher) {
     register_native_function(0x1, js_async_call_request); //注册异步调用的本地请求函数
     register_native_function(0x10, js_async_call_response); //注册异步调用的本地回应函数
 
-    let js = create_js(0x100);
+    let js = create_js();
     load_js(js.clone(), "benches/pref/test_js_async_call_small.js");
 
     start(b, js);
@@ -305,7 +324,7 @@ fn js_async_call_small_small(b: &mut Bencher) {
 //大参数大返回异步调用
 #[bench]
 fn js_async_call_big_big(b: &mut Bencher) {
-    let worker_pool = Box::new(WorkerPool::new(4, 1024 * 1024, 100000));
+    let worker_pool = Box::new(WorkerPool::new(1, 1024 * 1024, 100000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     register_native_object();
@@ -313,7 +332,7 @@ fn js_async_call_big_big(b: &mut Bencher) {
     register_native_function(0x1, js_async_call_request); //注册异步调用的本地请求函数
     register_native_function(0x10, js_async_call_response); //注册异步调用的本地回应函数
 
-    let js = create_js(0x100);
+    let js = create_js();
     load_js(js.clone(), "benches/pref/test_js_async_call_big.js");
 
     start(b, js);
@@ -352,7 +371,7 @@ fn js_async_call_response(js: Arc<JS>, args: Vec<JSType>) -> Option<CallResult> 
 //小参数小返回异步阻塞调用
 #[bench]
 fn js_async_block_call_small_small(b: &mut Bencher) {
-    let worker_pool = Box::new(WorkerPool::new(4, 1024 * 1024, 100000));
+    let worker_pool = Box::new(WorkerPool::new(1, 1024 * 1024, 100000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     register_native_object();
@@ -360,7 +379,7 @@ fn js_async_block_call_small_small(b: &mut Bencher) {
     register_native_function(0x1, js_async_block_call_request); //注册异步阻塞调用的本地请求函数
     register_native_function(0x10, js_async_block_call_response); //注册异步阻塞调用的本地回应函数
 
-    let js = create_js(0x100);
+    let js = create_js();
     load_js(js.clone(), "benches/pref/test_js_async_block_call_small.js");
 
     start(b, js);
@@ -369,7 +388,7 @@ fn js_async_block_call_small_small(b: &mut Bencher) {
 //大参数大返回异步阻塞调用
 #[bench]
 fn js_async_block_call_big_big(b: &mut Bencher) {
-    let worker_pool = Box::new(WorkerPool::new(4, 1024 * 1024, 100000));
+    let worker_pool = Box::new(WorkerPool::new(1, 1024 * 1024, 100000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     register_native_object();
@@ -377,7 +396,7 @@ fn js_async_block_call_big_big(b: &mut Bencher) {
     register_native_function(0x1, js_async_block_call_request); //注册异步阻塞调用的本地请求函数
     register_native_function(0x10, js_async_block_call_response); //注册异步阻塞调用的本地回应函数
 
-    let js = create_js(0x100);
+    let js = create_js();
     load_js(js.clone(), "benches/pref/test_js_async_block_call_big.js");
 
     start(b, js);
@@ -510,7 +529,7 @@ fn init_async_request_env(port: &str, file: &str) {
                 ptr_jstype(vm.get_objs(), vm.clone(), ptr, 3366364668);
                 6
             });
-            gray.factory.call(0, Atom::from("_$async"), real_args, Atom::from((*name).to_string() + " rpc task"));
+            gray.factory.call(None, Atom::from("_$async"), real_args, Atom::from((*name).to_string() + " rpc task"));
         }
     }
 
@@ -524,7 +543,7 @@ fn init_async_request_env(port: &str, file: &str) {
     }
 
     let mut factory = VMFactory::new(0x10000, Arc::new(NativeObjsAuth::new(None, None)));
-    let js = JS::new(0x100, Arc::new(NativeObjsAuth::new(None, None))).unwrap();
+    let js = JS::new(Arc::new(NativeObjsAuth::new(None, None))).unwrap();
     let file_name = &String::from("benches/core.js");
     if let Ok(mut file) = File::open("benches/core.js") {
         let mut contents = String::new();
@@ -555,8 +574,8 @@ fn register_native_function(id: u32, fun: fn(Arc<JS>, Vec<JSType>) -> Option<Cal
 }
 
 //创建虚拟机
-fn create_js(size: usize) -> Arc<JS> {
-    if let Some(js) = JS::new(size, Arc::new(NativeObjsAuth::new(None, None))) {
+fn create_js() -> Arc<JS> {
+    if let Some(js) = JS::new(Arc::new(NativeObjsAuth::new(None, None))) {
         load_js(js.clone(), "benches/core.js");
         return js;
     }

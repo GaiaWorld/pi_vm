@@ -13,9 +13,12 @@ magnetic = "*"
 threadpool = "*"
 lazy_static = "*"
 kernel32-sys = "*"
+flame = "0.2.2"
+flamer = "0.3"
 
 atom = { path = "../pi_lib/atom" }
 worker = { path = "../pi_lib/worker" }
 handler = { path = "../pi_lib/handler" }
 gray = { path = "../pi_lib/gray" }
 util = { path = "../pi_lib/util" }
+task_pool = { path = "../pi_lib/task_pool" }

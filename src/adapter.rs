@@ -1,6 +1,6 @@
 use libc::{c_void, c_char, int8_t, uint8_t, c_int, uint32_t, int32_t, uint64_t, c_double, memcpy};
 use std::slice::{from_raw_parts_mut, from_raw_parts};
-use std::sync::atomic::{Ordering, AtomicUsize};
+use std::sync::atomic::{Ordering, AtomicUsize, AtomicIsize};
 use std::string::FromUtf8Error;
 use std::ffi::{CStr, CString};
 use std::collections::HashMap;
@@ -12,17 +12,20 @@ use std::sync::Arc;
 use std::ops::Drop;
 use std::thread;
 
-use npnc::bounded::mpmc::{channel as npnc_channel, Producer, Consumer};
-
 #[cfg(not(unix))]
 use kernel32;
 
 use atom::Atom;
 use worker::task::TaskType;
-use worker::impls::cast_js_task;
+use worker::impls::{create_js_task_queue, lock_js_task_queue, unlock_js_task_queue, cast_js_task};
 
 use native_object_impl::*;
 use bonmgr::{NativeObjs, NObject, NativeObjsAuth};
+
+/*
+* 虚拟机消息队列默认优先级
+*/
+const JS_ASYNC_MSG_QUEUE_PRIORITY: usize = 1000;
 
 #[link(name = "dukc")]
 extern "C" {
@@ -107,7 +110,7 @@ pub fn pause() {
 /*
 * js返回回调函数
 *
-* 当前异步任务如果没有投递其它异步任务，则当前异步任务成为同步任务，并在当前异步任务完成后执行异步消息队列中的回调函数，如果没有异步消息，则回收虚拟机
+* 当前异步任务如果没有投递其它异步任务，则当前异步任务成为同步任务，并在当前异步任务完成后执行消息队列中的回调函数，如果没有异步消息，则回收虚拟机
 *  否则还有其它异步任务，则回收权利交由其它异步任务
 */
 #[no_mangle]
@@ -119,7 +122,7 @@ pub extern "C" fn js_reply_callback(handler: *const c_void, status: c_int, err: 
         }
         return;
     }
-
+    
     let js: Arc<JS>;
     let vm: *const c_void;
     unsafe {
@@ -130,16 +133,17 @@ pub extern "C" fn js_reply_callback(handler: *const c_void, status: c_int, err: 
         if status != 0 {
             println!("===> JS Run Error, vm: {}, queue size: {}, status: {}, err: {}", 
                                                                                 vm as usize, 
-                                                                                js.queue.size.load(Ordering::Relaxed), 
+                                                                                js.queue.size.load(Ordering::SeqCst), 
                                                                                 status, 
                                                                                 CStr::from_ptr(err).to_string_lossy().into_owned());
         }
-
+        
+        js.queue.size.fetch_sub(1, Ordering::SeqCst); //减少消息队列长度
         if dukc_vm_status_check(vm, JSStatus::WaitBlock as i8) > 0 {
             //当前虚拟机任务已执行完成且当前虚拟机状态是等待状态，则需要改变状态，保证虚拟机异步任务被执行
             dukc_vm_status_sub(vm, 1);
         } else if dukc_vm_status_check(vm, JSStatus::SingleTask as i8) > 0 {
-            //当前虚拟机同步任务、异步任务或异步回调已执行完成，且当前虚拟机状态是同步状态，则处理异步消息队列
+            //当前虚拟机同步任务、异步任务或异步回调已执行完成，且当前虚拟机状态是同步状态，则处理消息队列
             dukc_pop(vm); //移除上次同步任务、异步任务或回调函数的执行结果
             handle_async_callback(js.clone(), vm);
         }
@@ -151,33 +155,39 @@ pub extern "C" fn js_reply_callback(handler: *const c_void, status: c_int, err: 
 * 处理异步回调
 */
 pub unsafe fn handle_async_callback(js: Arc<JS>, vm: *const c_void) {
-    let msg: JSMsg;
-    loop {
-        match js.pop() {
-            None => {
-                //异步消息队列为空
-                if dukc_callback_count(vm) == 0 {
-                    //没有已注册的异步回调函数，则需要将执行结果弹出值栈并改变状态，保证虚拟机回收或执行下一个任务
-                    dukc_vm_status_sub(vm, 1);
-                } else {
-                    //有已注册的异步回调函数，则需要等待消息异步推送到异步消息队列，保证虚拟机异步回调函数被执行
-                    dukc_vm_status_switch(vm, JSStatus::SingleTask as i8, JSStatus::WaitCallBack as i8);
+    //检查消息队列是否为空，如果不为空则继续执行异步任务或异步回调任务
+    if js.queue.size.load(Ordering::SeqCst) == 0 {
+//        println!("!!!!!!0");
+        //消息队列为空
+        if dukc_callback_count(vm) == 0 && dukc_vm_status_check(vm, JSStatus::SingleTask as i8) > 0 {
+            //没有已注册的异步回调函数且当前异步任务已完成，则需要将执行结果弹出值栈并改变状态并解锁当前虚拟机的同步任务队列, 保证虚拟机回收或执行下一个任务
+            dukc_vm_status_sub(vm, 1);
+            if js.exist_tasks() {
+                if !unlock_js_task_queue(js.get_tasks()) {
+                    panic!("!!!> Handle Callback Error, unlock js task queue failed");
                 }
-                return;
-            },
-            Some(m) => {
-                //异步消息队列不为空，则获取回调函数，不需要改变状态，以保证当前虚拟机可以线程安全的执行回调函数
-                if dukc_get_callback(js.get_vm(), m.index) == 0 {
-                    //当前回调函数不存在，则获取下一个异步消息
-                    continue;
-                }
-                dukc_remove_callback(js.get_vm(), m.index); //移除回调函数
-                msg = m;
-                break;
-            },
+            }
+        } else {
+            //有已注册的异步回调函数，则需要等待消息异步推送到消息队列，保证虚拟机异步回调函数被执行
+            dukc_vm_status_switch(vm, JSStatus::SingleTask as i8, JSStatus::WaitCallBack as i8);
+        }
+    } else if dukc_callback_count(vm) > 0 {
+//        println!("!!!!!!1, callback count: {}", dukc_callback_count(vm));
+        //消息队列不为空、有已注册的异步回调函数、且消息队列被锁，则释放锁，以保证开始执行消息队列中的异步任务或异步回调任务
+        if !unlock_js_task_queue(js.get_queue()) {
+            panic!("!!!> Handle Callback Error, unlock js task queue failed");
+        }
+    } else {
+//        println!("!!!!!!3");
+        //消息队列不为空，且未注册异步回调函数，表示同步任务或异步任务执行完成且没有异步回调任务，
+        // 则需要将执行结果弹出值栈并改变状态并解锁当前虚拟机的同步任务队列, 保证虚拟机回收或执行下一个任务
+        dukc_vm_status_sub(vm, 1);
+        if js.exist_tasks() {
+            if !unlock_js_task_queue(js.get_tasks()) {
+                panic!("!!!> Handle Callback Error, unlock js task queue failed");
+            }
         }
     }
-    callback(js.clone(), msg);
 }
 
 /*
@@ -218,33 +228,12 @@ pub enum JSStatus {
 }
 
 /*
-* js异步消息
-*/
-pub struct JSMsg {
-    index: u32,                         //异步回调函数的编号
-    args: Box<FnBox(Arc<JS>) -> usize>, //异步回调函数的参数
-    info: Atom,                         //消息
-}
-
-impl JSMsg {
-    //构建一个异步消息
-    pub fn new(index: u32, args: Box<FnBox(Arc<JS>) -> usize>, info: Atom) -> Self {
-        JSMsg {
-            index: index,
-            args: args,
-            info: info,
-        }
-    }
-}
-
-/*
-* js异步消息队列
+* js消息队列
 */
 #[derive(Clone)]
 struct JSMsgQueue {
-    size: Arc<AtomicUsize>,         //虚拟机异步消息队列长度
-    producer: Arc<Producer<JSMsg>>, //虚拟机异步消息队列生产者
-    consumer: Arc<Consumer<JSMsg>>, //虚拟机异步消息队列消费者
+    id: Arc<AtomicIsize>,    //虚拟机消息队列
+    size: Arc<AtomicUsize>,  //虚拟机消息队列长度
 }
 
 /*
@@ -253,7 +242,8 @@ struct JSMsgQueue {
 #[derive(Clone)]
 pub struct JS {
     vm: usize,                                          //虚拟机
-    queue: JSMsgQueue,                                  //虚拟机异步消息队列
+    tasks: Arc<AtomicIsize>,                            //虚拟机任务队列
+    queue: JSMsgQueue,                                  //虚拟机消息队列
     auth: Arc<NativeObjsAuth>,                          //虚拟机本地对象授权
     objs: NativeObjs,                                   //虚拟机本地对象表
     objs_ref: Arc<RefCell<HashMap<usize, NObject>>>,    //虚拟机本地对象引用表
@@ -282,13 +272,12 @@ impl Drop for JS {
 
 impl JS {
     //构建一个虚拟机
-    pub fn new(queue_max_size: usize, auth: Arc<NativeObjsAuth>) -> Option<Arc<Self>> {
+    pub fn new(auth: Arc<NativeObjsAuth>) -> Option<Arc<Self>> {
         let ptr: *const c_void;
         unsafe { ptr = dukc_heap_create() }
         if ptr.is_null() {
             None
         } else {
-            let (p, c) = npnc_channel(queue_max_size);
             unsafe {
                 if dukc_heap_init(ptr, js_reply_callback) == 0 {
                     dukc_vm_destroy(ptr);
@@ -297,12 +286,17 @@ impl JS {
                 dukc_vm_run(ptr, js_reply_callback);
                 dukc_pop(ptr); //在初始化时需要弹出执行的结果
             }
+            let id = create_js_task_queue(JS_ASYNC_MSG_QUEUE_PRIORITY, true); //为指定虚拟机创建对应的消息队列
+            //初始化时锁住虚拟机消息队列
+            if !lock_js_task_queue(id) {
+                panic!("!!!> New Vm Error, lock async callback queue failed");
+            }
             let arc = Arc::new(JS {
                 vm: ptr as usize,
+                tasks: Arc::new(AtomicIsize::new(0)),
                 queue: JSMsgQueue {
+                    id: Arc::new(AtomicIsize::new(id)),
                     size: Arc::new(AtomicUsize::new(0)),
-                    producer: Arc::new(p),
-                    consumer: Arc::new(c),
                 },
                 auth: auth.clone(),
                 objs: NativeObjs::new(),
@@ -322,9 +316,63 @@ impl JS {
         Arc::from_raw(ptr as *const JS)
     }
 
+    //向指定虚拟机的消息队列中推送消息
+    pub fn push(js: Arc<JS>, task_type: TaskType, callback: u32, args: Box<FnBox(Arc<JS>) -> usize>, info: Atom) -> usize {
+        let js_copy = js.clone();
+        let func = Box::new(move |_lock| {
+            let vm: *const c_void;
+            //不需要改变虚拟机状态，以保证当前虚拟机可以线程安全的执行回调函数
+            unsafe {
+                vm = js_copy.get_vm();
+                if dukc_get_callback(vm, callback) == 0 {
+                    //当前回调函数不存在，则立即退出当前同步任务，以获取下一个异步消息
+                    return;
+                }
+                dukc_remove_callback(vm, callback); //移除虚拟机注册的指定回调函数
+            }
+                    
+            //将回调函数的参数压栈，并执行回调函数
+            let args_len = (args)(js_copy.clone());
+            unsafe { dukc_call(vm, args_len as u8, js_reply_callback); }
+        });
+        let size = js.queue.size.fetch_add(1, Ordering::SeqCst) + 1; //增加消息队列长度，并返回
+        cast_js_task(task_type, 0, Some(js.get_queue()), func, info); //向指定虚拟机的消息队列推送异步回调任务
+        size
+    }
+
     //获取内部虚拟机
     pub unsafe fn get_vm(&self) -> *const c_void {
         self.vm as *const c_void
+    }
+
+    //判断虚拟机是否绑定了同步任务队列
+    pub fn exist_tasks(&self) -> bool {
+        self.tasks.load(Ordering::SeqCst) != 0
+    }
+
+    //获取虚拟机同步任务队列
+    pub fn get_tasks(&self) -> isize {
+        self.tasks.load(Ordering::SeqCst)
+    }
+
+    //设置虚拟机同步任务队列
+    pub fn set_tasks(&self, tasks: isize) {
+        self.tasks.swap(tasks, Ordering::SeqCst);
+    }
+
+    //获取虚拟机消息队列
+    pub fn get_queue(&self) -> isize {
+        self.queue.id.load(Ordering::SeqCst)
+    }
+
+    //获取虚拟机消息队列长度
+    pub fn get_queue_len(&self) -> usize {
+        self.queue.size.load(Ordering::SeqCst)
+    }
+
+    //增加虚拟机消息队列长度
+    pub fn add_queue_len(&self) -> usize {
+        self.queue.size.fetch_add(1, Ordering::SeqCst)
     }
 
     //获取指定虚拟机的本地对象授权
@@ -357,6 +405,7 @@ impl JS {
                 //当前虚拟机正在destroy或有其它任务
                 None
             } else {
+                self.add_queue_len(); //增加当前虚拟机消息队列长度
                 let bytes = dukc_compile_script(self.vm as *const c_void, CString::new(file).unwrap().as_ptr(), CString::new(script).unwrap().as_ptr(), size, js_reply_callback);
                 if bytes.is_null() {
                     return None;                
@@ -376,9 +425,11 @@ impl JS {
                 //当前虚拟机正在destroy或有其它任务
                 false
             } else {
+                //加载失败才会回调，所以无需增加当前虚拟机消息队列长度
                 if dukc_load_code(self.vm as *const c_void, size, bytes, js_reply_callback) == 0 {
                     return false;
                 }
+                self.add_queue_len(); //增加当前虚拟机消息队列长度
                 dukc_vm_run(self.vm as *const c_void, js_reply_callback);
                 true
             }
@@ -393,6 +444,8 @@ impl JS {
                 //当前虚拟机状态错误，无法运行
                 println!("invalid vm status with run");
             } else {
+                //增加当前虚拟机消息队列长度，并开始执行运行
+                self.add_queue_len();
                 dukc_vm_run(self.vm as *const c_void, js_reply_callback);
             }
         }
@@ -727,27 +780,10 @@ impl JS {
                 //当前虚拟机正在destroy或有其它任务
                 println!("invalid vm status with call");
             } else {
+                //增加当前虚拟机消息队列长度，并开始执行任务
+                self.add_queue_len();
                 dukc_call(self.vm as *const c_void, len as u8, js_reply_callback);
             }
-        }
-    }
-
-    //从异步消息队列中弹出消息
-    pub fn pop(&self) -> Option<JSMsg> {
-        match self.queue.consumer.consume() {
-            Err(_) => None,
-            Ok(msg) => {
-                self.queue.size.fetch_sub(1, Ordering::Acquire);
-                Some(msg)
-            },
-        }    
-    }
-
-    //向异步消息队列中推送消息
-    pub fn push(&self, msg: JSMsg) -> usize {
-        match self.queue.producer.produce(msg) {
-            Err(_) => 0,
-            Ok(_) => self.queue.size.fetch_add(1, Ordering::Acquire) + 1,
         }
     }
 
@@ -1526,17 +1562,3 @@ impl JSBuffer {
         last as isize
     }
 }
-
-/*
-* 线程安全的执行异步消息队列中的回调函数
-*/
-#[inline]
-fn callback(js: Arc<JS>, msg: JSMsg) {
-    let info = msg.info.clone();
-    let func = Box::new(move || {
-        let args_len = (msg.args)(js.clone());
-        unsafe { dukc_call(js.get_vm(), args_len as u8, js_reply_callback); }
-    });
-    cast_js_task(TaskType::Async, 5000000000, func, info);
-}
-
