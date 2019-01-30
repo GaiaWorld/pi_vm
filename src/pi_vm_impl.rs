@@ -91,6 +91,11 @@ impl VMFactory {
         }
     }
 
+    //生成并取出一个虚拟机
+    pub fn take(&self) -> Option<Arc<JS>> {
+        self.new_vm(self.auth.clone())
+    }
+
     //从虚拟机池中获取一个虚拟机，根据源创建同步任务队列，并调用指定的js全局函数
     pub fn call(&self, src: Option<usize>, port: Atom, args: Box<FnBox(Arc<JS>) -> usize>, info: Atom) {
         //弹出虚拟机，以保证同一时间只有一个线程访问同一个虚拟机

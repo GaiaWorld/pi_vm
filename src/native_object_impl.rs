@@ -48,6 +48,30 @@ pub extern "C" fn native_object_function_call(
                 }
             },
         }
+    //测试同步返回和异步回调
+//        if hash < 0xffffffff {
+//            js.new_u32(hash);
+//        } else {
+//            js.new_str("Hello".to_string()).get_value() as *const c_void;
+//        }
+//        unsafe { dukc_switch_context(vm); }
+//        Arc::into_raw(js);
+//        return 1;
+    //测试同步阻塞返回和异步回调
+//        if hash < 0xffffffff {
+//            use atom::Atom;
+//            let args = Box::new(move |tmp: Arc<JS>| {
+//                tmp.new_u32(hash);
+//                1
+//            });
+//            JS::push(js.clone(), TaskType::Sync(true), hash, args, Atom::from("callback by async call"));
+//        }
+//        unsafe {
+//            dukc_switch_context(vm);
+//            dukc_vm_status_switch(vm, JSStatus::SingleTask as i8, JSStatus::WaitBlock as i8);
+//        }
+//        Arc::into_raw(js);
+//        return 0;
 }
 
 //转换参数

@@ -85,7 +85,7 @@ extern "C" {
     pub fn dukc_top(vm: *const c_void) -> int32_t;
     pub fn dukc_to_string(vm: *const c_void, offset: int32_t) -> *const c_char;
     fn dukc_dump_stack(vm: *const c_void) -> *const c_char;
-    fn dukc_pop(vm: *const c_void);
+    pub fn dukc_pop(vm: *const c_void);
     fn dukc_vm_destroy(vm: *const c_void);
 }
 
@@ -157,7 +157,6 @@ pub extern "C" fn js_reply_callback(handler: *const c_void, status: c_int, err: 
 pub unsafe fn handle_async_callback(js: Arc<JS>, vm: *const c_void) {
     //检查消息队列是否为空，如果不为空则继续执行异步任务或异步回调任务
     if js.queue.size.load(Ordering::SeqCst) == 0 {
-//        println!("!!!!!!0");
         //消息队列为空
         if dukc_callback_count(vm) == 0 && dukc_vm_status_check(vm, JSStatus::SingleTask as i8) > 0 {
             //没有已注册的异步回调函数且当前异步任务已完成，则需要将执行结果弹出值栈并改变状态并解锁当前虚拟机的同步任务队列, 保证虚拟机回收或执行下一个任务
@@ -172,13 +171,11 @@ pub unsafe fn handle_async_callback(js: Arc<JS>, vm: *const c_void) {
             dukc_vm_status_switch(vm, JSStatus::SingleTask as i8, JSStatus::WaitCallBack as i8);
         }
     } else if dukc_callback_count(vm) > 0 {
-//        println!("!!!!!!1, callback count: {}", dukc_callback_count(vm));
         //消息队列不为空、有已注册的异步回调函数、且消息队列被锁，则释放锁，以保证开始执行消息队列中的异步任务或异步回调任务
         if !unlock_js_task_queue(js.get_queue()) {
             panic!("!!!> Handle Callback Error, unlock js task queue failed");
         }
     } else {
-//        println!("!!!!!!3");
         //消息队列不为空，且未注册异步回调函数，表示同步任务或异步任务执行完成且没有异步回调任务，
         // 则需要将执行结果弹出值栈并改变状态并解锁当前虚拟机的同步任务队列, 保证虚拟机回收或执行下一个任务
         dukc_vm_status_sub(vm, 1);
@@ -373,6 +370,11 @@ impl JS {
     //增加虚拟机消息队列长度
     pub fn add_queue_len(&self) -> usize {
         self.queue.size.fetch_add(1, Ordering::SeqCst)
+    }
+
+    //减少虚拟机消息队列长度
+    pub fn deduct_queue_len(&self) -> usize {
+        self.queue.size.fetch_sub(1, Ordering::SeqCst)
     }
 
     //获取指定虚拟机的本地对象授权
@@ -852,6 +854,24 @@ impl JS {
         }
     }
 
+    //获取当前虚拟机栈顶数据信息
+    pub fn stack_top_string(&self) -> Option<String> {
+        let value;
+        unsafe {
+            unsafe { value = dukc_top(self.vm as *const c_void) }
+            if value < 0 {
+                None
+            } else {
+                let ptr = dukc_to_string(self.vm as *const c_void, value);
+                if ptr.is_null() {
+                    return None;
+                }
+
+                Some(CStr::from_ptr(ptr as *const c_char).to_string_lossy().into_owned())
+            }
+        }
+    }
+
     //获取当前虚拟机堆栈信息
     pub fn dump_stack(&self) -> String {
         unsafe { CStr::from_ptr(dukc_dump_stack(self.vm as *const c_void)).to_string_lossy().into_owned() }
@@ -1174,6 +1194,18 @@ impl JSType {
     //获取NativeObject
 	pub fn get_native_object(&self) -> usize {
         unsafe { dukc_get_native_object_instance(self.vm as *const c_void, self.value as u32) as usize }
+    }
+
+    //获取类型值的字符串描述
+    pub fn to_string(&self) -> Option<String> {
+        unsafe {
+            let ptr = dukc_to_string(self.vm as *const c_void, self.value as i32);
+            if ptr.is_null() {
+                return None;
+            }
+
+            Some(CStr::from_ptr(ptr as *const c_char).to_string_lossy().into_owned())
+        }
     }
 }
 

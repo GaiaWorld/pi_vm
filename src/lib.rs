@@ -34,5 +34,6 @@ extern crate gray;
 pub mod adapter;
 pub mod native_object_impl;
 pub mod pi_vm_impl;
-pub mod channel_map;
 pub mod bonmgr;
+pub mod channel_map;
+pub mod shell;
