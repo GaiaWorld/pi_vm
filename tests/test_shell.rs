@@ -54,6 +54,7 @@ fn test_shell() {
     register_native_function(0x1, shell_sync_call);
     register_native_function(0x10, shell_block_call);
 
+    //初始化shell管理器
     let tmp = JS::new(Arc::new(NativeObjsAuth::new(None, None))).unwrap();
     let test_code = Arc::new(tmp.compile("test.js".to_string(), TEST_SHELL_CODE.to_string()).unwrap());
     SHELL_MANAGER.write().unwrap().init(Some(vec![test_code]));
@@ -69,9 +70,9 @@ fn test_shell() {
     });
 
 
-    let s = SHELL_MANAGER.write().unwrap().open();
+    let s = SHELL_MANAGER.write().unwrap().open(); //创建一个shell
     if let Some(shell) = s {
-        let req = SHELL_MANAGER.write().unwrap().connect(shell, resp.clone());
+        let req = SHELL_MANAGER.write().unwrap().connect(shell, resp.clone()); //连接指定shell
         if req.is_none() {
             eprintln!("Connect Error");
         }
