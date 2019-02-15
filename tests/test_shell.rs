@@ -108,7 +108,8 @@ fn test_shell() {
                 //当前没有请求回调，则接收请求回调
                 match req_receiver.recv() {
                     Err(e) => {
-
+                        eprintln!("Shell Suspend, {:?}", e);
+                        return;
                     },
                     Ok(new) => {
                         if new.is_none() {

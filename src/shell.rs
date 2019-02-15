@@ -313,7 +313,7 @@ pub struct Shell {
     vm: Arc<JS>,                                                                    //shell虚拟机
     resp: Option<Arc<Fn(Result<Arc<Vec<u8>>>, Option<Box<FnBox(Arc<Vec<u8>>)>>)>>,  //响应回调，参数包括执行结果和下次请求回调
     is_accept: Arc<AtomicBool>,                                                     //是否接受对端请求
-    complied: Arc<RefCell<FnvHashMap<u64, String>>>,                                //已编译脚本表
+    complied: Arc<RefCell<FnvHashMap<u64, String>>>,                                //已编译脚本缓存
 }
 
 impl Shell {
