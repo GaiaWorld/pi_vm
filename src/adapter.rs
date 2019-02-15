@@ -136,6 +136,9 @@ pub extern "C" fn js_reply_callback(handler: *const c_void_ptr, status: c_int, e
 
         //处理执行异常
         if status != 0 {
+            //有异常，则重置虚拟机线程全局变量，保证虚拟机可以继续运行
+            let null = js.new_null();
+            js.set_global_var(JS_THREAD_GLOBAL_VAR_NAME.to_string(), null);
             println!("===> JS Run Error, vm: {}, queue size: {}, status: {}, err: {}",
                                                                                 vm as usize,
                                                                                 js.queue.size.load(Ordering::SeqCst),
@@ -150,13 +153,7 @@ pub extern "C" fn js_reply_callback(handler: *const c_void_ptr, status: c_int, e
         } else if dukc_vm_status_check(vm, JSStatus::SingleTask as i8) > 0 {
             //当前虚拟机同步任务、异步任务或异步回调已执行完成，且当前虚拟机状态是同步状态，则处理消息队列
             if js.ret.borrow().is_some() {
-                //返回值缓存不为空，则表示会持久使用当前虚拟机
-                *js.ret.borrow_mut() = js.stack_top_string(); //将当前执行结果更新返回值缓存
-                if status != 0 {
-                    //有异常，则重置虚拟机线程全局变量，保证虚拟机可以继续运行
-                    let null = js.new_null();
-                    js.set_global_var(JS_THREAD_GLOBAL_VAR_NAME.to_string(), null);
-                }
+                *js.ret.borrow_mut() = js.stack_top_string(); //返回值缓存不为空，则将当前执行结果更新返回值缓存
             }
             dukc_pop(vm); //移除上次同步任务、异步任务或回调函数的执行结果
             handle_async_callback(js.clone(), vm);
