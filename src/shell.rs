@@ -1,9 +1,13 @@
+use std::thread;
 use std::boxed::FnBox;
+use std::cell::RefCell;
+use std::time::Duration;
 use std::sync::{Arc, RwLock};
+use std::hash::{Hash, Hasher};
 use std::collections::HashMap;
-use std::collections::hash_map::Entry;
 use std::io::{Result, ErrorKind, Error};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::hash_map::{Entry, DefaultHasher};
 
 use fnv::FnvHashMap;
 
@@ -24,6 +28,21 @@ const SHELL_MIN_SRC: usize = 0x100000000;
 * shell源最大值
 */
 const SHELL_MAX_SRC: usize = 0x100100000;
+
+/*
+* shell指令，大小写敏感
+*/
+const SHELL_COMMAND_CLEAN: &[u8] = b"clean"; //清空所有缓存的已编译脚本
+
+/*
+* shell脚本文件名
+*/
+const SHELL_SCRIPT_FILE: &'static str = "__SHELL_SCRIPT__.js";
+
+/*
+* shell脚本函数前缀
+*/
+const SHELL_SCRIPT_FUNCTION_PREFIX: &'static str = "__shell_func_";
 
 /*
 * shell设置全局环境函数名
@@ -294,6 +313,7 @@ pub struct Shell {
     vm: Arc<JS>,                                                                    //shell虚拟机
     resp: Option<Arc<Fn(Result<Arc<Vec<u8>>>, Option<Box<FnBox(Arc<Vec<u8>>)>>)>>,  //响应回调，参数包括执行结果和下次请求回调
     is_accept: Arc<AtomicBool>,                                                     //是否接受对端请求
+    complied: Arc<RefCell<FnvHashMap<u64, String>>>,                                //已编译脚本表
 }
 
 impl Shell {
@@ -304,6 +324,7 @@ impl Shell {
             vm,
             resp: None,
             is_accept: Arc::new(AtomicBool::new(false)),
+            complied: Arc::new(RefCell::new(FnvHashMap::default())),
         }
     }
 
@@ -345,108 +366,168 @@ impl Shell {
 
     //构建请求回调，每次向已连接的shell发送请求，都有唯一的一个请求回调，防止客户端的原因，导致虚拟机无法正常回收
     fn new_request(&self) -> Box<FnBox(Arc<Vec<u8>>)> {
-        let vm = self.vm.clone();
-        let resp = self.resp.as_ref().unwrap().clone();
-
-        let src = self.src;
-        let accept = self.is_accept.clone();
+        let shell = self.clone();
         Box::new(move |bin: Arc<Vec<u8>>| {
-            cast_shell_task(src, vm, bin, resp, accept);
+            cast_shell_task(Arc::new(shell), bin);
         })
     }
 }
 
 //投递shell任务
-fn cast_shell_task(src: usize,
-                   vm: Arc<JS>,
-                   bin: Arc<Vec<u8>>,
-                   resp: Arc<Fn(Result<Arc<Vec<u8>>>, Option<Box<FnBox(Arc<Vec<u8>>)>>)>,
-                   is_accept: Arc<AtomicBool>) {
+fn cast_shell_task(shell: Arc<Shell>, bin: Arc<Vec<u8>>,) {
+    let queue = new_queue(shell.src);
     let func = Box::new(move |lock: Option<isize>| {
         if let Some(queue) = lock {
             //为虚拟机设置当前任务的队列
-            vm.set_tasks(queue);
+            shell.vm.set_tasks(queue);
         }
 
-        if !is_accept.load(Ordering::SeqCst) {
+        if !shell.is_accept.load(Ordering::SeqCst) {
             //未连接，则忽略请求
             return;
         }
 
-        let resp_copy = resp.clone();
-
-
-        //修改虚拟机状态
-        let js = unsafe { vm.get_vm() };
-        let status = unsafe { dukc_vm_status_switch(js,
-                                                    JSStatus::NoTask as i8,
-                                                    JSStatus::SingleTask as i8) };
-        if status == JSStatus::SingleTask as i8 {
-            //当前虚拟机正在destroy或有其它任务
-            eprintln!("Invalid vm status with call");
-        } else {
-            vm.add_queue_len(); //增加当前虚拟机消息队列长度
-            let result = vm.eval(String::from_utf8_lossy(&bin[..]).into_owned()); //执行请求
-            vm.deduct_queue_len(); //减少当前虚拟机消息队列长度
-
-            let r = result.to_string();
-
-            unsafe {
-                if dukc_vm_status_check(js, JSStatus::WaitBlock as i8) > 0 {
-                    //当前虚拟机任务已执行完成且当前虚拟机状态是等待状态，则需要改变状态，保证虚拟机异步任务被执行
-                    dukc_vm_status_sub(js, 1);
-                    wait_shell_reply(src, vm.clone(), resp.clone(), is_accept); //等待虚拟机执行任务后再响应本次请求
-                } else if dukc_vm_status_check(js, JSStatus::SingleTask as i8) > 0 {
-                    //当前虚拟机同步任务、异步任务或异步回调已执行完成，且当前虚拟机状态是同步状态，则处理消息队列
-                    handle_async_callback(vm.clone(), js);
-
-                    //构建下一次的请求回调，并响应本次请求
-                    let req: Option<Box<FnBox(Arc<Vec<u8>>)>> = Some(Box::new(move |bin: Arc<Vec<u8>>| {
-                        if !unlock_js_task_queue(vm.get_tasks()) {
-                            panic!("!!!> Unlock js task queue failed, queue: {}", vm.get_tasks());
-                        }
-
-                        cast_shell_task(src, vm.clone(), bin, resp_copy, is_accept);
-                    }));
-                    match r {
-                        None => resp(Err(Error::new(ErrorKind::InvalidData, "shell execut error")), req),
-                        Some(str) => resp(Ok(Arc::new(str.into_bytes())), req),
-                    }
+        //执行请求
+        let script = String::from_utf8_lossy(&bin[..]).into_owned();
+        if handle_command(shell.clone(), &script) {
+            //指令已处理，构建下一次的请求回调，并响应本次请求
+            let shell_copy = shell.clone();
+            let req: Option<Box<FnBox(Arc<Vec<u8>>)>> = Some(Box::new(move |bin: Arc<Vec<u8>>| {
+                if !unlock_js_task_queue(shell_copy.vm.get_tasks()) {
+                    panic!("!!!> Unlock js task queue failed, queue: {}", shell_copy.vm.get_tasks());
                 }
+
+                cast_shell_task(shell_copy, bin);
+            }));
+            shell.resp.as_ref().unwrap()(Ok(Arc::new("ok".to_string().into_bytes())), req);
+        } else {
+            //编译并执行脚本
+            if complie_eval(shell.clone(), script) {
+                wait_shell_reply(shell); //等待虚拟机执行任务后再响应本次请求
+            } else {
+                //构建下一次的请求回调，并响应本次请求
+                let shell_copy = shell.clone();
+                let req: Option<Box<FnBox(Arc<Vec<u8>>)>> = Some(Box::new(move |bin: Arc<Vec<u8>>| {
+                    if !unlock_js_task_queue(shell_copy.vm.get_tasks()) {
+                        panic!("!!!> Unlock js task queue failed, queue: {}", shell_copy.vm.get_tasks());
+                    }
+
+                    cast_shell_task(shell_copy, bin);
+                }));
+                shell.resp.as_ref().unwrap()(Ok(Arc::new("!!!> Invalid Shell Script".to_string().into_bytes())), req);
             }
         }
     });
-    let queue = new_queue(src);
     cast_js_task(TaskType::Sync(true), 0, Some(queue), func, Atom::from("shell task"));
 }
 
-//等待shell执行完所有同步任务、同步阻塞任务和异步回调任务，并响应本次请求
-fn wait_shell_reply(src: usize,
-                    vm: Arc<JS>,
-                    resp: Arc<Fn(Result<Arc<Vec<u8>>>, Option<Box<FnBox(Arc<Vec<u8>>)>>)>,
-                    is_accept: Arc<AtomicBool>) {
+//等待shell执行完所有同步任务和同步阻塞任务，并响应本次请求
+fn wait_shell_reply(shell: Arc<Shell>) {
     let func = Box::new(move |_lock: Option<isize>| {
-        //检查当前虚拟机是否已执行完所有同步任务、同步阻塞任务和异步回调任务
-        if unsafe { dukc_callback_count(vm.get_vm()) == 0 && !vm.is_ran() } {
+        //检查当前虚拟机是否已执行完所有同步任务、同步阻塞任务和异步回调任务，注意不允许使用非安全的异步回调相关函数来获取异步任务数量，因为在同步阻塞任务执行时，调用这些函数会导致异常
+        if shell.vm.get_queue_len() == 0 && !shell.vm.is_ran() {
             //没有异步回调函数，且当前虚拟机未执行完成，则继续等待
-            return wait_shell_reply(src, vm, resp, is_accept);
+            return wait_shell_reply(shell);
         }
 
-        let r = vm.stack_top_string();
+        let r = shell.vm.get_ret();
 
         //构建下一次的请求回调，并响应本次请求
-        let resp_copy = resp.clone();
+        let shell_copy = shell.clone();
         let req: Option<Box<FnBox(Arc<Vec<u8>>)>> = Some(Box::new(move |bin: Arc<Vec<u8>>| {
-            if !unlock_js_task_queue(vm.get_tasks()) {
-                panic!("!!!> Unlock js task queue failed, queue: {}", vm.get_tasks());
+            if !unlock_js_task_queue(shell_copy.vm.get_tasks()) {
+                panic!("!!!> Unlock js task queue failed, queue: {}", shell_copy.vm.get_tasks());
             }
 
-            cast_shell_task(src, vm.clone(), bin, resp_copy, is_accept);
+            cast_shell_task(shell_copy, bin);
         }));
         match r {
-            None => resp(Err(Error::new(ErrorKind::InvalidData, "shell execut error")), req),
-            Some(str) => resp(Ok(Arc::new(str.into_bytes())), req),
+            None => shell.resp.as_ref().unwrap()(Err(Error::new(ErrorKind::InvalidData, "shell execut error")), req),
+            Some(str) => shell.resp.as_ref().unwrap()(Ok(Arc::new(str.into_bytes())), req),
         }
     });
     cast_js_task(TaskType::Async(false), SHELL_WAIT_BLOCK_REPLY_TASK_PRIORITY, None, func, Atom::from("shell wait reply task"));
+}
+
+//处理指令脚本
+fn handle_command(shell: Arc<Shell>, script: &String) -> bool {
+    match script.trim().as_bytes() {
+        SHELL_COMMAND_CLEAN => {
+            let hash_list: Vec<u64> = shell.complied.borrow().keys().map(|x| x.clone()).collect();
+            for func_hash in hash_list {
+                if let Some(func_script) = shell.complied.borrow_mut().remove(&func_hash) {
+                    let func_name = script_to_func_name(func_hash, &func_script);
+                    let value = shell.vm.new_undefined();
+                    shell.vm.set_global_var(func_name, value);
+                }
+            }
+            true
+        },
+        _ => {
+            //未定义指令，则忽略
+            false
+        }
+    }
+}
+
+//编译并执行脚本
+fn complie_eval(shell: Arc<Shell>, script: String) -> bool {
+    let mut b = false;
+    let func_hash = script_to_hash(&script);
+    let func_name = script_to_func_name(func_hash, &script);
+
+    if let Some(last_script) = shell.complied.borrow().get(&func_hash) {
+        //脚本hash相同
+        if &script == last_script {
+            //脚本内容相同
+            b = true;
+        }
+    }
+
+    if !b {
+        //脚本未编译，则编译，并缓存
+        if let Some(code) = shell.vm.compile(SHELL_SCRIPT_FILE.to_string(), script_to_func(&func_name, &script)) {
+            if shell.vm.load(code.as_slice()) {
+                while !shell.vm.is_ran() {
+                    //加载未完成
+                    thread::sleep(Duration::from_millis(1000));
+                }
+
+                //缓存已编译的脚本
+                shell.complied.borrow_mut().insert(func_hash, script);
+            } else {
+                //加载脚本失败
+                return false;
+            }
+        } else {
+            //编译脚本失败
+            return false;
+        }
+    }
+
+    //执行已编译的脚本
+    if shell.vm.set_ret(Some("undefined".to_string())) {
+        if shell.vm.get_js_function(func_name) {
+            shell.vm.call(0);
+            return true;
+        }
+    }
+    false
+}
+
+//将脚本转换为脚本函数
+fn script_to_func(func_name: &String, script: &String) -> String {
+    "function ".to_string() + func_name + "() {\n" + script + "}"
+}
+
+//构建脚本函数名
+fn script_to_func_name(hash: u64, script: &String) -> String {
+    SHELL_SCRIPT_FUNCTION_PREFIX.to_string() + &hash.to_string()
+}
+
+//计算脚本hash
+fn script_to_hash(script: &String) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    script.hash(&mut hasher);
+    hasher.finish()
 }

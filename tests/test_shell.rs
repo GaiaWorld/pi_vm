@@ -17,7 +17,7 @@ use worker::impls::{JS_TASK_POOL, JS_WORKER_WALKER};
 
 use atom::Atom;
 
-use pi_vm::pi_vm_impl::block_reply;
+use pi_vm::pi_vm_impl::{block_reply, push_callback};
 use pi_vm::adapter::{JSType, JS, register_native_object};
 use pi_vm::shell::SHELL_MANAGER;
 use pi_vm::bonmgr::{BON_MGR, NativeObjsAuth, FnMeta, CallResult};
@@ -34,15 +34,21 @@ const TEST_SHELL_CODE: &'static str =
         };
 
         var test_block_call = function(x) {
-            __thread_call(
-                function() {
-                    NativeObject.call(0x10, [x]);
-                    console.log("!!!!!!block call start");
-                    var r = __thread_yield();
-                    console.log("!!!!!!block call finish, r:", r);
-                    return r;
-                }
-            );
+            console.log("!!!!!!block call start");
+            for(var n = 0; n < 10000; n++) {
+                NativeObject.call(0x10, [x]);
+                var r = __thread_yield();
+            }
+            console.log("!!!!!!block call finish, r:", r);
+            return r;
+        };
+
+        var test_async_callback = function(x) {
+            var callback = function(r) {
+                console.log("!!!!!!async callback finish, r:", r);
+            };
+            var index = callbacks.register(callback);
+            return NativeObject.call(0x100, [index]);
         };"#;
 
 #[test]
@@ -53,6 +59,7 @@ fn test_shell() {
     register_native_object();
     register_native_function(0x1, shell_sync_call);
     register_native_function(0x10, shell_block_call);
+    register_native_function(0x100, shell_async_callback);
 
     //初始化shell管理器
     let tmp = JS::new(Arc::new(NativeObjsAuth::new(None, None))).unwrap();
@@ -149,4 +156,16 @@ fn shell_block_call(js: Arc<JS>, _args: Vec<JSType>) -> Option<CallResult> {
     });
     block_reply(js, result, Atom::from("block reply task"));
     None
+}
+
+//shell注册异步回调
+fn shell_async_callback(js: Arc<JS>, args: Vec<JSType>) -> Option<CallResult> {
+    let callback = args[0].get_u32();
+    let func = Box::new(move |vm: Arc<JS>| -> usize {
+        vm.new_str("Hello World!".to_string());
+        1
+    });
+    push_callback(js.clone(), args[0].get_u32(), func, Atom::from("register callback task"));
+    js.new_boolean(true);
+    Some(CallResult::Ok)
 }

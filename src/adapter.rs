@@ -1,4 +1,4 @@
-use libc::{c_void, c_char, int8_t, uint8_t, c_int, uint32_t, int32_t, uint64_t, c_double, memcpy};
+use libc::{c_void as c_void_ptr, c_char, int8_t, uint8_t, c_int, uint32_t, int32_t, uint64_t, c_double, memcpy};
 use std::slice::{from_raw_parts_mut, from_raw_parts};
 use std::sync::atomic::{Ordering, AtomicUsize, AtomicIsize};
 use std::string::FromUtf8Error;
@@ -29,64 +29,64 @@ const JS_ASYNC_MSG_QUEUE_PRIORITY: usize = 1000;
 
 #[link(name = "dukc")]
 extern "C" {
-    fn dukc_register_native_object_function_call(func: extern fn(*const c_void, uint32_t, uint32_t, *const c_void, *const c_void) -> c_int);
-    fn dukc_register_native_object_free(func: extern fn(*const c_void, uint32_t));
-    fn dukc_heap_create() -> *const c_void;
-    fn dukc_heap_init(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char)) -> uint32_t;
-    // fn dukc_vm_create(heap: *const c_void) -> *const c_void;
-    fn dukc_compile_script(vm: *const c_void, file: *const c_char, code: *const c_char, size: *mut uint32_t, reply: extern fn(*const c_void, c_int, *const c_char)) -> *const c_void;
-    fn dukc_load_code(vm: *const c_void, size: uint32_t, bytes: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char)) -> uint32_t;
-    fn dukc_bind_vm(vm: *const c_void, handler: *const c_void);
-    // fn dukc_vm_clone(size: uint32_t, bytes: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char)) -> *const c_void;
-    fn dukc_vm_run(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
-    pub fn dukc_vm_status_check(vm: *const c_void, value: int8_t) -> uint8_t;
-    pub fn dukc_vm_status_switch(vm: *const c_void, old_status: int8_t, new_status: int8_t) -> int8_t;
-    pub fn dukc_vm_status_sub(vm: *const c_void, value: int8_t) -> int8_t;
-    fn dukc_new_null(vm: *const c_void) -> uint32_t;
-    fn dukc_new_undefined(vm: *const c_void) -> uint32_t;
-    fn dukc_new_boolean(vm: *const c_void, b: uint8_t) -> uint32_t;
-    fn dukc_new_number(vm: *const c_void, num: c_double) -> uint32_t;
-    fn dukc_new_string(vm: *const c_void, str: *const c_char) -> uint32_t;
-    fn dukc_new_object(vm: *const c_void) -> uint32_t;
-    fn dukc_get_type(vm: *const c_void, name: *const c_char) -> uint32_t;
-    fn dukc_new_type(vm: *const c_void, len: uint8_t) -> int32_t;
-    fn dukc_set_object_field(vm: *const c_void, object: uint32_t, key: *const c_char, value: uint32_t) -> uint32_t;
-    fn dukc_new_array(vm: *const c_void) -> uint32_t;
-    fn dukc_set_array_index(vm: *const c_void, array: uint32_t, index: uint32_t, value: uint32_t) -> uint32_t;
-    fn dukc_new_array_buffer(vm: *const c_void, length: uint32_t) -> uint32_t;
-    fn dukc_new_uint8_array(vm: *const c_void, length: uint32_t) -> uint32_t;
-    fn dukc_new_native_object(vm: *const c_void, ptr: uint64_t) -> uint32_t;
-    pub fn dukc_new_error(vm: *const c_void, reason: *const c_char) -> uint32_t;
-    pub fn dukc_remove_value(vm: *const c_void, value: uint32_t);
-    fn dukc_get_value_type(vm: *const c_void, value: uint32_t) -> uint8_t;
-    fn dukc_get_boolean(vm: *const c_void, value: uint32_t) -> uint8_t;
-    fn dukc_get_number(vm: *const c_void, value: uint32_t) -> c_double;
-    fn dukc_get_string(vm: *const c_void, value: uint32_t) -> *const c_char;
-    fn dukc_get_object_field(vm: *const c_void, object: uint32_t, key: *const c_char) -> uint32_t;
-    fn dukc_get_array_length(vm: *const c_void, array: uint32_t) -> uint32_t;
-    fn dukc_get_array_index(vm: *const c_void, array: uint32_t, index: uint32_t) -> uint32_t;
-    fn dukc_get_buffer_length(vm: *const c_void, value: uint32_t) -> uint32_t;
-    fn dukc_get_buffer(vm: *const c_void, value: uint32_t) -> *const c_void;
-    fn dukc_get_native_object_instance(vm: *const c_void, value: uint32_t) -> uint64_t;
-    fn dukc_get_js_function(vm: *const c_void, func: *const c_char) -> uint32_t;
-    pub fn dukc_link_js_function(vm: *const c_void, func: *const c_char) -> uint32_t;
-    fn dukc_check_js_function(vm: *const c_void, func: *const c_char) -> uint32_t;
-    pub fn dukc_get_callback(vm: *const c_void, index: uint32_t) -> uint32_t ;
-    pub fn dukc_call(vm: *const c_void, len: uint8_t, reply: extern fn(*const c_void, c_int, *const c_char));
-    pub fn dukc_throw(vm: *const c_void, reason: *const c_char);
-    pub fn dukc_wakeup(vm: *const c_void, error: c_int) -> uint32_t;
-    pub fn dukc_continue(vm: *const c_void, reply: extern fn(*const c_void, c_int, *const c_char));
-    pub fn dukc_switch_context(vm: *const c_void);
-    pub fn dukc_callback_count(vm: *const c_void) -> uint32_t;
-    pub fn dukc_remove_callback(vm: *const c_void, index: uint32_t) -> uint32_t;
-    fn dukc_set_global_var(vm: *const c_void, key: *const c_char) -> uint32_t;
-    fn dukc_invoke(vm: *const c_void, len: uint8_t) -> int32_t;
-    fn dukc_eval(vm: *const c_void, script: *const c_char) -> int32_t;
-    pub fn dukc_top(vm: *const c_void) -> int32_t;
-    pub fn dukc_to_string(vm: *const c_void, offset: int32_t) -> *const c_char;
-    fn dukc_dump_stack(vm: *const c_void) -> *const c_char;
-    pub fn dukc_pop(vm: *const c_void);
-    fn dukc_vm_destroy(vm: *const c_void);
+    fn dukc_register_native_object_function_call(func: extern fn(*const c_void_ptr, uint32_t, uint32_t, *const c_void_ptr, *const c_void_ptr) -> c_int);
+    fn dukc_register_native_object_free(func: extern fn(*const c_void_ptr, uint32_t));
+    fn dukc_heap_create() -> *const c_void_ptr;
+    fn dukc_heap_init(vm: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_char)) -> uint32_t;
+    // fn dukc_vm_create(heap: *const c_void_ptr) -> *const c_void_ptr;
+    fn dukc_compile_script(vm: *const c_void_ptr, file: *const c_char, code: *const c_char, size: *mut uint32_t, reply: extern fn(*const c_void_ptr, c_int, *const c_char)) -> *const c_void_ptr;
+    fn dukc_load_code(vm: *const c_void_ptr, size: uint32_t, bytes: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_char)) -> uint32_t;
+    fn dukc_bind_vm(vm: *const c_void_ptr, handler: *const c_void_ptr);
+    // fn dukc_vm_clone(size: uint32_t, bytes: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_char)) -> *const c_void_ptr;
+    fn dukc_vm_run(vm: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_char));
+    pub fn dukc_vm_status_check(vm: *const c_void_ptr, value: int8_t) -> uint8_t;
+    pub fn dukc_vm_status_switch(vm: *const c_void_ptr, old_status: int8_t, new_status: int8_t) -> int8_t;
+    pub fn dukc_vm_status_sub(vm: *const c_void_ptr, value: int8_t) -> int8_t;
+    fn dukc_new_null(vm: *const c_void_ptr) -> uint32_t;
+    fn dukc_new_undefined(vm: *const c_void_ptr) -> uint32_t;
+    fn dukc_new_boolean(vm: *const c_void_ptr, b: uint8_t) -> uint32_t;
+    fn dukc_new_number(vm: *const c_void_ptr, num: c_double) -> uint32_t;
+    fn dukc_new_string(vm: *const c_void_ptr, str: *const c_char) -> uint32_t;
+    fn dukc_new_object(vm: *const c_void_ptr) -> uint32_t;
+    fn dukc_get_type(vm: *const c_void_ptr, name: *const c_char) -> uint32_t;
+    fn dukc_new_type(vm: *const c_void_ptr, len: uint8_t) -> int32_t;
+    fn dukc_set_object_field(vm: *const c_void_ptr, object: uint32_t, key: *const c_char, value: uint32_t) -> uint32_t;
+    fn dukc_new_array(vm: *const c_void_ptr) -> uint32_t;
+    fn dukc_set_array_index(vm: *const c_void_ptr, array: uint32_t, index: uint32_t, value: uint32_t) -> uint32_t;
+    fn dukc_new_array_buffer(vm: *const c_void_ptr, length: uint32_t) -> uint32_t;
+    fn dukc_new_uint8_array(vm: *const c_void_ptr, length: uint32_t) -> uint32_t;
+    fn dukc_new_native_object(vm: *const c_void_ptr, ptr: uint64_t) -> uint32_t;
+    pub fn dukc_new_error(vm: *const c_void_ptr, reason: *const c_char) -> uint32_t;
+    pub fn dukc_remove_value(vm: *const c_void_ptr, value: uint32_t);
+    fn dukc_get_value_type(vm: *const c_void_ptr, value: uint32_t) -> uint8_t;
+    fn dukc_get_boolean(vm: *const c_void_ptr, value: uint32_t) -> uint8_t;
+    fn dukc_get_number(vm: *const c_void_ptr, value: uint32_t) -> c_double;
+    fn dukc_get_string(vm: *const c_void_ptr, value: uint32_t) -> *const c_char;
+    fn dukc_get_object_field(vm: *const c_void_ptr, object: uint32_t, key: *const c_char) -> uint32_t;
+    fn dukc_get_array_length(vm: *const c_void_ptr, array: uint32_t) -> uint32_t;
+    fn dukc_get_array_index(vm: *const c_void_ptr, array: uint32_t, index: uint32_t) -> uint32_t;
+    fn dukc_get_buffer_length(vm: *const c_void_ptr, value: uint32_t) -> uint32_t;
+    fn dukc_get_buffer(vm: *const c_void_ptr, value: uint32_t) -> *const c_void_ptr;
+    fn dukc_get_native_object_instance(vm: *const c_void_ptr, value: uint32_t) -> uint64_t;
+    fn dukc_get_js_function(vm: *const c_void_ptr, func: *const c_char) -> uint32_t;
+    pub fn dukc_link_js_function(vm: *const c_void_ptr, func: *const c_char) -> uint32_t;
+    fn dukc_check_js_function(vm: *const c_void_ptr, func: *const c_char) -> uint32_t;
+    pub fn dukc_get_callback(vm: *const c_void_ptr, index: uint32_t) -> uint32_t ;
+    pub fn dukc_call(vm: *const c_void_ptr, len: uint8_t, reply: extern fn(*const c_void_ptr, c_int, *const c_char));
+    pub fn dukc_throw(vm: *const c_void_ptr, reason: *const c_char);
+    pub fn dukc_wakeup(vm: *const c_void_ptr, error: c_int) -> uint32_t;
+    pub fn dukc_continue(vm: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_char));
+    pub fn dukc_switch_context(vm: *const c_void_ptr);
+    pub fn dukc_callback_count(vm: *const c_void_ptr) -> uint32_t;
+    pub fn dukc_remove_callback(vm: *const c_void_ptr, index: uint32_t) -> uint32_t;
+    fn dukc_set_global_var(vm: *const c_void_ptr, key: *const c_char) -> uint32_t;
+    fn dukc_invoke(vm: *const c_void_ptr, len: uint8_t) -> int32_t;
+    fn dukc_eval(vm: *const c_void_ptr, script: *const c_char) -> int32_t;
+    pub fn dukc_top(vm: *const c_void_ptr) -> int32_t;
+    pub fn dukc_to_string(vm: *const c_void_ptr, offset: int32_t) -> *const c_char;
+    fn dukc_dump_stack(vm: *const c_void_ptr) -> *const c_char;
+    pub fn dukc_pop(vm: *const c_void_ptr);
+    fn dukc_vm_destroy(vm: *const c_void_ptr);
 }
 
 #[cfg(all(feature="unstable", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -114,7 +114,7 @@ pub fn pause() {
 *  否则还有其它异步任务，则回收权利交由其它异步任务
 */
 #[no_mangle]
-pub extern "C" fn js_reply_callback(handler: *const c_void, status: c_int, err: *const c_char) {
+pub extern "C" fn js_reply_callback(handler: *const c_void_ptr, status: c_int, err: *const c_char) {
     if handler.is_null() {
         //处理初始化异常
         if status != 0 {
@@ -122,28 +122,31 @@ pub extern "C" fn js_reply_callback(handler: *const c_void, status: c_int, err: 
         }
         return;
     }
-    
+
     let js: Arc<JS>;
-    let vm: *const c_void;
+    let vm: *const c_void_ptr;
     unsafe {
         js = JS::from_raw(handler);
         vm = js.get_vm();
 
         //处理执行异常
         if status != 0 {
-            println!("===> JS Run Error, vm: {}, queue size: {}, status: {}, err: {}", 
-                                                                                vm as usize, 
-                                                                                js.queue.size.load(Ordering::SeqCst), 
-                                                                                status, 
+            println!("===> JS Run Error, vm: {}, queue size: {}, status: {}, err: {}",
+                                                                                vm as usize,
+                                                                                js.queue.size.load(Ordering::SeqCst),
+                                                                                status,
                                                                                 CStr::from_ptr(err).to_string_lossy().into_owned());
         }
-        
+
         js.queue.size.fetch_sub(1, Ordering::SeqCst); //减少消息队列长度
         if dukc_vm_status_check(vm, JSStatus::WaitBlock as i8) > 0 {
             //当前虚拟机任务已执行完成且当前虚拟机状态是等待状态，则需要改变状态，保证虚拟机异步任务被执行
             dukc_vm_status_sub(vm, 1);
         } else if dukc_vm_status_check(vm, JSStatus::SingleTask as i8) > 0 {
             //当前虚拟机同步任务、异步任务或异步回调已执行完成，且当前虚拟机状态是同步状态，则处理消息队列
+            if js.ret.borrow().is_some() {
+                *js.ret.borrow_mut() = js.stack_top_string(); //返回值缓存不为空，则将当前执行结果更新返回值缓存
+            }
             dukc_pop(vm); //移除上次同步任务、异步任务或回调函数的执行结果
             handle_async_callback(js.clone(), vm);
         }
@@ -152,9 +155,9 @@ pub extern "C" fn js_reply_callback(handler: *const c_void, status: c_int, err: 
 }
 
 /*
-* 处理异步回调
+* 处理异步回调，只有虚拟机当前同步任务、异步任务或异步回调已执行完成，才允许开始处理其它异步回调，特别的如果正在处理异步任务时，调用任何关于异步回调的非安全函数，都会导致异常
 */
-pub unsafe fn handle_async_callback(js: Arc<JS>, vm: *const c_void) {
+pub unsafe fn handle_async_callback(js: Arc<JS>, vm: *const c_void_ptr) {
     //检查消息队列是否为空，如果不为空则继续执行异步任务或异步回调任务
     if js.queue.size.load(Ordering::SeqCst) == 0 {
         //消息队列为空
@@ -244,6 +247,7 @@ pub struct JS {
     auth: Arc<NativeObjsAuth>,                          //虚拟机本地对象授权
     objs: NativeObjs,                                   //虚拟机本地对象表
     objs_ref: Arc<RefCell<HashMap<usize, NObject>>>,    //虚拟机本地对象引用表
+    ret: Arc<RefCell<Option<String>>>,                    //虚拟机执行栈返回结果缓存
 }
 
 /*
@@ -254,10 +258,10 @@ pub unsafe fn try_js_destroy(js: &JS) {
         return;
     }
 
-    let old_status = dukc_vm_status_switch(js.vm as *const c_void, JSStatus::NoTask as i8, JSStatus::Destroy as i8);
+    let old_status = dukc_vm_status_switch(js.vm as *const c_void_ptr, JSStatus::NoTask as i8, JSStatus::Destroy as i8);
     if old_status == JSStatus::NoTask as i8 {
         //当前js虚拟机无任务，则可以destroy
-        dukc_vm_destroy(js.vm as *const c_void);
+        dukc_vm_destroy(js.vm as *const c_void_ptr);
     }
 }
 
@@ -270,7 +274,7 @@ impl Drop for JS {
 impl JS {
     //构建一个虚拟机
     pub fn new(auth: Arc<NativeObjsAuth>) -> Option<Arc<Self>> {
-        let ptr: *const c_void;
+        let ptr: *const c_void_ptr;
         unsafe { ptr = dukc_heap_create() }
         if ptr.is_null() {
             None
@@ -298,9 +302,10 @@ impl JS {
                 auth: auth.clone(),
                 objs: NativeObjs::new(),
                 objs_ref: Arc::new(RefCell::new(HashMap::new())),
+                ret: Arc::new(RefCell::new(None)),
             });
             unsafe {
-                let handler = Arc::into_raw(arc.clone()) as *const c_void;
+                let handler = Arc::into_raw(arc.clone()) as *const c_void_ptr;
                 dukc_bind_vm(ptr, handler);
                 Arc::from_raw(handler); //保证被clone的js的释放
             }
@@ -309,7 +314,7 @@ impl JS {
     }
 
     //从指针构建指定虚拟机
-    pub unsafe fn from_raw(ptr: *const c_void) -> Arc<Self> {
+    pub unsafe fn from_raw(ptr: *const c_void_ptr) -> Arc<Self> {
         Arc::from_raw(ptr as *const JS)
     }
 
@@ -317,7 +322,7 @@ impl JS {
     pub fn push(js: Arc<JS>, task_type: TaskType, callback: u32, args: Box<FnBox(Arc<JS>) -> usize>, info: Atom) -> usize {
         let js_copy = js.clone();
         let func = Box::new(move |_lock| {
-            let vm: *const c_void;
+            let vm: *const c_void_ptr;
             //不需要改变虚拟机状态，以保证当前虚拟机可以线程安全的执行回调函数
             unsafe {
                 vm = js_copy.get_vm();
@@ -327,7 +332,7 @@ impl JS {
                 }
                 dukc_remove_callback(vm, callback); //移除虚拟机注册的指定回调函数
             }
-                    
+
             //将回调函数的参数压栈，并执行回调函数
             let args_len = (args)(js_copy.clone());
             unsafe { dukc_call(vm, args_len as u8, js_reply_callback); }
@@ -338,8 +343,8 @@ impl JS {
     }
 
     //获取内部虚拟机
-    pub unsafe fn get_vm(&self) -> *const c_void {
-        self.vm as *const c_void
+    pub unsafe fn get_vm(&self) -> *const c_void_ptr {
+        self.vm as *const c_void_ptr
     }
 
     //判断虚拟机是否绑定了同步任务队列
@@ -392,9 +397,29 @@ impl JS {
         self.objs_ref.clone()
     }
 
+    //获取虚拟机最近执行结果
+    pub fn get_ret(&self) -> Option<String> {
+        if self.ret.borrow().is_none() {
+            return None;
+        }
+
+        Some(self.ret.borrow().as_ref().unwrap().clone())
+    }
+
+    //设置虚拟机最近执行结果
+    pub fn set_ret(&self, ret: Option<String>) -> bool {
+        if !self.is_ran() {
+            //运行中，则忽略
+            return false;
+        }
+
+        *self.ret.borrow_mut() = ret;
+        true
+    }
+
     //判断js虚拟机是否完成运行
     pub fn is_ran(&self) -> bool {
-        unsafe { dukc_vm_status_check(self.vm as *const c_void, JSStatus::NoTask as i8) > 0 }
+        unsafe { dukc_vm_status_check(self.vm as *const c_void_ptr, JSStatus::NoTask as i8) > 0 }
     }
 
     //编译指定脚本
@@ -402,15 +427,15 @@ impl JS {
         let mut len = 0u32;
         let size: *mut u32 = &mut len;
         unsafe {
-            let status = dukc_vm_status_switch(self.vm as *const c_void, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
+            let status = dukc_vm_status_switch(self.vm as *const c_void_ptr, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
             if status == JSStatus::SingleTask as i8 {
                 //当前虚拟机正在destroy或有其它任务
                 None
             } else {
                 self.add_queue_len(); //增加当前虚拟机消息队列长度
-                let bytes = dukc_compile_script(self.vm as *const c_void, CString::new(file).unwrap().as_ptr(), CString::new(script).unwrap().as_ptr(), size, js_reply_callback);
+                let bytes = dukc_compile_script(self.vm as *const c_void_ptr, CString::new(file).unwrap().as_ptr(), CString::new(script).unwrap().as_ptr(), size, js_reply_callback);
                 if bytes.is_null() {
-                    return None;                
+                    return None;
                 }
                 Some(from_raw_parts(bytes as *mut u8, len as usize).to_vec())
             }
@@ -420,19 +445,19 @@ impl JS {
     //加载指定代码
     pub fn load(&self, codes: &[u8]) -> bool {
         let size = codes.len() as u32;
-        let bytes = codes.as_ptr() as *const c_void;
+        let bytes = codes.as_ptr() as *const c_void_ptr;
         unsafe {
-            let status = dukc_vm_status_switch(self.vm as *const c_void, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
+            let status = dukc_vm_status_switch(self.vm as *const c_void_ptr, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
              if status == JSStatus::SingleTask as i8 {
                 //当前虚拟机正在destroy或有其它任务
                 false
             } else {
                 //加载失败才会回调，所以无需增加当前虚拟机消息队列长度
-                if dukc_load_code(self.vm as *const c_void, size, bytes, js_reply_callback) == 0 {
+                if dukc_load_code(self.vm as *const c_void_ptr, size, bytes, js_reply_callback) == 0 {
                     return false;
                 }
                 self.add_queue_len(); //增加当前虚拟机消息队列长度
-                dukc_vm_run(self.vm as *const c_void, js_reply_callback);
+                dukc_vm_run(self.vm as *const c_void_ptr, js_reply_callback);
                 true
             }
         }
@@ -440,15 +465,15 @@ impl JS {
 
     //运行js虚拟机
     pub fn run(&self) {
-        unsafe { 
-            let status = dukc_vm_status_switch(self.vm as *const c_void, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
+        unsafe {
+            let status = dukc_vm_status_switch(self.vm as *const c_void_ptr, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
             if status == JSStatus::SingleTask as i8 {
                 //当前虚拟机状态错误，无法运行
                 println!("invalid vm status with run");
             } else {
                 //增加当前虚拟机消息队列长度，并开始执行运行
                 self.add_queue_len();
-                dukc_vm_run(self.vm as *const c_void, js_reply_callback);
+                dukc_vm_run(self.vm as *const c_void_ptr, js_reply_callback);
             }
         }
     }
@@ -456,7 +481,7 @@ impl JS {
     //构建undefined
     pub fn new_undefined(&self) -> JSType {
         let ptr: u32;
-        unsafe { ptr = dukc_new_undefined(self.vm as *const c_void) }
+        unsafe { ptr = dukc_new_undefined(self.vm as *const c_void_ptr) }
         JSType {
             type_id: JSValueType::Undefined as u8,
             is_drop: false,
@@ -468,7 +493,7 @@ impl JS {
     //构建null
     pub fn new_null(&self) -> JSType {
         let ptr: u32;
-        unsafe { ptr = dukc_new_null(self.vm as *const c_void) }
+        unsafe { ptr = dukc_new_null(self.vm as *const c_void_ptr) }
         JSType {
             type_id: JSValueType::Null as u8,
             is_drop: false,
@@ -482,9 +507,9 @@ impl JS {
         let ptr: u32;
         unsafe {
             if b {
-                ptr = dukc_new_boolean(self.vm as *const c_void, 1u8); 
+                ptr = dukc_new_boolean(self.vm as *const c_void_ptr, 1u8);
             } else {
-                ptr = dukc_new_boolean(self.vm as *const c_void, 0u8); 
+                ptr = dukc_new_boolean(self.vm as *const c_void_ptr, 0u8);
             }
         }
         JSType {
@@ -498,7 +523,7 @@ impl JS {
     //构建i8
     pub fn new_i8(&self, num: i8) -> JSType {
         let ptr: u32;
-        unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
+        unsafe { ptr = dukc_new_number(self.vm as *const c_void_ptr, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
             is_drop: false,
@@ -510,7 +535,7 @@ impl JS {
     //构建i16
     pub fn new_i16(&self, num: i16) -> JSType {
         let ptr: u32;
-        unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
+        unsafe { ptr = dukc_new_number(self.vm as *const c_void_ptr, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
             is_drop: false,
@@ -522,7 +547,7 @@ impl JS {
     //构建i32
     pub fn new_i32(&self, num: i32) -> JSType {
         let ptr: u32;
-        unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
+        unsafe { ptr = dukc_new_number(self.vm as *const c_void_ptr, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
             is_drop: false,
@@ -534,7 +559,7 @@ impl JS {
     //构建i64
     pub fn new_i64(&self, num: i64) -> JSType {
         let ptr: u32;
-        unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
+        unsafe { ptr = dukc_new_number(self.vm as *const c_void_ptr, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
             is_drop: false,
@@ -546,7 +571,7 @@ impl JS {
     //构建u8
     pub fn new_u8(&self, num: u8) -> JSType {
         let ptr: u32;
-        unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
+        unsafe { ptr = dukc_new_number(self.vm as *const c_void_ptr, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
             is_drop: false,
@@ -558,7 +583,7 @@ impl JS {
     //构建u16
     pub fn new_u16(&self, num: u16) -> JSType {
         let ptr: u32;
-        unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
+        unsafe { ptr = dukc_new_number(self.vm as *const c_void_ptr, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
             is_drop: false,
@@ -570,7 +595,7 @@ impl JS {
     //构建u32
     pub fn new_u32(&self, num: u32) -> JSType {
         let ptr: u32;
-        unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
+        unsafe { ptr = dukc_new_number(self.vm as *const c_void_ptr, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
             is_drop: false,
@@ -582,7 +607,7 @@ impl JS {
     //构建u64
     pub fn new_u64(&self, num: u64) -> JSType {
         let ptr: u32;
-        unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
+        unsafe { ptr = dukc_new_number(self.vm as *const c_void_ptr, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
             is_drop: false,
@@ -594,7 +619,7 @@ impl JS {
     //构建f32
     pub fn new_f32(&self, num: f32) -> JSType {
         let ptr: u32;
-        unsafe { ptr = dukc_new_number(self.vm as *const c_void, num as c_double) }
+        unsafe { ptr = dukc_new_number(self.vm as *const c_void_ptr, num as c_double) }
         JSType {
             type_id: JSValueType::Number as u8,
             is_drop: false,
@@ -606,7 +631,7 @@ impl JS {
     //构建f64
     pub fn new_f64(&self, num: f64) -> JSType {
         let ptr: u32;
-        unsafe { ptr = dukc_new_number(self.vm as *const c_void, num) }
+        unsafe { ptr = dukc_new_number(self.vm as *const c_void_ptr, num) }
         JSType {
             type_id: JSValueType::Number as u8,
             is_drop: false,
@@ -618,7 +643,7 @@ impl JS {
     //构建字符串，注意rust的字符串默认是UTF8编码，而JS是UTF16编码
     pub fn new_str(&self, str: String) -> JSType {
         let ptr: u32;
-        unsafe { ptr = dukc_new_string(self.vm as *const c_void, CString::new(str).unwrap().as_ptr()) }
+        unsafe { ptr = dukc_new_string(self.vm as *const c_void_ptr, CString::new(str).unwrap().as_ptr()) }
         JSType {
             type_id: JSValueType::String as u8,
             is_drop: false,
@@ -630,7 +655,7 @@ impl JS {
     //构建对象
     pub fn new_object(&self) -> JSType {
         let ptr: u32;
-        unsafe { ptr = dukc_new_object(self.vm as *const c_void) }
+        unsafe { ptr = dukc_new_object(self.vm as *const c_void_ptr) }
         JSType {
             type_id: JSValueType::Object as u8,
             is_drop: false,
@@ -641,7 +666,7 @@ impl JS {
 
     //获取指定类型
     pub fn get_type(&self, name: String) -> bool {
-        unsafe { dukc_get_type(self.vm as *const c_void, CString::new(name).unwrap().as_ptr()) != 0 }
+        unsafe { dukc_get_type(self.vm as *const c_void_ptr, CString::new(name).unwrap().as_ptr()) != 0 }
     }
 
     //构建指定类型的对象，构建失败返回undefined
@@ -653,7 +678,7 @@ impl JS {
             "Uint8Array" => JSValueType::Uint8Array as u8,
             _ => JSValueType::Object as u8,
         };
-        unsafe { ptr = dukc_new_type(self.vm as *const c_void, len as u8) }
+        unsafe { ptr = dukc_new_type(self.vm as *const c_void_ptr, len as u8) }
         if ptr < 0 {
             self.new_undefined()
         } else {
@@ -665,15 +690,15 @@ impl JS {
             }
         }
     }
-    
+
     //设置指定对象的域
     pub fn set_field(&self, object: &JSType, key: String, value: &mut JSType) -> bool {
         if (self.vm != object.vm) || (self.vm != value.vm) {
             //如果对象和值不是在指定虚拟机上创建的，则忽略
             return false;
         }
-        unsafe { 
-            if dukc_set_object_field(self.vm as *const c_void, object.value as u32, CString::new(key).unwrap().as_ptr(), 
+        unsafe {
+            if dukc_set_object_field(self.vm as *const c_void_ptr, object.value as u32, CString::new(key).unwrap().as_ptr(),
                 value.value as u32) == 0 {
                     return false;
             }
@@ -688,7 +713,7 @@ impl JS {
     //构建数组
     pub fn new_array(&self) -> JSType {
         let ptr: u32;
-        unsafe { ptr = dukc_new_array(self.vm as *const c_void) }
+        unsafe { ptr = dukc_new_array(self.vm as *const c_void_ptr) }
         JSType {
             type_id: JSValueType::Array as u8,
             is_drop: false,
@@ -703,7 +728,7 @@ impl JS {
             //如果数组和值不是在指定虚拟机上创建的，则忽略
             return false;
         }
-        unsafe { if dukc_set_array_index(self.vm as *const c_void, array.value as u32, index, value.value as u32) == 0 {
+        unsafe { if dukc_set_array_index(self.vm as *const c_void_ptr, array.value as u32, index, value.value as u32) == 0 {
             return false;
         }}
         if value.is_drop {
@@ -716,7 +741,7 @@ impl JS {
     //构建ArrayBuffer
     pub fn new_array_buffer(&self, length: u32) -> JSType {
         let ptr: u32;
-        unsafe { ptr = dukc_new_array_buffer(self.vm as *const c_void, length) }
+        unsafe { ptr = dukc_new_array_buffer(self.vm as *const c_void_ptr, length) }
         JSType {
             type_id: JSValueType::ArrayBuffer as u8,
             is_drop: false,
@@ -728,7 +753,7 @@ impl JS {
     //构建Uint8Array
     pub fn new_uint8_array(&self, length: u32) -> JSType {
         let ptr: u32;
-        unsafe { ptr = dukc_new_uint8_array(self.vm as *const c_void, length) }
+        unsafe { ptr = dukc_new_uint8_array(self.vm as *const c_void_ptr, length) }
         JSType {
             type_id: JSValueType::Uint8Array as u8,
             is_drop: false,
@@ -740,7 +765,7 @@ impl JS {
     //构建NativeObject
     pub fn new_native_object(&self, instance: usize) -> JSType {
         let ptr: u32;
-        unsafe { ptr = dukc_new_native_object(self.vm as *const c_void, instance as u64) }
+        unsafe { ptr = dukc_new_native_object(self.vm as *const c_void_ptr, instance as u64) }
         JSType {
             type_id: JSValueType::NativeObject as u8,
             is_drop: false,
@@ -751,7 +776,7 @@ impl JS {
 
     //获取指定函数
     pub fn get_js_function(&self, func: String) -> bool {
-        unsafe { if dukc_get_js_function(self.vm as *const c_void, CString::new(func).unwrap().as_ptr()) == 0 {
+        unsafe { if dukc_get_js_function(self.vm as *const c_void_ptr, CString::new(func).unwrap().as_ptr()) == 0 {
             return false;
         }}
         true
@@ -759,7 +784,7 @@ impl JS {
 
     //链式获取指定函数
     pub fn get_link_function(&self, func: String) -> bool {
-        unsafe { if dukc_link_js_function(self.vm as *const c_void, CString::new(func).unwrap().as_ptr()) == 0 {
+        unsafe { if dukc_link_js_function(self.vm as *const c_void_ptr, CString::new(func).unwrap().as_ptr()) == 0 {
             return false;
         }}
         true
@@ -767,7 +792,7 @@ impl JS {
 
     //链式检查指定函数
     pub fn check_function(&self, func: String) -> bool {
-        unsafe { if dukc_check_js_function(self.vm as *const c_void, CString::new(func).unwrap().as_ptr()) == 0 {
+        unsafe { if dukc_check_js_function(self.vm as *const c_void_ptr, CString::new(func).unwrap().as_ptr()) == 0 {
             return false;
         }}
         true
@@ -777,14 +802,14 @@ impl JS {
     pub fn call(&self, len: usize) {
         let vm = self.vm;
         unsafe {
-            let status = dukc_vm_status_switch(vm as *const c_void, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
+            let status = dukc_vm_status_switch(vm as *const c_void_ptr, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
             if status == JSStatus::SingleTask as i8 {
                 //当前虚拟机正在destroy或有其它任务
                 println!("invalid vm status with call");
             } else {
                 //增加当前虚拟机消息队列长度，并开始执行任务
                 self.add_queue_len();
-                dukc_call(self.vm as *const c_void, len as u8, js_reply_callback);
+                dukc_call(self.vm as *const c_void_ptr, len as u8, js_reply_callback);
             }
         }
     }
@@ -792,7 +817,7 @@ impl JS {
     //设置指定全局变量的值，需要传递值的所有权，所以只读的值不允许设置为全局变量
     pub fn set_global_var(&self, key: String, value: JSType) -> bool {
         unsafe {
-            if dukc_set_global_var(self.vm as *const c_void, CString::new(key).unwrap().as_ptr()) == 0 {
+            if dukc_set_global_var(self.vm as *const c_void_ptr, CString::new(key).unwrap().as_ptr()) == 0 {
                 return false;
             }
             if value.is_drop {
@@ -807,7 +832,7 @@ impl JS {
     //调用指定函数，并返回
     pub fn invoke(&self, len: usize) -> JSType {
         let ptr: i32;
-        let vm = self.vm as *const c_void;
+        let vm = self.vm as *const c_void_ptr;
         unsafe {
             ptr = dukc_invoke(vm, len as u8);
             if ptr < 0 {
@@ -832,10 +857,11 @@ impl JS {
     //执行指定脚本，返回值无法绑定全局变量，为了使用安全返回只读值
     pub fn eval(&self, script: String) -> AJSType {
         let ptr: i32;
-        let vm = self.vm as *const c_void;
+        let vm = self.vm as *const c_void_ptr;
         unsafe {
             ptr = dukc_eval(vm, CString::new(script).unwrap().as_ptr());
-            if ptr < 0 {
+            if ptr <= 0 {
+                println!("{:?}, {:?}", ptr, self.dump_stack());
                 Arc::new(JSType {
                     type_id: JSValueType::None as u8,
                     is_drop: false, //执行脚本失败没有返回值，不需要回收
@@ -843,6 +869,7 @@ impl JS {
                     value: 0,
                 })
             } else {
+                println!("{:?}, {:?}", ptr, self.dump_stack());
                 let t = dukc_get_value_type(vm, ptr as u32);
                 Arc::new(JSType {
                     type_id: t,
@@ -858,11 +885,11 @@ impl JS {
     pub fn stack_top_string(&self) -> Option<String> {
         let value;
         unsafe {
-            unsafe { value = dukc_top(self.vm as *const c_void) }
+            unsafe { value = dukc_top(self.vm as *const c_void_ptr) }
             if value < 0 {
                 None
             } else {
-                let ptr = dukc_to_string(self.vm as *const c_void, value);
+                let ptr = dukc_to_string(self.vm as *const c_void_ptr, value);
                 if ptr.is_null() {
                     return None;
                 }
@@ -874,7 +901,7 @@ impl JS {
 
     //获取当前虚拟机堆栈信息
     pub fn dump_stack(&self) -> String {
-        unsafe { CStr::from_ptr(dukc_dump_stack(self.vm as *const c_void)).to_string_lossy().into_owned() }
+        unsafe { CStr::from_ptr(dukc_dump_stack(self.vm as *const c_void_ptr)).to_string_lossy().into_owned() }
     }
 }
 
@@ -918,7 +945,7 @@ pub unsafe fn try_value_destroy(js: &JSType) {
     if !js.is_drop {
         return;
     }
-    dukc_remove_value(js.vm as *const c_void, js.value as u32);
+    dukc_remove_value(js.vm as *const c_void_ptr, js.value as u32);
 }
 
 impl Drop for JSType {
@@ -929,7 +956,7 @@ impl Drop for JSType {
 
 impl JSType {
     //构建一个指定js类型
-    pub unsafe fn new(type_id: u8, is_drop: bool, vm: *const c_void, ptr: *const c_void) -> Self {
+    pub unsafe fn new(type_id: u8, is_drop: bool, vm: *const c_void_ptr, ptr: *const c_void_ptr) -> Self {
         JSType {
             type_id: type_id,
             is_drop: is_drop,
@@ -940,7 +967,7 @@ impl JSType {
 
     //获取指定类型的类型id
     fn get_type_id(&self, value: u32) -> u8 {
-        unsafe { dukc_get_value_type(self.vm as *const c_void, value) as u8 }
+        unsafe { dukc_get_value_type(self.vm as *const c_void_ptr, value) as u8 }
     }
 
     //获取内部值
@@ -1050,7 +1077,7 @@ impl JSType {
     //获取boolean
     pub fn get_boolean(&self) -> bool {
         let num: u8;
-        unsafe { num = dukc_get_boolean(self.vm as *const c_void, self.value as u32) }
+        unsafe { num = dukc_get_boolean(self.vm as *const c_void_ptr, self.value as u32) }
         if num == 0 {
             false
         } else {
@@ -1060,63 +1087,63 @@ impl JSType {
 
     //获取i8
     pub fn get_i8(&self) -> i8 {
-        unsafe { dukc_get_number(self.vm as *const c_void, self.value as u32) as i8 }
+        unsafe { dukc_get_number(self.vm as *const c_void_ptr, self.value as u32) as i8 }
     }
 
     //获取i16
 	pub fn get_i16(&self) -> i16 {
-        unsafe { dukc_get_number(self.vm as *const c_void, self.value as u32) as i16 }
+        unsafe { dukc_get_number(self.vm as *const c_void_ptr, self.value as u32) as i16 }
     }
 
     //获取i32
 	pub fn get_i32(&self) -> i32 {
-        unsafe { dukc_get_number(self.vm as *const c_void, self.value as u32) as i32 }
+        unsafe { dukc_get_number(self.vm as *const c_void_ptr, self.value as u32) as i32 }
     }
 
     //获取i64
 	pub fn get_i64(&self) -> i64 {
-        unsafe { dukc_get_number(self.vm as *const c_void, self.value as u32) as i64 }
+        unsafe { dukc_get_number(self.vm as *const c_void_ptr, self.value as u32) as i64 }
     }
 
     //获取u8
 	pub fn get_u8(&self) -> u8 {
-        unsafe { dukc_get_number(self.vm as *const c_void, self.value as u32) as u8 }
+        unsafe { dukc_get_number(self.vm as *const c_void_ptr, self.value as u32) as u8 }
     }
 
     //获取u16
 	pub fn get_u16(&self) -> u16 {
-        unsafe { dukc_get_number(self.vm as *const c_void, self.value as u32) as u16 }
+        unsafe { dukc_get_number(self.vm as *const c_void_ptr, self.value as u32) as u16 }
     }
 
     //获取u32
 	pub fn get_u32(&self) -> u32 {
-        unsafe { dukc_get_number(self.vm as *const c_void, self.value as u32) as u32 }
+        unsafe { dukc_get_number(self.vm as *const c_void_ptr, self.value as u32) as u32 }
     }
 
     //获取u64
 	pub fn get_u64(&self) -> u64 {
-        unsafe { dukc_get_number(self.vm as *const c_void, self.value as u32) as u64 }
+        unsafe { dukc_get_number(self.vm as *const c_void_ptr, self.value as u32) as u64 }
     }
 
     //获取f32
 	pub fn get_f32(&self) -> f32 {
-        unsafe { dukc_get_number(self.vm as *const c_void, self.value as u32) as f32 }
+        unsafe { dukc_get_number(self.vm as *const c_void_ptr, self.value as u32) as f32 }
     }
 
     //获取f64
 	pub fn get_f64(&self) -> f64 {
-        unsafe { dukc_get_number(self.vm as *const c_void, self.value as u32) as f64 }
+        unsafe { dukc_get_number(self.vm as *const c_void_ptr, self.value as u32) as f64 }
     }
 
     //获取字符串
 	pub fn get_str(&self) -> String {
-        unsafe { CStr::from_ptr(dukc_get_string(self.vm as *const c_void, self.value as u32)).to_string_lossy().into_owned() }
+        unsafe { CStr::from_ptr(dukc_get_string(self.vm as *const c_void_ptr, self.value as u32)).to_string_lossy().into_owned() }
     }
 
     //获取对象指定域的值，注意获取的值在读取后需要立即调用dukc_remove_value函数移除掉
 	pub fn get_field(&self, key: String) -> JSType {
         let ptr: u32;
-        unsafe { ptr = dukc_get_object_field(self.vm as *const c_void, self.value as u32, CString::new(key).unwrap().as_ptr()) }
+        unsafe { ptr = dukc_get_object_field(self.vm as *const c_void_ptr, self.value as u32, CString::new(key).unwrap().as_ptr()) }
         let is_drop = if self.get_type_id(ptr) == JSValueType::None as u8 {
             false //无值则不需要自运drop
         } else {
@@ -1132,13 +1159,13 @@ impl JSType {
 
     //获取数组长度
     pub fn get_array_length(&self) -> usize {
-        unsafe { dukc_get_array_length(self.vm as *const c_void, self.value as u32) as usize }
+        unsafe { dukc_get_array_length(self.vm as *const c_void_ptr, self.value as u32) as usize }
     }
 
     //获取数组指定偏移的值，注意获取的值在读取后需要立即调用dukc_remove_value函数移除掉
 	pub fn get_index(&self, index: u32) -> JSType {
         let ptr: u32;
-        unsafe { ptr = dukc_get_array_index(self.vm as *const c_void, self.value as u32, index) }
+        unsafe { ptr = dukc_get_array_index(self.vm as *const c_void_ptr, self.value as u32, index) }
         let is_drop = if self.get_type_id(ptr) == JSValueType::None as u8 {
             false //无值则不需要自运drop
         } else {
@@ -1155,16 +1182,16 @@ impl JSType {
     //获取指定Buffer的引用
     pub fn to_bytes(&self) -> &[u8] {
         unsafe {
-            let length = dukc_get_buffer_length(self.vm as *const c_void, self.value as u32) as usize;
-            let buffer = dukc_get_buffer(self.vm as *const c_void, self.value as u32);
+            let length = dukc_get_buffer_length(self.vm as *const c_void_ptr, self.value as u32) as usize;
+            let buffer = dukc_get_buffer(self.vm as *const c_void_ptr, self.value as u32);
             from_raw_parts(buffer as *const u8, length)
         }
     }
 
     //获取指定Buffer的引用
     pub unsafe fn to_bytes_mut(&mut self) -> &mut [u8] {
-        let length = dukc_get_buffer_length(self.vm as *const c_void, self.value as u32) as usize;
-        let buffer = dukc_get_buffer(self.vm as *const c_void, self.value as u32);
+        let length = dukc_get_buffer_length(self.vm as *const c_void_ptr, self.value as u32) as usize;
+        let buffer = dukc_get_buffer(self.vm as *const c_void_ptr, self.value as u32);
         from_raw_parts_mut(buffer as *mut u8, length)
     }
 
@@ -1176,30 +1203,30 @@ impl JSType {
     //重置指定的Buffer
 	pub fn from_bytes(&self, bytes: &[u8]) {
         unsafe {
-            let length = dukc_get_buffer_length(self.vm as *const c_void, self.value as u32) as usize;
-            let buffer = dukc_get_buffer(self.vm as *const c_void, self.value as u32);
-            memcpy(buffer as *mut c_void, bytes.as_ptr() as *const c_void, length);
+            let length = dukc_get_buffer_length(self.vm as *const c_void_ptr, self.value as u32) as usize;
+            let buffer = dukc_get_buffer(self.vm as *const c_void_ptr, self.value as u32);
+            memcpy(buffer as *mut c_void_ptr, bytes.as_ptr() as *const c_void_ptr, length);
         }
     }
 
     //获取指定的Buffer
     pub fn into_buffer(&self) -> JSBuffer {
         unsafe {
-            let length = dukc_get_buffer_length(self.vm as *const c_void, self.value as u32) as usize;
-            let buffer = dukc_get_buffer(self.vm as *const c_void, self.value as u32);
-            JSBuffer::new(buffer as *mut c_void, length)
+            let length = dukc_get_buffer_length(self.vm as *const c_void_ptr, self.value as u32) as usize;
+            let buffer = dukc_get_buffer(self.vm as *const c_void_ptr, self.value as u32);
+            JSBuffer::new(buffer as *mut c_void_ptr, length)
         }
     }
 
     //获取NativeObject
 	pub fn get_native_object(&self) -> usize {
-        unsafe { dukc_get_native_object_instance(self.vm as *const c_void, self.value as u32) as usize }
+        unsafe { dukc_get_native_object_instance(self.vm as *const c_void_ptr, self.value as u32) as usize }
     }
 
     //获取类型值的字符串描述
     pub fn to_string(&self) -> Option<String> {
         unsafe {
-            let ptr = dukc_to_string(self.vm as *const c_void, self.value as i32);
+            let ptr = dukc_to_string(self.vm as *const c_void_ptr, self.value as i32);
             if ptr.is_null() {
                 return None;
             }
@@ -1213,13 +1240,13 @@ impl JSType {
 * Js Buffer
 */
 pub struct JSBuffer {
-    buffer: *mut c_void,
+    buffer: *mut c_void_ptr,
     len: usize,
 }
 
 impl JSBuffer {
     //构建JSBuffer
-    pub fn new(ptr: *mut c_void, len: usize) -> Self {
+    pub fn new(ptr: *mut c_void_ptr, len: usize) -> Self {
         JSBuffer {
             buffer: ptr,
             len: len,
@@ -1590,7 +1617,7 @@ impl JSBuffer {
         if  last > self.len {
             return -1;
         }
-        unsafe { memcpy(self.buffer.wrapping_offset(offset as isize), v.as_ptr() as *const c_void, len); }
+        unsafe { memcpy(self.buffer.wrapping_offset(offset as isize), v.as_ptr() as *const c_void_ptr, len); }
         last as isize
     }
 }
