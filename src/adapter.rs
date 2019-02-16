@@ -38,6 +38,7 @@ extern "C" {
     fn dukc_register_native_object_free(func: extern fn(*const c_void_ptr, uint32_t));
     fn dukc_heap_create() -> *const c_void_ptr;
     fn dukc_heap_init(vm: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_char)) -> uint32_t;
+    fn dukc_init_char_output(vm: *const c_void_ptr, func: extern fn(*const c_char));
     // fn dukc_vm_create(heap: *const c_void_ptr) -> *const c_void_ptr;
     fn dukc_compile_script(vm: *const c_void_ptr, file: *const c_char, code: *const c_char, size: *mut uint32_t, reply: extern fn(*const c_void_ptr, c_int, *const c_char)) -> *const c_void_ptr;
     fn dukc_load_code(vm: *const c_void_ptr, size: uint32_t, bytes: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_char)) -> uint32_t;
@@ -353,6 +354,13 @@ impl JS {
     //获取内部虚拟机
     pub unsafe fn get_vm(&self) -> *const c_void_ptr {
         self.vm as *const c_void_ptr
+    }
+
+    //初始化虚拟机字符输出
+    pub fn init_char_output(&self, output: extern fn(*const c_char)) {
+        unsafe {
+            dukc_init_char_output(self.vm as *const c_void_ptr, output);
+        }
     }
 
     //判断虚拟机是否绑定了同步任务队列

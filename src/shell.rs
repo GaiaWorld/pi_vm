@@ -9,6 +9,7 @@ use std::io::{Result, ErrorKind, Error};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::collections::hash_map::{Entry, DefaultHasher};
 
+use libc::c_char;
 use fnv::FnvHashMap;
 
 use atom::Atom;
@@ -235,6 +236,13 @@ impl ShellManager {
             return Some(id)
         } else {
             return None
+        }
+    }
+
+    //初始化shell字符输出函数
+    pub fn init_char_output(&self, id: usize, output: extern fn(*const c_char)) {
+        if let Some((_, shell)) = self.shells.get(&id) {
+            shell.vm.init_char_output(output);
         }
     }
 

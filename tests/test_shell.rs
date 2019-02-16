@@ -3,14 +3,18 @@
 extern crate atom;
 extern crate worker;
 extern crate pi_vm;
+extern crate libc;
 
 use std::io;
 use std::thread;
+use std::ffi::CStr;
 use std::sync::Arc;
 use std::boxed::FnBox;
 use std::sync::mpsc::channel;
 use std::io::{Read, Write, Result};
 use std::sync::atomic::{AtomicBool, Ordering};
+
+use libc::c_char;
 
 use worker::worker_pool::WorkerPool;
 use worker::impls::{JS_TASK_POOL, JS_WORKER_WALKER};
@@ -22,6 +26,7 @@ use pi_vm::adapter::{JSType, JS, register_native_object};
 use pi_vm::shell::SHELL_MANAGER;
 use pi_vm::bonmgr::{BON_MGR, NativeObjsAuth, FnMeta, CallResult};
 
+//测试shell的代码
 const TEST_SHELL_CODE: &'static str =
     r#"var self = this;
 
@@ -51,6 +56,12 @@ const TEST_SHELL_CODE: &'static str =
             return NativeObject.call(0x100, [index]);
         };"#;
 
+//测试shell的字符输出函数
+#[no_mangle]
+extern "C" fn test_char_output(buf: *const c_char) {
+    println!("!!!!!!shell char output, {:?}", unsafe { CStr::from_ptr(buf).to_string_lossy().into_owned() });
+}
+
 #[test]
 fn test_shell() {
     let worker_pool = Box::new(WorkerPool::new(10, 1024 * 1024, 10000, JS_WORKER_WALKER.clone()));
@@ -79,6 +90,8 @@ fn test_shell() {
 
     let s = SHELL_MANAGER.write().unwrap().open(); //创建一个shell
     if let Some(shell) = s {
+        SHELL_MANAGER.read().unwrap().init_char_output(shell, test_char_output); //设置指定shell的字符输出函数
+
         let req = SHELL_MANAGER.write().unwrap().connect(shell, resp.clone()); //连接指定shell
         if req.is_none() {
             eprintln!("Connect Error");
