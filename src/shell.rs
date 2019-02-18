@@ -6,6 +6,7 @@ use std::sync::{Arc, RwLock};
 use std::hash::{Hash, Hasher};
 use std::collections::HashMap;
 use std::io::{Result, ErrorKind, Error};
+use std::env::{current_dir, current_exe};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::collections::hash_map::{Entry, DefaultHasher};
 
@@ -34,6 +35,8 @@ const SHELL_MAX_SRC: usize = 0x100100000;
 * shell指令，大小写敏感
 */
 const SHELL_COMMAND_CLEAN: &[u8] = b"clean"; //清空所有缓存的已编译脚本
+const SHELL_CURRENT_DIR: &[u8] = b"pwd"; //当前工作目录
+const SHELL_CURRENT_EXE: &[u8] = b"exe"; //当前执行程序
 
 /*
 * shell脚本文件名
@@ -471,10 +474,22 @@ fn handle_command(shell: Arc<Shell>, script: &String) -> bool {
             }
             true
         },
+        SHELL_CURRENT_DIR => {
+            if let Ok(path) = current_dir() {
+                println!("{}", path.display());
+            }
+            true
+        },
+        SHELL_CURRENT_EXE => {
+            if let Ok(path) = current_exe() {
+                println!("{}", path.display());
+            }
+            true
+        }
         _ => {
             //未定义指令，则忽略
             false
-        }
+        },
     }
 }
 
