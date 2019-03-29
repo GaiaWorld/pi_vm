@@ -171,13 +171,8 @@ pub unsafe fn handle_async_callback(js: Arc<JS>, vm: *const c_void_ptr) {
     if js.queue.size.load(Ordering::SeqCst) == 0 {
         //消息队列为空
         if dukc_callback_count(vm) == 0 && dukc_vm_status_check(vm, JSStatus::SingleTask as i8) > 0 {
-            //没有已注册的异步回调函数且当前异步任务已完成，则需要将执行结果弹出值栈并改变状态并解锁当前虚拟机的同步任务队列, 保证虚拟机回收或执行下一个任务
+            //没有已注册的异步回调函数且当前异步任务已完成，则需要将执行结果弹出值栈并改变状态, 保证虚拟机回收
             dukc_vm_status_sub(vm, 1);
-            if js.exist_tasks() {
-                if !unlock_js_task_queue(js.get_tasks()) {
-                    panic!("!!!> Handle Callback Error, unlock js task queue failed");
-                }
-            }
         } else {
             //有已注册的异步回调函数，则需要等待消息异步推送到消息队列，保证虚拟机异步回调函数被执行
             dukc_vm_status_switch(vm, JSStatus::SingleTask as i8, JSStatus::WaitCallBack as i8);
@@ -189,12 +184,14 @@ pub unsafe fn handle_async_callback(js: Arc<JS>, vm: *const c_void_ptr) {
         }
     } else {
         //消息队列不为空，且未注册异步回调函数，表示同步任务或异步任务执行完成且没有异步回调任务，
-        // 则需要将执行结果弹出值栈并改变状态并解锁当前虚拟机的同步任务队列, 保证虚拟机回收或执行下一个任务
+        // 则需要将执行结果弹出值栈并改变状态, 保证当前虚拟机回收
         dukc_vm_status_sub(vm, 1);
-        if js.exist_tasks() {
-            if !unlock_js_task_queue(js.get_tasks()) {
-                panic!("!!!> Handle Callback Error, unlock js task queue failed");
-            }
+    }
+
+    //解锁当前虚拟机锁住的同步任务队列, 保证当前虚拟机回收或新虚拟机执行下一个任务
+    if js.exist_tasks() {
+        if !unlock_js_task_queue(js.get_tasks()) {
+            panic!("!!!> Handle Callback Error, unlock js task queue failed");
         }
     }
 }
