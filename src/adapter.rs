@@ -179,19 +179,21 @@ pub unsafe fn handle_async_callback(js: Arc<JS>, vm: *const c_void_ptr) {
         }
     } else if dukc_callback_count(vm) > 0 {
         //消息队列不为空、有已注册的异步回调函数、且消息队列被锁，则释放锁，以保证开始执行消息队列中的异步任务或异步回调任务
-        if !unlock_js_task_queue(js.get_queue()) {
-            panic!("!!!> Handle Callback Error, unlock js task queue failed");
+        let queue = js.get_queue();
+        if !unlock_js_task_queue(queue) {
+            println!("!!!> Handle Callback Error, unlock js task queue failed, queue: {:?}", queue);
         }
     } else {
         //消息队列不为空，且未注册异步回调函数，表示同步任务或异步任务执行完成且没有异步回调任务，
-        // 则需要将执行结果弹出值栈并改变状态, 保证当前虚拟机回收
+        //则需要将执行结果弹出值栈并改变状态, 保证当前虚拟机回收
         dukc_vm_status_sub(vm, 1);
     }
 
     //解锁当前虚拟机锁住的同步任务队列, 保证当前虚拟机回收或新虚拟机执行下一个任务
     if js.exist_tasks() {
-        if !unlock_js_task_queue(js.get_tasks()) {
-            panic!("!!!> Handle Callback Error, unlock js task queue failed");
+        let tasks = js.get_tasks();
+        if !unlock_js_task_queue(tasks) {
+            println!("!!!> Handle Callback Error, unlock js task queue failed, tasks: {:?}", tasks);
         }
     }
 }
@@ -253,7 +255,7 @@ pub struct JS {
     auth: Arc<NativeObjsAuth>,                          //虚拟机本地对象授权
     objs: NativeObjs,                                   //虚拟机本地对象表
     objs_ref: Arc<RefCell<HashMap<usize, NObject>>>,    //虚拟机本地对象引用表
-    ret: Arc<RefCell<Option<String>>>,                    //虚拟机执行栈返回结果缓存
+    ret: Arc<RefCell<Option<String>>>,                  //虚拟机执行栈返回结果缓存
 }
 
 /*
