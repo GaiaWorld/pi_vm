@@ -220,7 +220,7 @@ pub fn remove_queue(src: usize) -> Option<isize> {
 
 /*
 * 线程安全的在阻塞调用中设置全局变量，设置成功后执行下一个操作
-* 全局变量构建函数执行完成后，当前值栈必须存在且只允许存在一个值
+* 全局变量构建函数执行成功后，当前值栈必须存在且只允许存在一个值，失败则必须移除在值栈上的构建的所有值
 */
 pub fn block_set_global_var(js: Arc<JS>, name: String, var: Box<FnBox(Arc<JS>) -> Result<JSType, String>>, next: Box<FnBox(Result<Arc<JS>, BlockError>)>, info: Atom) {
     let copy_js = js.clone();
