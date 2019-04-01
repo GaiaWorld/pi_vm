@@ -180,8 +180,10 @@ impl VMFactory {
 /*
 * 阻塞调用错误
 */
+#[derive(Debug, Clone)]
 pub enum BlockError {
     Unknow(String),
+    NewGlobalVar(String),
     SetGlobalVar(String),
 }
 
@@ -218,8 +220,9 @@ pub fn remove_queue(src: usize) -> Option<isize> {
 
 /*
 * 线程安全的在阻塞调用中设置全局变量，设置成功后执行下一个操作
+* 全局变量构建函数执行完成后，当前值栈必须存在且只允许存在一个值
 */
-pub fn block_set_global_var(js: Arc<JS>, name: String, var: Box<FnBox(Arc<JS>) -> JSType>, next: Box<FnBox(Result<Arc<JS>, BlockError>)>, info: Atom) {
+pub fn block_set_global_var(js: Arc<JS>, name: String, var: Box<FnBox(Arc<JS>) -> Result<JSType, String>>, next: Box<FnBox(Result<Arc<JS>, BlockError>)>, info: Atom) {
     let copy_js = js.clone();
     let copy_info = info.clone();
     let func = Box::new(move |_lock| {
@@ -231,13 +234,21 @@ pub fn block_set_global_var(js: Arc<JS>, name: String, var: Box<FnBox(Arc<JS>) -
             } else {
                 if dukc_vm_status_check(copy_js.get_vm(), JSStatus::MultiTask as i8) > 0 {
                     //同步任务已阻塞虚拟机，则继续执行下一个操作
-                    let value = var(copy_js.clone());
-                    if copy_js.set_global_var(name.clone(), value) {
-                        //设置全局变量成功
-                        next(Ok(copy_js));
-                    } else {
-                        //设置全局变量失败
-                        next(Err(BlockError::SetGlobalVar(name)));
+                    match var(copy_js.clone()) {
+                        Err(reason) => {
+                            //构建全局变量错误
+                            next(Err(BlockError::NewGlobalVar(reason)));
+                        }
+                        Ok(value) => {
+                            //构建全局变量成功
+                            if copy_js.set_global_var(name.clone(), value) {
+                                //设置全局变量成功
+                                next(Ok(copy_js));
+                            } else {
+                                //设置全局变量错误
+                                next(Err(BlockError::SetGlobalVar(name)));
+                            }
+                        },
                     }
                 } else {
                     //再次检查同步任务还未阻塞虚拟机，重新投递当前异步任务，并等待同步任务阻塞虚拟机
@@ -258,6 +269,7 @@ pub fn block_set_global_var(js: Arc<JS>, name: String, var: Box<FnBox(Arc<JS>) -
 
 /*
 * 线程安全的回应阻塞调用
+* 返回值构建函数执行完成后，当前值栈必须存在且只允许存在一个值
 */
 pub fn block_reply(js: Arc<JS>, result: Box<FnBox(Arc<JS>)>, info: Atom) {
     let copy_js = js.clone();
