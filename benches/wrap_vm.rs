@@ -27,15 +27,16 @@ use atom::Atom;
 use handler::{GenType, Handler, Args};
 use gray::{GrayVersion, Gray, GrayTab};
 
-use pi_vm::pi_vm_impl::{VMFactory, block_reply, block_throw, push_callback, register_async_request, async_request};
+use pi_vm::pi_vm_impl::{VMFactory, BlockError, block_set_global_var, block_reply, block_throw, push_callback, register_async_request, async_request};
 use pi_vm::adapter::{register_native_object, JS, JSType};
 use pi_vm::channel_map::VMChannel;
 use pi_vm::bonmgr::{BON_MGR, NativeObjsAuth, FnMeta, CallResult, ptr_jstype, jstype_ptr};
 
 use worker::task::TaskType;
 use worker::worker_pool::WorkerPool;
-use worker::impls::{JS_WORKER_WALKER, JS_TASK_POOL, cast_js_task};
+use worker::impls::{JS_WORKER_WALKER, JS_TASK_POOL};
 use task_pool::TaskPool;
+use worker::worker::WorkerType;
 
 lazy_static! {
 	pub static ref BINARY: Vec<u8> = vec![0xff; 4096];
@@ -47,7 +48,7 @@ fn empty_call(b: &mut Bencher) {
     register_native_object();
 
     let js = create_js();
-    load_js(js.clone(), "benches/pref/test-empty-call.js");
+    load_js(js.clone(), "benches/pref/js_sync_call_small_bigtest-empty-call.js");
 
     b.iter(|| {
         for _ in 0..10000 {
@@ -158,10 +159,25 @@ fn js_sync_call_return_error(_js: Arc<JS>, _args: Vec<JSType>) -> Option<CallRes
     Some(CallResult::Err("What is Error?".to_string()))
 }
 
+//同步阻塞调用，设置全局变量后返回
+#[bench]
+fn js_sync_block_call_set_global_var(b: &mut Bencher) {
+    let worker_pool = Box::new(WorkerPool::new("Test Wrap VM".to_string(), WorkerType::Js, 1, 1024 * 1024, 100000, JS_WORKER_WALKER.clone()));
+    worker_pool.run(JS_TASK_POOL.clone());
+
+    register_native_object();
+    register_native_function(0x1, js_sync_block_call_set_global_var_return);
+
+    let js = create_js();
+    load_js(js.clone(), "benches/pref/test_js_sync_block_call_args_small_get_global_var.js");
+
+    start(b, js);
+}
+
 //小参数小返回同步阻塞调用
 #[bench]
 fn js_sync_block_call_small_small(b: &mut Bencher) {
-    let worker_pool = Box::new(WorkerPool::new(1, 1024 * 1024, 100000, JS_WORKER_WALKER.clone()));
+    let worker_pool = Box::new(WorkerPool::new("Test Wrap VM".to_string(), WorkerType::Js, 1, 1024 * 1024, 100000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     register_native_object();
@@ -176,7 +192,7 @@ fn js_sync_block_call_small_small(b: &mut Bencher) {
 //小参数大返回同步阻塞调用
 #[bench]
 fn js_sync_block_call_small_big(b: &mut Bencher) {
-    let worker_pool = Box::new(WorkerPool::new(1, 1024 * 1024, 1000000, JS_WORKER_WALKER.clone()));
+    let worker_pool = Box::new(WorkerPool::new("Test Wrap VM".to_string(), WorkerType::Js,1, 1024 * 1024, 1000000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     register_native_object();
@@ -191,7 +207,7 @@ fn js_sync_block_call_small_big(b: &mut Bencher) {
 //大参数小返回同步阻塞调用
 #[bench]
 fn js_sync_block_call_big_small(b: &mut Bencher) {
-    let worker_pool = Box::new(WorkerPool::new(1, 1024 * 1024, 100000, JS_WORKER_WALKER.clone()));
+    let worker_pool = Box::new(WorkerPool::new("Test Wrap VM".to_string(), WorkerType::Js,1, 1024 * 1024, 100000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     register_native_object();
@@ -206,7 +222,7 @@ fn js_sync_block_call_big_small(b: &mut Bencher) {
 //大参数大返回同步阻塞调用
 #[bench]
 fn js_sync_block_call_big_big(b: &mut Bencher) {
-    let worker_pool = Box::new(WorkerPool::new(1, 1024 * 1024, 1000000, JS_WORKER_WALKER.clone()));
+    let worker_pool = Box::new(WorkerPool::new("Test Wrap VM".to_string(), WorkerType::Js,1, 1024 * 1024, 1000000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     register_native_object();
@@ -221,7 +237,7 @@ fn js_sync_block_call_big_big(b: &mut Bencher) {
 //错误返回同步阻塞调用
 #[bench]
 fn js_sync_block_call_error(b: &mut Bencher) {
-    let worker_pool = Box::new(WorkerPool::new(1, 1024 * 1024, 1000000, JS_WORKER_WALKER.clone()));
+    let worker_pool = Box::new(WorkerPool::new("Test Wrap VM".to_string(), WorkerType::Js,1, 1024 * 1024, 1000000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     register_native_object();
@@ -231,6 +247,37 @@ fn js_sync_block_call_error(b: &mut Bencher) {
     load_js(js.clone(), "benches/pref/test_js_sync_block_call.js");
 
     start(b, js);
+}
+
+fn js_sync_block_call_set_global_var_return(js: Arc<JS>, _args: Vec<JSType>) -> Option<CallResult> {
+    let var = Box::new(move |js: Arc<JS>| -> JSType {
+        let array = js.new_array();
+        let mut key = js.new_str("Hello".to_string());
+        js.set_index(&array, 0, &mut key);
+        let mut value = js.new_str("World!".to_string());
+        js.set_index(&array, 1, &mut value);
+        array
+    });
+
+    let next = Box::new(move |r: Result<Arc<JS>, BlockError>| {
+        match r {
+            Ok(js) => {
+                let result = Box::new(|vm: Arc<JS>| {
+                    vm.new_u32(0xffffffff);
+                });
+                block_reply(js, result, Atom::from("block reply task"));
+            },
+            Err(BlockError::SetGlobalVar(name)) => {
+                panic!("!!!!!!set global var failed, name: {:?}", name);
+            },
+            _ => {
+                panic!("!!!!!!other error");
+            }
+        }
+    });
+
+    block_set_global_var(js, "_$tmp_var".to_string(), var, next, Atom::from("js_sync_block_call_set_global_var_return task"));
+    None
 }
 
 fn js_sync_block_call_return_small(js: Arc<JS>, _args: Vec<JSType>) -> Option<CallResult> {
@@ -274,7 +321,7 @@ fn js_async_callback_register(b: &mut Bencher) {
 //异步回调
 #[bench]
 fn js_async_callback(b: &mut Bencher) {
-    let worker_pool = Box::new(WorkerPool::new(1, 1024 * 1024, 100000, JS_WORKER_WALKER.clone()));
+    let worker_pool = Box::new(WorkerPool::new("Test Wrap VM".to_string(), WorkerType::Js,1, 1024 * 1024, 100000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     register_native_object();
@@ -307,7 +354,7 @@ fn js_async_callback_register_push(js: Arc<JS>, args: Vec<JSType>) -> Option<Cal
 //小参数小返回异步调用
 #[bench]
 fn js_async_call_small_small(b: &mut Bencher) {
-    let worker_pool = Box::new(WorkerPool::new(1, 1024 * 1024, 100000, JS_WORKER_WALKER.clone()));
+    let worker_pool = Box::new(WorkerPool::new("Test Wrap VM".to_string(), WorkerType::Js,1, 1024 * 1024, 100000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     register_native_object();
@@ -324,7 +371,7 @@ fn js_async_call_small_small(b: &mut Bencher) {
 //大参数大返回异步调用
 #[bench]
 fn js_async_call_big_big(b: &mut Bencher) {
-    let worker_pool = Box::new(WorkerPool::new(1, 1024 * 1024, 100000, JS_WORKER_WALKER.clone()));
+    let worker_pool = Box::new(WorkerPool::new("Test Wrap VM".to_string(), WorkerType::Js,1, 1024 * 1024, 100000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     register_native_object();
@@ -371,7 +418,7 @@ fn js_async_call_response(js: Arc<JS>, args: Vec<JSType>) -> Option<CallResult> 
 //小参数小返回异步阻塞调用
 #[bench]
 fn js_async_block_call_small_small(b: &mut Bencher) {
-    let worker_pool = Box::new(WorkerPool::new(1, 1024 * 1024, 100000, JS_WORKER_WALKER.clone()));
+    let worker_pool = Box::new(WorkerPool::new("Test Wrap VM".to_string(), WorkerType::Js,1, 1024 * 1024, 100000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     register_native_object();
@@ -388,7 +435,7 @@ fn js_async_block_call_small_small(b: &mut Bencher) {
 //大参数大返回异步阻塞调用
 #[bench]
 fn js_async_block_call_big_big(b: &mut Bencher) {
-    let worker_pool = Box::new(WorkerPool::new(1, 1024 * 1024, 100000, JS_WORKER_WALKER.clone()));
+    let worker_pool = Box::new(WorkerPool::new("Test Wrap VM".to_string(), WorkerType::Js,1, 1024 * 1024, 100000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     register_native_object();
