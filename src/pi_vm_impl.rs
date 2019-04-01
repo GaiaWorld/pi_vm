@@ -177,6 +177,14 @@ impl VMFactory {
     }
 }
 
+/*
+* 阻塞调用错误
+*/
+pub enum BlockError {
+    Unknow(String),
+    SetGlobalVar(String),
+}
+
 //线程安全的构建指定源的同步任务队列，如果已存在，则忽略
 pub fn new_queue(src: usize) -> isize {
     //检查指定源的同步任务队列是否存在
@@ -206,6 +214,46 @@ pub fn remove_queue(src: usize) -> Option<isize> {
         }
     }
     None
+}
+
+/*
+* 线程安全的在阻塞调用中设置全局变量，设置成功后执行下一个操作
+*/
+pub fn block_set_global_var(js: Arc<JS>, name: String, var: Box<FnBox(Arc<JS>) -> JSType>, next: Box<FnBox(Result<Arc<JS>, BlockError>)>, info: Atom) {
+    let copy_js = js.clone();
+    let copy_info = info.clone();
+    let func = Box::new(move |_lock| {
+        unsafe {
+            if dukc_vm_status_check(copy_js.get_vm(), JSStatus::WaitBlock as i8) > 0 ||
+                dukc_vm_status_check(copy_js.get_vm(), JSStatus::SingleTask as i8) > 0 {
+                //同步任务还未阻塞虚拟机，重新投递当前异步任务，并等待同步任务阻塞虚拟机
+                block_set_global_var(copy_js, name, var, next, copy_info);
+            } else {
+                if dukc_vm_status_check(copy_js.get_vm(), JSStatus::MultiTask as i8) > 0 {
+                    //同步任务已阻塞虚拟机，则继续执行下一个操作
+                    let value = var(copy_js.clone());
+                    if copy_js.set_global_var(name.clone(), value) {
+                        //设置全局变量成功
+                        next(Ok(copy_js));
+                    } else {
+                        //设置全局变量失败
+                        next(Err(BlockError::SetGlobalVar(name)));
+                    }
+                } else {
+                    //再次检查同步任务还未阻塞虚拟机，重新投递当前异步任务，并等待同步任务阻塞虚拟机
+                    block_set_global_var(copy_js, name, var, next, copy_info);
+                }
+            }
+        }
+    });
+
+    let queue = js.get_queue();
+    cast_js_task(TaskType::Sync(false), 0, Some(queue), func, info); //将任务投递到虚拟机消息队列
+    js.add_queue_len(); //增加虚拟机消息队列长度
+    //解锁虚拟机的消息队列
+    if !unlock_js_task_queue(queue) {
+        println!("!!!> Block Set Global Var Error, unlock js task queue failed");
+    }
 }
 
 /*
