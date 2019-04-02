@@ -41,7 +41,7 @@ const SHELL_CURRENT_EXE: &[u8] = b"exe"; //当前执行程序
 /*
 * shell脚本文件名
 */
-const SHELL_SCRIPT_FILE: &'static str = "__SHELL_SCRIPT__.js";
+const SHELL_SCRIPT_FILE: &'static str = "__SHELL_SCRIPT__";
 
 /*
 * shell脚本函数前缀
@@ -56,7 +56,7 @@ const SHELL_SET_GLOBAL_ENV_FUNC: &'static str = "_$defineGlobal";
 /*
 * shell设置全局环境文件名
 */
-const SHELL_SET_GLOBAL_ENV_FILE_NAME: &'static str = "_$define_global.js";
+const SHELL_SET_GLOBAL_ENV_FILE_NAME: &'static str = "__DEFINE_GLOBAL__";
 
 /*
 * shell设置全局环境代码
