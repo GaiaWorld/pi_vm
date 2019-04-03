@@ -1,7 +1,6 @@
 use std::boxed::FnBox;
 use std::ffi::CString;
 use std::sync::{Arc, RwLock};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fnv::FnvHashMap;
 use npnc::bounded::mpmc::{channel as npnc_channel, Producer, Consumer};
@@ -35,29 +34,30 @@ lazy_static! {
 }
 
 /*
-* 线程安全的虚拟机工厂字节码加载器
+* 虚拟机工厂字节码加载器
 */
 #[derive(Clone)]
 pub struct VMFactoryLoader {
-    offset: Arc<AtomicUsize>,       //字节码偏移
+    offset: usize,                  //字节码偏移
     top:    usize,                  //字节码顶指针
     codes:  Arc<Vec<Arc<Vec<u8>>>>, //字节码缓存
 }
 
 impl VMFactoryLoader {
     //虚拟机加载下个字节码，返回false，表示已加载所有代码
-    pub fn load_next(&self, vm: &Arc<JS>) -> bool {
-        let offset = self.offset.fetch_add(1, Ordering::SeqCst); //获取当前字节码偏移，并更新字节码偏移
-        if offset >= self.top {
+    pub fn load_next(&mut self, vm: &Arc<JS>) -> bool {
+        if self.offset >= self.top {
             //已加载完成
             return false;
         }
 
-        if vm.load(self.codes[offset].as_slice()) {
+        if vm.load(self.codes[self.offset].as_slice()) {
             while !vm.is_ran() {
                 pause();
             }
         }
+
+        self.offset += 1; //更新字节码偏移
 
         true
     }
@@ -129,7 +129,7 @@ impl VMFactory {
     //获取虚拟机工厂字节码加载器
     pub fn loader(&self) -> VMFactoryLoader {
         VMFactoryLoader {
-            offset: Arc::new(AtomicUsize::new(0)),
+            offset: 0,
             top: self.codes.len(),
             codes: self.codes.clone(),
         }

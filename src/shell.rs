@@ -341,7 +341,7 @@ impl Shell {
     }
 
     //初始化shell的全局环境
-    fn init(&self, loader: VMFactoryLoader, env: &ShellGlobalEnv) {
+    fn init(&self, mut loader: VMFactoryLoader, env: &ShellGlobalEnv) {
         //加载基础字节码
         loader.load_next(&self.vm);
         loader.load_next(&self.vm);
