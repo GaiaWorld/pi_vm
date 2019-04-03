@@ -1,6 +1,7 @@
 use std::boxed::FnBox;
 use std::ffi::CString;
 use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fnv::FnvHashMap;
 use npnc::bounded::mpmc::{channel as npnc_channel, Producer, Consumer};
@@ -31,6 +32,35 @@ lazy_static! {
 */
 lazy_static! {
 	pub static ref VM_FACTORY_QUEUES: Arc<RwLock<FnvHashMap<usize, isize>>> = Arc::new(RwLock::new(FnvHashMap::default()));
+}
+
+/*
+* 线程安全的虚拟机工厂字节码加载器
+*/
+#[derive(Clone)]
+pub struct VMFactoryLoader {
+    offset: Arc<AtomicUsize>,       //字节码偏移
+    top:    usize,                  //字节码顶指针
+    codes:  Arc<Vec<Arc<Vec<u8>>>>, //字节码缓存
+}
+
+impl VMFactoryLoader {
+    //虚拟机加载下个字节码，返回false，表示已加载所有代码
+    pub fn load_next(&self, vm: &Arc<JS>) -> bool {
+        let offset = self.offset.fetch_add(1, Ordering::SeqCst); //获取当前字节码偏移，并更新字节码偏移
+        if offset >= self.top {
+            //已加载完成
+            return false;
+        }
+
+        if vm.load(self.codes[offset].as_slice()) {
+            while !vm.is_ran() {
+                pause();
+            }
+        }
+
+        true
+    }
 }
 
 /*
@@ -91,9 +121,18 @@ impl VMFactory {
         }
     }
 
-    //生成并取出一个虚拟机
+    //生成并取出一个虚拟机，但未加载字节码
     pub fn take(&self) -> Option<Arc<JS>> {
-        self.new_vm(self.auth.clone())
+        JS::new(self.auth.clone())
+    }
+
+    //获取虚拟机工厂字节码加载器
+    pub fn loader(&self) -> VMFactoryLoader {
+        VMFactoryLoader {
+            offset: Arc::new(AtomicUsize::new(0)),
+            top: self.codes.len(),
+            codes: self.codes.clone(),
+        }
     }
 
     //从虚拟机池中获取一个虚拟机，根据源创建同步任务队列，并调用指定的js全局函数

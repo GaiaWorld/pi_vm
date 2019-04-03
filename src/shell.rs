@@ -18,7 +18,7 @@ use worker::task::TaskType;
 use worker::impls::{create_js_task_queue, cast_js_task, unlock_js_task_queue};
 
 use adapter::{JSStatus, JS, dukc_vm_status_check, dukc_vm_status_switch, dukc_vm_status_sub, dukc_callback_count, dukc_top, dukc_to_string, dukc_pop, handle_async_callback};
-use pi_vm_impl::{VMFactory, new_queue, remove_queue};
+use pi_vm_impl::{VMFactoryLoader, VMFactory, new_queue, remove_queue};
 use bonmgr::{NativeObjsAuth, ptr_jstype};
 
 /*
@@ -226,8 +226,9 @@ impl ShellManager {
             self.close(id); //强制关闭已存在的同id的shell
 
             //构建并初始化shell
-            let shell = Shell::new(self.id, vm);
-            shell.init(&self.env);
+            let loader = self.factory.as_ref().unwrap().loader();
+            let shell = Shell::new(self.id, vm.clone());
+            shell.init(loader, &self.env);
             self.shells.insert(self.id, (ShellStatus::Opened, shell));
 
             self.id += 1;
@@ -340,7 +341,11 @@ impl Shell {
     }
 
     //初始化shell的全局环境
-    fn init(&self, env: &ShellGlobalEnv) {
+    fn init(&self, loader: VMFactoryLoader, env: &ShellGlobalEnv) {
+        //加载env
+        loader.load_next(&self.vm);
+
+        //设置全局环境
         for key in env.0.keys() {
             if let Some(value) = env.0.get(key) {
                 //有环境，则在当前shell虚拟机中调用设置全局环境的函数
@@ -368,6 +373,9 @@ impl Shell {
                 self.vm.call(2);
             }
         }
+
+        //加载剩余字节码
+        while loader.load_next(&self.vm) {}
     }
 
     //线程安全的设置是否已连接，返回上个状态
