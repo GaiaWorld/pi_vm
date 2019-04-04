@@ -23,9 +23,9 @@ pub enum VMChannelPeer {
 * 虚拟机通道
 */
 pub struct VMChannel {
-    src: VMChannelPeer,             //源
-    dst: VMChannelPeer,             //目标
-    attrs: RefCell<HashMap<Atom, GenType>>,  //属性表
+    src: VMChannelPeer,                     //源
+    dst: VMChannelPeer,                     //目标
+    attrs: RefCell<HashMap<Atom, GenType>>, //属性表
     gray: Option<usize>,
 }
 
