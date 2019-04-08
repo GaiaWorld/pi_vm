@@ -9,6 +9,7 @@ use worker::task::TaskType;
 use worker::impls::{create_js_task_queue, unlock_js_task_queue, cast_js_task, remove_js_task_queue};
 use handler::Handler;
 use atom::Atom;
+use apm::counter::{GLOBAL_PREF_COLLECT, PrefCounter, PrefTimer};
 
 use adapter::{JSStatus, JS, JSType, pause, js_reply_callback, handle_async_callback, try_js_destroy, dukc_vm_status_check, dukc_vm_status_switch, dukc_new_error, dukc_wakeup, dukc_continue};
 use channel_map::VMChannelMap;
@@ -31,6 +32,21 @@ lazy_static! {
 */
 lazy_static! {
 	pub static ref VM_FACTORY_QUEUES: Arc<RwLock<FnvHashMap<usize, isize>>> = Arc::new(RwLock::new(FnvHashMap::default()));
+}
+
+lazy_static! {
+    //虚拟机数量
+    static ref VM_COUNT: PrefCounter = GLOBAL_PREF_COLLECT.new_static_counter(Atom::from("vm_count"), 0).unwrap();
+    //虚拟机构建总时长
+    static ref VM_NEW_TIME: PrefTimer = GLOBAL_PREF_COLLECT.new_static_timer(Atom::from("vm_new_time"), 0).unwrap();
+    //虚拟机加载总时长
+    static ref VM_LOAD_TIME: PrefTimer = GLOBAL_PREF_COLLECT.new_static_timer(Atom::from("vm_load_time"), 0).unwrap();
+    //虚拟机调用数量
+    static ref VM_CALL_COUNT: PrefCounter = GLOBAL_PREF_COLLECT.new_static_counter(Atom::from("vm_call_count"), 0).unwrap();
+    //虚拟机推送异步回调数量
+    static ref VM_PUSH_CALLBACK_COUNT: PrefCounter = GLOBAL_PREF_COLLECT.new_static_counter(Atom::from("vm_push_callback_count"), 0).unwrap();
+    //虚拟机异步请求数量
+    static ref VM_ASYNC_REQUEST_COUNT: PrefCounter = GLOBAL_PREF_COLLECT.new_static_counter(Atom::from("vm_async_request_count"), 0).unwrap();
 }
 
 /*
@@ -162,6 +178,8 @@ impl VMFactory {
                                 cast_js_task(TaskType::Sync(true), 0, Some(new_queue(src_id)), func, info);
                             },
                         }
+
+                        VM_CALL_COUNT.sum(1);
                     }
                 }
             },
@@ -192,15 +210,22 @@ impl VMFactory {
                         cast_js_task(TaskType::Sync(true), 0, Some(new_queue(src_id)), func, info);
                     },
                 }
+
+                VM_CALL_COUNT.sum(1);
             },
         }
     }
 
     //构建一个虚拟机，加载所有字节码，并提供虚拟机本地对象授权
     fn new_vm(&self, auth: Arc<NativeObjsAuth>) -> Option<Arc<JS>> {
+        let start = VM_NEW_TIME.start();
+
         match JS::new(auth.clone()) {
             None => None,
             Some(vm) => {
+                VM_NEW_TIME.timing(start);
+                let start = VM_LOAD_TIME.start();
+
                 for code in self.codes.iter() {
                     if vm.load(code.as_slice()) {
                         while !vm.is_ran() {
@@ -210,6 +235,10 @@ impl VMFactory {
                     }
                     return None;
                 }
+
+                VM_LOAD_TIME.timing(start);
+                VM_COUNT.sum(1);
+
                 Some(vm)
             }
         }
@@ -333,12 +362,13 @@ pub fn block_reply(js: Arc<JS>, result: Box<FnBox(Arc<JS>)>, info: Atom) {
             }
         }
     });
+
     let queue = js.get_queue();
     cast_js_task(TaskType::Sync(false), 0, Some(queue), func, info); //将任务投递到虚拟机消息队列
     js.add_queue_len(); //增加虚拟机消息队列长度
     //解锁虚拟机的消息队列
     if !unlock_js_task_queue(queue) {
-        panic!("!!!> Block Reply Error, unlock js task queue failed");
+        println!("!!!> Block Reply Error, unlock js task queue failed");
     }
 }
 
@@ -368,12 +398,13 @@ pub fn block_throw(js: Arc<JS>, reason: String, info: Atom) {
             }
         }
     });
+
     let queue = js.get_queue();
     cast_js_task(TaskType::Sync(false), 0, Some(queue), func, info); //将任务投递到虚拟机消息队列
     js.add_queue_len(); //增加虚拟机消息队列长度
     //解锁虚拟机的消息队列
     if !unlock_js_task_queue(queue) {
-        panic!("!!!> Block Throw Error, unlock js task queue failed");
+        println!("!!!> Block Throw Error, unlock js task queue failed");
     }
 }
 
@@ -381,6 +412,8 @@ pub fn block_throw(js: Arc<JS>, reason: String, info: Atom) {
 * 线程安全的向虚拟机推送异步回调函数，返回当前虚拟机异步消息队列长度，如果返回0，则表示推送失败
 */
 pub fn push_callback(js: Arc<JS>, callback: u32, args: Box<FnBox(Arc<JS>) -> usize>, info: Atom) -> usize {
+    VM_PUSH_CALLBACK_COUNT.sum(1);
+
     let count = JS::push(js.clone(), TaskType::Sync(true), callback, args, info);
     unsafe {
         let vm = js.get_vm();
@@ -442,6 +475,8 @@ pub fn unregister_async_request(name: Atom) -> Option<Arc<Handler<A = Arc<Vec<u8
 * 线程安全的通过虚拟机通道向对端发送异步请求
 */
 pub fn async_request(js: Arc<JS>, name: Atom, msg: Arc<Vec<u8>>, native_objs: Vec<usize>, callback: Option<u32>) -> bool {
+    VM_ASYNC_REQUEST_COUNT.sum(1);
+
     let ref lock = &**VM_CHANNELS;
     let channels = lock.read().unwrap();
     (*channels).request(js, name, msg, native_objs, callback)

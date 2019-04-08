@@ -18,6 +18,7 @@ use libc::c_char;
 
 use worker::worker_pool::WorkerPool;
 use worker::impls::{JS_TASK_POOL, JS_WORKER_WALKER};
+use worker::worker::WorkerType;
 
 use atom::Atom;
 
@@ -64,7 +65,7 @@ extern "C" fn test_char_output(buf: *const c_char) {
 
 #[test]
 fn test_shell() {
-    let worker_pool = Box::new(WorkerPool::new(10, 1024 * 1024, 10000, JS_WORKER_WALKER.clone()));
+    let worker_pool = Box::new(WorkerPool::new("test_shell_worker".to_string(), WorkerType::Js, 10, 1024 * 1024, 10000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     register_native_object();

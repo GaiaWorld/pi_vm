@@ -22,3 +22,4 @@ handler = { path = "../pi_lib/handler" }
 gray = { path = "../pi_lib/gray" }
 util = { path = "../pi_lib/util" }
 task_pool = { path = "../pi_lib/task_pool" }
+apm = { path = "../pi_lib/apm" }

@@ -250,13 +250,13 @@ fn js_sync_block_call_error(b: &mut Bencher) {
 }
 
 fn js_sync_block_call_set_global_var_return(js: Arc<JS>, _args: Vec<JSType>) -> Option<CallResult> {
-    let var = Box::new(move |js: Arc<JS>| -> JSType {
+    let var = Box::new(move |js: Arc<JS>| -> Result<JSType, String> {
         let array = js.new_array();
         let mut key = js.new_str("Hello".to_string());
         js.set_index(&array, 0, &mut key);
         let mut value = js.new_str("World!".to_string());
         js.set_index(&array, 1, &mut value);
-        array
+        Ok(array)
     });
 
     let next = Box::new(move |r: Result<Arc<JS>, BlockError>| {

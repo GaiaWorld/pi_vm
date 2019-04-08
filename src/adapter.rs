@@ -15,9 +15,10 @@ use std::thread;
 #[cfg(not(unix))]
 use kernel32;
 
-use atom::Atom;
 use worker::task::TaskType;
 use worker::impls::{create_js_task_queue, lock_js_task_queue, unlock_js_task_queue, cast_js_task};
+use apm::counter::{GLOBAL_PREF_COLLECT, PrefCounter, PrefTimer};
+use atom::Atom;
 
 use native_object_impl::*;
 use bonmgr::{NativeObjs, NObject, NativeObjsAuth};
@@ -31,6 +32,19 @@ const JS_ASYNC_MSG_QUEUE_PRIORITY: usize = 1000;
 * 虚拟机线程全局变量名
 */
 const JS_THREAD_GLOBAL_VAR_NAME: &'static str = "__curr_block_thread";
+
+lazy_static! {
+    //虚拟机初始化异常数量
+    static ref VM_INIT_PANIC_COUNT: PrefCounter = GLOBAL_PREF_COLLECT.new_static_counter(Atom::from("vm_init_panic_count"), 0).unwrap();
+    //虚拟机运行异常数量
+    static ref VM_RUN_PANIC_COUNT: PrefCounter = GLOBAL_PREF_COLLECT.new_static_counter(Atom::from("vm_run_panic_count"), 0).unwrap();
+    //虚拟机等待同步阻塞调用的数量
+    static ref VM_WAIT_BLOCK_COUNT: PrefCounter = GLOBAL_PREF_COLLECT.new_static_counter(Atom::from("vm_wait_block_count"), 0).unwrap();
+    //虚拟机完成同步任务、异步任务或异步回调的数量
+    static ref VM_FINISH_TASK_COUNT: PrefCounter = GLOBAL_PREF_COLLECT.new_static_counter(Atom::from("vm_finish_task_count"), 0).unwrap();
+    //虚拟机弹出异步回调的数量
+    static ref VM_POP_CALLBACK_COUNT: PrefCounter = GLOBAL_PREF_COLLECT.new_static_counter(Atom::from("vm_pop_callback_count"), 0).unwrap();
+}
 
 #[link(name = "dukc")]
 extern "C" {
@@ -91,6 +105,7 @@ extern "C" {
     pub fn dukc_top(vm: *const c_void_ptr) -> int32_t;
     pub fn dukc_to_string(vm: *const c_void_ptr, offset: int32_t) -> *const c_char;
     fn dukc_dump_stack(vm: *const c_void_ptr) -> *const c_char;
+    fn dukc_stack_frame(vm: *const c_void_ptr, index: uint32_t) -> *const c_char;
     pub fn dukc_pop(vm: *const c_void_ptr);
     fn dukc_vm_destroy(vm: *const c_void_ptr);
 }
@@ -124,6 +139,8 @@ pub extern "C" fn js_reply_callback(handler: *const c_void_ptr, status: c_int, e
     if handler.is_null() {
         //处理初始化异常
         if status != 0 {
+            VM_INIT_PANIC_COUNT.sum(1);
+
             println!("===> JS Init Error, status: {}, err: {}", status, unsafe { CStr::from_ptr(err).to_string_lossy().into_owned() });
         }
         return;
@@ -140,6 +157,9 @@ pub extern "C" fn js_reply_callback(handler: *const c_void_ptr, status: c_int, e
             //有异常，则重置虚拟机线程全局变量，保证虚拟机可以继续运行
             let null = js.new_null();
             js.set_global_var(JS_THREAD_GLOBAL_VAR_NAME.to_string(), null);
+
+            VM_RUN_PANIC_COUNT.sum(1);
+
             println!("===> JS Run Error, vm: {}, queue size: {}, status: {}, err: {}",
                                                                                 vm as usize,
                                                                                 js.queue.size.load(Ordering::SeqCst),
@@ -151,6 +171,8 @@ pub extern "C" fn js_reply_callback(handler: *const c_void_ptr, status: c_int, e
         if dukc_vm_status_check(vm, JSStatus::WaitBlock as i8) > 0 {
             //当前虚拟机任务已执行完成且当前虚拟机状态是等待状态，则需要改变状态，保证虚拟机异步任务被执行
             dukc_vm_status_sub(vm, 1);
+
+            VM_WAIT_BLOCK_COUNT.sum(1);
         } else if dukc_vm_status_check(vm, JSStatus::SingleTask as i8) > 0 {
             //当前虚拟机同步任务、异步任务或异步回调已执行完成，且当前虚拟机状态是同步状态，则处理消息队列
             if js.ret.borrow().is_some() {
@@ -158,6 +180,8 @@ pub extern "C" fn js_reply_callback(handler: *const c_void_ptr, status: c_int, e
             }
             dukc_pop(vm); //移除上次同步任务、异步任务或回调函数的执行结果
             handle_async_callback(js.clone(), vm);
+
+            VM_FINISH_TASK_COUNT.sum(1);
         }
     }
     Arc::into_raw(js);
@@ -183,6 +207,8 @@ pub unsafe fn handle_async_callback(js: Arc<JS>, vm: *const c_void_ptr) {
         if !unlock_js_task_queue(queue) {
             println!("!!!> Handle Callback Error, unlock js task queue failed, queue: {:?}", queue);
         }
+
+        VM_POP_CALLBACK_COUNT.sum(1);
     } else {
         //消息队列不为空，且未注册异步回调函数，表示同步任务或异步任务执行完成且没有异步回调任务，
         //则需要将执行结果弹出值栈并改变状态, 保证当前虚拟机回收
@@ -917,6 +943,20 @@ impl JS {
     //获取当前虚拟机堆栈信息
     pub fn dump_stack(&self) -> String {
         unsafe { CStr::from_ptr(dukc_dump_stack(self.vm as *const c_void_ptr)).to_string_lossy().into_owned() }
+    }
+
+    //获取当前虚拟机指定栈帧信息
+    pub fn stack_frame(&self, index: u32) -> Option<(String, isize)> {
+        unsafe {
+            let ptr = dukc_stack_frame(self.vm as *const c_void_ptr, index);
+            if ptr.is_null() {
+                return None;
+            }
+
+            let frame = CStr::from_ptr(ptr as *const c_char).to_string_lossy().into_owned();
+            let vec: Vec<&str> = frame.split(';').collect();
+            Some((vec[0].to_string(), vec[1].parse().unwrap()))
+        }
     }
 }
 
