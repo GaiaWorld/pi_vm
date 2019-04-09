@@ -16,8 +16,9 @@ use std::time::{Instant, Duration};
 use std::sync::{Arc, Mutex, Condvar};
 
 use handler::{Env, GenType, Handler, Args};
-use atom::Atom;
 use worker::task::TaskType;
+use worker::worker::WorkerType;
+use atom::Atom;
 use task_pool::TaskPool;
 use util::now_nanosecond;
 use worker::worker_pool::WorkerPool;
@@ -71,10 +72,12 @@ fn base_test() {
     let opts = JS::new(Arc::new(NativeObjsAuth::new(None, None)));
     assert!(opts.is_some());
     let js = opts.unwrap();
+    println!("js heap size: {}", js.heap_size());
     let opts = js.compile("base_test.js".to_string(), "var obj = {a: 10, c: true, d: {a: 0.9999999, c: \"ADSFkfaf中()**&^$111\", d: [new Uint8Array(), new ArrayBuffer(), function(x) { return x; }]}}; console.log(\"!!!!!!obj:\", obj);".to_string());
     assert!(opts.is_some());
     let codes0 = opts.unwrap();
     assert!(js.load(codes0.as_slice()));
+    println!("js heap size: {}", js.heap_size());
     let val = js.new_null();
     assert!(val.is_null());
     let val = js.new_undefined();
@@ -240,6 +243,7 @@ fn base_test() {
     let val = js.new_native_object(0xffffffffusize);
     println!("stack: {}", js.dump_stack());
     assert!(val.is_native_object() && val.get_native_object() == 0xffffffffusize);
+    println!("js heap size: {}", js.heap_size());
 }
 
 // #[test]
@@ -334,7 +338,7 @@ fn test_js_this() {
 
 #[test]
 fn native_object_call_test() {
-    let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000, JS_WORKER_WALKER.clone()));
+    let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 3, 1024 * 1024, 1000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     load_lib_backtrace();
@@ -434,7 +438,7 @@ fn native_object_call_test() {
 
 #[test]
 fn native_object_call_block_reply_test() {
-    let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000, JS_WORKER_WALKER.clone()));
+    let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 3, 1024 * 1024, 1000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     load_lib_backtrace();
@@ -540,7 +544,7 @@ fn native_object_call_block_reply_test() {
 
 // #[test]
 fn native_object_call_block_reply_test_by_clone() {
-    let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000, JS_WORKER_WALKER.clone()));
+    let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 3, 1024 * 1024, 1000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     load_lib_backtrace();
@@ -756,7 +760,7 @@ fn native_object_call_block_reply_test_by_clone() {
 
 // #[test]
 fn task_test() {
-    let mut worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000, JS_WORKER_WALKER. clone()));
+    let mut worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 3, 1024 * 1024, 1000, JS_WORKER_WALKER. clone()));
     worker_pool.run(JS_TASK_POOL.clone());
     
     load_lib_backtrace();
@@ -813,7 +817,7 @@ fn task_test() {
                 thread::sleep(Duration::from_millis(1000)); //延迟结束任务
             }), Atom::from("other task"));
     }
-    worker_pool.increase(JS_TASK_POOL.clone(), 7, 1000);
+    worker_pool.increase(JS_TASK_POOL.clone(), 7);
     thread::sleep(Duration::from_millis(10000));
     println!("worker_pool: {}", worker_pool);
     //测试运行任务的同时减少工作者
@@ -836,7 +840,7 @@ fn task_test() {
 
 // #[test]
 fn test_vm_factory() {
-    let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000, JS_WORKER_WALKER.clone()));
+    let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 3, 1024 * 1024, 1000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     load_lib_backtrace();
@@ -857,7 +861,7 @@ fn test_vm_factory() {
 
 #[test]
 fn test_new_task_pool() {
-    let worker_pool = Box::new(WorkerPool::new(3, 1024 * 1024, 1000, JS_WORKER_WALKER.clone()));
+    let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 3, 1024 * 1024, 1000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
     
     let queue = create_js_task_queue(10, false);
