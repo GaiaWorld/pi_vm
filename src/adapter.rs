@@ -1,4 +1,4 @@
-use libc::{c_void as c_void_ptr, c_char, int8_t, uint8_t, c_int, uint32_t, int32_t, uint64_t, c_double, memcpy};
+use libc::{c_void as c_void_ptr, c_char, int8_t, uint8_t, c_int, uint32_t, int32_t, uint64_t, size_t, c_double, memcpy};
 use std::slice::{from_raw_parts_mut, from_raw_parts};
 use std::sync::atomic::{Ordering, AtomicUsize, AtomicIsize};
 use std::string::FromUtf8Error;
@@ -54,6 +54,7 @@ extern "C" {
     fn dukc_heap_init(vm: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_char)) -> uint32_t;
     fn dukc_init_char_output(vm: *const c_void_ptr, func: extern fn(*const c_char));
     // fn dukc_vm_create(heap: *const c_void_ptr) -> *const c_void_ptr;
+    fn dukc_vm_size(vm: *const c_void_ptr) -> size_t;
     fn dukc_compile_script(vm: *const c_void_ptr, file: *const c_char, code: *const c_char, size: *mut uint32_t, reply: extern fn(*const c_void_ptr, c_int, *const c_char)) -> *const c_void_ptr;
     fn dukc_load_code(vm: *const c_void_ptr, size: uint32_t, bytes: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_char)) -> uint32_t;
     fn dukc_bind_vm(vm: *const c_void_ptr, handler: *const c_void_ptr);
@@ -379,6 +380,11 @@ impl JS {
     //获取内部虚拟机
     pub unsafe fn get_vm(&self) -> *const c_void_ptr {
         self.vm as *const c_void_ptr
+    }
+
+    //获取虚拟机堆大小
+    pub fn heap_size(&self) -> usize {
+        unsafe { dukc_vm_size(self.vm as *const c_void_ptr) }
     }
 
     //初始化虚拟机字符输出
