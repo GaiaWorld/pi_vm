@@ -230,8 +230,7 @@ pub unsafe fn handle_async_callback(js: Arc<JS>, vm: *const c_void_ptr) {
             println!("!!!> Handle Callback Error, unlock js task queue failed, tasks: {:?}", tasks);
         }
     }
-
-    //当前虚拟机同步任务队列为空
+    
     if is_collection {
         //当前虚拟机可以回收
         collection_vm(js);
