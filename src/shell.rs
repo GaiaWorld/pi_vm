@@ -11,7 +11,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::collections::hash_map::{Entry, DefaultHasher};
 
 use libc::c_char;
-use fnv::FnvHashMap;
 
 use atom::Atom;
 use worker::task::TaskType;
@@ -116,7 +115,7 @@ struct ShellGlobalEnv(HashMap<String, ShellEnvValue>);
 pub struct ShellManager {
     id: usize,                                          //shell分配id
     factory: Option<VMFactory>,                         //shell虚拟机工厂
-    shells: FnvHashMap<usize, (ShellStatus, Shell)>,    //shell表
+    shells: HashMap<usize, (ShellStatus, Shell)>,    //shell表
     env: ShellGlobalEnv,                                //shell全局环境
 }
 
@@ -129,7 +128,7 @@ impl ShellManager {
         ShellManager {
             id: SHELL_MIN_SRC,
             factory: None,
-            shells: FnvHashMap::default(),
+            shells: HashMap::new(),
             env: ShellGlobalEnv(HashMap::new()),
         }
     }
@@ -142,11 +141,11 @@ impl ShellManager {
         }
 
         //使用临时虚拟机，编译全局环境初始化的代码
-        let tmp = JS::new(Arc::new(NativeObjsAuth::new(None, None))).unwrap();
+        let tmp = JS::new(1, Atom::from("tmp vm"), Arc::new(NativeObjsAuth::new(None, None)), None).unwrap();
         let init_code = Arc::new(tmp.compile(SHELL_SET_GLOBAL_ENV_FILE_NAME.to_string(), SHELL_SET_GLOBAL_ENV_CODE.to_string()).unwrap());
 
         //顺序加载全局环境初始化代码和其它代码
-        let mut factory = VMFactory::new(0, Arc::new(NativeObjsAuth::new(None, None)));
+        let mut factory = VMFactory::new("native shell", 0, Arc::new(NativeObjsAuth::new(None, None)));
         factory = factory.append(init_code);
         if let Some(list) = codes {
             for code in list {
@@ -325,7 +324,7 @@ pub struct Shell {
     vm: Arc<JS>,                                                                    //shell虚拟机
     resp: Option<Arc<Fn(Result<Arc<Vec<u8>>>, Option<Box<FnBox(Arc<Vec<u8>>)>>)>>,  //响应回调，参数包括执行结果和下次请求回调
     is_accept: Arc<AtomicBool>,                                                     //是否接受对端请求
-    complied: Arc<RefCell<FnvHashMap<u64, String>>>,                                //已编译脚本缓存
+    complied: Arc<RefCell<HashMap<u64, String>>>,                                //已编译脚本缓存
 }
 
 impl Shell {
@@ -336,7 +335,7 @@ impl Shell {
             vm,
             resp: None,
             is_accept: Arc::new(AtomicBool::new(false)),
-            complied: Arc::new(RefCell::new(FnvHashMap::default())),
+            complied: Arc::new(RefCell::new(HashMap::default())),
         }
     }
 

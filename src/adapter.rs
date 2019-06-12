@@ -1,6 +1,7 @@
 use libc::{c_void as c_void_ptr, c_char, int8_t, uint8_t, c_int, uint32_t, int32_t, uint64_t, size_t, c_double, memcpy};
 use std::slice::{from_raw_parts_mut, from_raw_parts};
-use std::sync::atomic::{Ordering, AtomicUsize, AtomicIsize};
+use std::sync::atomic::{Ordering, AtomicUsize, AtomicIsize, AtomicBool};
+use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::string::FromUtf8Error;
 use std::ffi::{CStr, CString};
 use std::collections::HashMap;
@@ -14,6 +15,8 @@ use std::thread;
 
 #[cfg(not(unix))]
 use kernel32;
+
+use crossbeam_channel::Sender;
 
 use worker::task::TaskType;
 use worker::impls::{create_js_task_queue, lock_js_task_queue, unlock_js_task_queue, cast_js_task};
@@ -60,6 +63,9 @@ extern "C" {
     fn dukc_bind_vm(vm: *const c_void_ptr, handler: *const c_void_ptr);
     // fn dukc_vm_clone(size: uint32_t, bytes: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_char)) -> *const c_void_ptr;
     fn dukc_vm_run(vm: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_char));
+    fn dukc_vm_global_template(vm: *const c_void_ptr) -> uint32_t;
+    fn dukc_vm_global_swap(vm: *const c_void_ptr) -> uint32_t;
+    fn dukc_vm_global_clear(vm: *const c_void_ptr) -> uint32_t;
     pub fn dukc_vm_status_check(vm: *const c_void_ptr, value: int8_t) -> uint8_t;
     pub fn dukc_vm_status_switch(vm: *const c_void_ptr, old_status: int8_t, new_status: int8_t) -> int8_t;
     pub fn dukc_vm_status_sub(vm: *const c_void_ptr, value: int8_t) -> int8_t;
@@ -142,7 +148,8 @@ pub extern "C" fn js_reply_callback(handler: *const c_void_ptr, status: c_int, e
         if status != 0 {
             VM_INIT_PANIC_COUNT.sum(1);
 
-            println!("===> JS Init Error, status: {}, err: {}", status, unsafe { CStr::from_ptr(err).to_string_lossy().into_owned() });
+            println!("===> JS Init Error, status: {}, err: {}",
+                     status, unsafe { CStr::from_ptr(err).to_string_lossy().into_owned() });
         }
         return;
     }
@@ -161,11 +168,8 @@ pub extern "C" fn js_reply_callback(handler: *const c_void_ptr, status: c_int, e
 
             VM_RUN_PANIC_COUNT.sum(1);
 
-            println!("===> JS Run Error, vm: {}, queue size: {}, status: {}, err: {}",
-                                                                                vm as usize,
-                                                                                js.queue.size.load(Ordering::SeqCst),
-                                                                                status,
-                                                                                CStr::from_ptr(err).to_string_lossy().into_owned());
+            println!("===> JS Run Error, vm: {:?}, err: {}", vm,
+                     CStr::from_ptr(err).to_string_lossy().into_owned());
         }
 
         js.queue.size.fetch_sub(1, Ordering::SeqCst); //减少消息队列长度
@@ -193,11 +197,13 @@ pub extern "C" fn js_reply_callback(handler: *const c_void_ptr, status: c_int, e
 */
 pub unsafe fn handle_async_callback(js: Arc<JS>, vm: *const c_void_ptr) {
     //检查消息队列是否为空，如果不为空则继续执行异步任务或异步回调任务
+    let mut is_collection = false;
     if js.queue.size.load(Ordering::SeqCst) == 0 {
         //消息队列为空
         if dukc_callback_count(vm) == 0 && dukc_vm_status_check(vm, JSStatus::SingleTask as i8) > 0 {
             //没有已注册的异步回调函数且当前异步任务已完成，则需要将执行结果弹出值栈并改变状态, 保证虚拟机回收
             dukc_vm_status_sub(vm, 1);
+            is_collection = true;
         } else {
             //有已注册的异步回调函数，则需要等待消息异步推送到消息队列，保证虚拟机异步回调函数被执行
             dukc_vm_status_switch(vm, JSStatus::SingleTask as i8, JSStatus::WaitCallBack as i8);
@@ -214,13 +220,49 @@ pub unsafe fn handle_async_callback(js: Arc<JS>, vm: *const c_void_ptr) {
         //消息队列不为空，且未注册异步回调函数，表示同步任务或异步任务执行完成且没有异步回调任务，
         //则需要将执行结果弹出值栈并改变状态, 保证当前虚拟机回收
         dukc_vm_status_sub(vm, 1);
+        is_collection = true;
     }
 
-    //解锁当前虚拟机锁住的同步任务队列, 保证当前虚拟机回收或新虚拟机执行下一个任务
     if js.exist_tasks() {
+        //解锁当前虚拟机锁住的同步任务队列, 保证当前虚拟机回收或其它虚拟机执行下一个任务
         let tasks = js.get_tasks();
         if !unlock_js_task_queue(tasks) {
             println!("!!!> Handle Callback Error, unlock js task queue failed, tasks: {:?}", tasks);
+        }
+    }
+
+    //当前虚拟机同步任务队列为空
+    if is_collection {
+        //当前虚拟机可以回收
+        collection_vm(js);
+    }
+}
+
+//处理虚拟机回收复用
+fn collection_vm(js: Arc<JS>) {
+    if let Some((lock, sender)) = js.collection.clone() {
+        if lock.load(Ordering::SeqCst) {
+            //回收器已解锁，则清理
+            let copy = js.clone();
+            if js.free_global() {
+                //清理成功，则重新分配全局环境
+                if js.alloc_global() {
+                    match sender.try_send(js) {
+                        Err(e) => {
+                            //回收失败，则当前虚拟机将被释放
+                            println!("!!!> Vm Collection Failed, vm: {:?}, e: {:?}", copy, e);
+                        },
+                        Ok(_) => {
+                            //回收成功，则当前虚拟机将被复用
+                            ()
+                        },
+                    }
+                } else {
+                    println!("!!!> Vm Collection Failed, vm: {:?}, e: alloc global failed", copy);
+                }
+            } else {
+                println!("!!!> Vm Collection Failed, vm: {:?}, e: free global failed", copy);
+            }
         }
     }
 }
@@ -267,8 +309,8 @@ pub enum JSStatus {
 */
 #[derive(Clone)]
 struct JSMsgQueue {
-    id: Arc<AtomicIsize>,    //虚拟机消息队列
-    size: Arc<AtomicUsize>,  //虚拟机消息队列长度
+    id:     Arc<AtomicIsize>,   //虚拟机消息队列
+    size:   Arc<AtomicUsize>,   //虚拟机消息队列长度
 }
 
 /*
@@ -276,13 +318,16 @@ struct JSMsgQueue {
 */
 #[derive(Clone)]
 pub struct JS {
-    vm: usize,                                          //虚拟机
-    tasks: Arc<AtomicIsize>,                            //虚拟机任务队列
-    queue: JSMsgQueue,                                  //虚拟机消息队列
-    auth: Arc<NativeObjsAuth>,                          //虚拟机本地对象授权
-    objs: NativeObjs,                                   //虚拟机本地对象表
-    objs_ref: Arc<RefCell<HashMap<usize, NObject>>>,    //虚拟机本地对象引用表
-    ret: Arc<RefCell<Option<String>>>,                  //虚拟机执行栈返回结果缓存
+    vm:         usize,                                              //虚拟机
+    tasks:      Arc<AtomicIsize>,                                   //虚拟机任务队列
+    queue:      JSMsgQueue,                                         //虚拟机消息队列
+    auth:       Arc<NativeObjsAuth>,                                //虚拟机本地对象授权
+    objs:       NativeObjs,                                         //虚拟机本地对象表
+    objs_ref:   Arc<RefCell<HashMap<usize, NObject>>>,              //虚拟机本地对象引用表
+    ret:        Arc<RefCell<Option<String>>>,                       //虚拟机执行栈返回结果缓存
+    id:         usize,                                              //虚拟机id
+    name:       Atom,                                               //虚拟机名
+    collection: Option<(Arc<AtomicBool>, Arc<Sender<Arc<JS>>>)>,    //虚拟机回收器
 }
 
 /*
@@ -306,9 +351,17 @@ impl Drop for JS {
     }
 }
 
+impl Debug for JS {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
+        write!(f, "JS[id = {}, name = {:?}, vm = {}, tasks = {}, queue = {}, status = {}]",
+               self.id, (&self.name).to_string(), self.vm,
+               self.get_tasks(), self.get_queue_len(), self.queue.size.load(Ordering::SeqCst))
+    }
+}
+
 impl JS {
     //构建一个虚拟机
-    pub fn new(auth: Arc<NativeObjsAuth>) -> Option<Arc<Self>> {
+    pub fn new(vm_id: usize, name: Atom, auth: Arc<NativeObjsAuth>, collection: Option<(Arc<AtomicBool>, Arc<Sender<Arc<JS>>>)>) -> Option<Arc<Self>> {
         let ptr: *const c_void_ptr;
         unsafe { ptr = dukc_heap_create() }
         if ptr.is_null() {
@@ -338,6 +391,9 @@ impl JS {
                 objs: NativeObjs::new(),
                 objs_ref: Arc::new(RefCell::new(HashMap::new())),
                 ret: Arc::new(RefCell::new(None)),
+                id: vm_id,
+                name,
+                collection,
             });
             unsafe {
                 let handler = Arc::into_raw(arc.clone()) as *const c_void_ptr;
@@ -391,6 +447,59 @@ impl JS {
     pub fn init_char_output(&self, output: extern fn(*const c_char)) {
         unsafe {
             dukc_init_char_output(self.vm as *const c_void_ptr, output);
+        }
+    }
+
+    //解锁虚拟机回收器
+    pub fn unlock_collection(&self) {
+        if let Some((lock, _)) = &self.collection {
+            //有回收器，则解锁
+            lock.swap(true, Ordering::SeqCst);
+        }
+    }
+
+    //为当前虚拟机创建全局环境模板，如果已存在，则忽略
+    pub fn new_global_template(&self) -> bool {
+        unsafe {
+            let status = dukc_vm_status_switch(self.vm as *const c_void_ptr, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
+            if status == JSStatus::SingleTask as i8 {
+                //当前虚拟机状态错误，无法创建
+                false
+            } else {
+                let result = dukc_vm_global_template(self.vm as *const c_void_ptr) != 0;
+                dukc_vm_status_switch(self.vm as *const c_void_ptr, JSStatus::SingleTask as i8, JSStatus::NoTask as i8);
+                result
+            }
+        }
+    }
+
+    //为当前虚拟机分配新的全局环境
+    pub fn alloc_global(&self) -> bool {
+        unsafe {
+            let status = dukc_vm_status_switch(self.vm as *const c_void_ptr, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
+            if status == JSStatus::SingleTask as i8 {
+                //当前虚拟机状态错误，无法替换
+                false
+            } else {
+                let result = dukc_vm_global_swap(self.vm as *const c_void_ptr) != 0;
+                dukc_vm_status_switch(self.vm as *const c_void_ptr, JSStatus::SingleTask as i8, JSStatus::NoTask as i8);
+                result
+            }
+        }
+    }
+
+    //为当前虚拟机释放全局环境
+    pub fn free_global(&self) -> bool {
+        unsafe {
+            let status = dukc_vm_status_switch(self.vm as *const c_void_ptr, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
+            if status == JSStatus::SingleTask as i8 {
+                //当前虚拟机状态错误，无法清理
+                false
+            } else {
+                let result = dukc_vm_global_clear(self.vm as *const c_void_ptr) != 0;
+                dukc_vm_status_switch(self.vm as *const c_void_ptr, JSStatus::SingleTask as i8, JSStatus::NoTask as i8);
+                result
+            }
         }
     }
 

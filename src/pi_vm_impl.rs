@@ -1,9 +1,10 @@
 use std::boxed::FnBox;
 use std::ffi::CString;
 use std::sync::{Arc, RwLock};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use fnv::FnvHashMap;
-use npnc::bounded::mpmc::{channel as npnc_channel, Producer, Consumer};
+use crossbeam_channel::{bounded, Sender, Receiver, TryRecvError};
 
 use worker::task::TaskType;
 use worker::impls::{create_js_task_queue, unlock_js_task_queue, cast_js_task, remove_js_task_queue};
@@ -31,7 +32,7 @@ lazy_static! {
 * 虚拟机工厂同步任务队列表
 */
 lazy_static! {
-	pub static ref VM_FACTORY_QUEUES: Arc<RwLock<FnvHashMap<usize, isize>>> = Arc::new(RwLock::new(FnvHashMap::default()));
+	pub static ref VM_FACTORY_QUEUES: Arc<RwLock<HashMap<usize, isize>>> = Arc::new(RwLock::new(HashMap::new()));
 }
 
 lazy_static! {
@@ -84,20 +85,30 @@ impl VMFactoryLoader {
 */
 #[derive(Clone)]
 pub struct VMFactory {
-    codes: Arc<Vec<Arc<Vec<u8>>>>,                  //字节码列表
-    producer: Arc<Producer<Arc<JS>>>,               //虚拟机生产者
-    consumer: Arc<Consumer<Arc<JS>>>,               //虚拟机消费者
-    auth: Arc<NativeObjsAuth>,                      //虚拟机工厂本地对象授权
+    name:       Atom,                   //虚拟机工厂名
+    capacity:   usize,                  //虚拟机容量
+    size:       Arc<AtomicUsize>,       //虚拟机工厂当前虚拟机数量
+    alloc_id:   Arc<AtomicUsize>,       //虚拟机分配id
+    codes:      Arc<Vec<Arc<Vec<u8>>>>, //字节码列表
+    producer:   Arc<Sender<Arc<JS>>>,   //虚拟机生产者
+    consumer:   Arc<Receiver<Arc<JS>>>, //虚拟机消费者
+    auth:       Arc<NativeObjsAuth>,    //虚拟机工厂本地对象授权
 }
 
 impl VMFactory {
     //构建一个虚拟机工厂
-    pub fn new(mut size: usize, auth: Arc<NativeObjsAuth>) -> Self {
+    pub fn new(name: &str, mut size: usize, auth: Arc<NativeObjsAuth>) -> Self {
+        let capacity = size;
         if size == 0 {
             size = 1;
         }
-        let (p, c) = npnc_channel(size);
+
+        let (p, c) = bounded(size);
         VMFactory {
+            name: Atom::from(name),
+            capacity,
+            size: Arc::new(AtomicUsize::new(0)),
+            alloc_id: Arc::new(AtomicUsize::new(0)),
             codes: Arc::new(Vec::new()),
             producer: Arc::new(p),
             consumer: Arc::new(c),
@@ -116,30 +127,57 @@ impl VMFactory {
         self
     }
 
+    //获取当前虚拟机池的容量
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
     //获取当前虚拟机池中虚拟机数量
     pub fn size(&self) -> usize {
+        self.size.load(Ordering::Relaxed)
+    }
+
+    //获取当前虚拟机池中空闲虚拟机数量
+    pub fn free_size(&self) -> usize {
         self.producer.len()
     }
 
-    //生成一个虚拟机，返回生成前虚拟机池中虚拟机数量，0表示生成失败     
-    pub fn produce(&self) -> usize {
-        match self.new_vm(self.auth.clone()) {
-            None => 0,
-            Some(vm) => {
-                match self.producer.produce(vm) {
-                    Err(e) => {
-                        println!("!!!> Vm Factory Produce Failed, e: {:?}", e);
-                        0
-                    },
-                    Ok(_) => self.size(),
+    //生成指定数量的虚拟机，返回生成前虚拟机池中虚拟机数量
+    pub fn produce(&self, count: usize) -> Result<usize, String> {
+        if count == 0 {
+            return Ok(count);
+        }
+
+        if (self.size() + count) > self.capacity() {
+            //超过最大容量，则忽略
+            return Err(format!("vm factory full, factory: {:?}, capacity: {:?}, size: {:?}, count: {:?}",
+                               (&self.name).to_string(), self.capacity(), self.size(), count));
+        }
+
+        for _ in 0..count {
+            match self.new_vm(self.auth.clone()) {
+                None => {
+                    return Err(format!("vm factory, new vm failed, factory: {:?}",
+                                       (&self.name).to_string()))
+                },
+                Some(vm) => {
+                    match self.producer.try_send(vm) {
+                        Err(e) => {
+                            return Err(format!("vm factory full, new vm failed, factory: {:?}, e: {:?}",
+                                               (&self.name).to_string(), e));
+                        },
+                        Ok(_) => continue,
+                    }
                 }
             }
         }
+
+        return Ok(self.size());
     }
 
-    //生成并取出一个虚拟机，但未加载字节码
+    //生成并取出一个无法复用的虚拟机，但未加载字节码
     pub fn take(&self) -> Option<Arc<JS>> {
-        JS::new(self.auth.clone())
+        JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), self.auth.clone(), None)
     }
 
     //获取虚拟机工厂字节码加载器
@@ -154,64 +192,27 @@ impl VMFactory {
     //从虚拟机池中获取一个虚拟机，根据源创建同步任务队列，并调用指定的js全局函数
     pub fn call(&self, src: Option<usize>, port: Atom, args: Box<FnBox(Arc<JS>) -> usize>, info: Atom) {
         //弹出虚拟机，以保证同一时间只有一个线程访问同一个虚拟机
-        match self.consumer.consume() {
-            Err(_) => {
-                //没有空闲虚拟机，则立即构建临时虚拟机
+        match self.consumer.try_recv() {
+            Err(e) if e == TryRecvError::Empty => {
+                //没有空闲虚拟机，则立即构建新的虚拟机
                 match self.new_vm(self.auth.clone()) {
-                    None => panic!("!!!> Vm Factory Call Error, new vm failed"),
+                    None => {
+                        panic!("Vm Factory Call Error, new vm failed, factory: {:?}",
+                               (&self.name).to_string());
+                    },
                     Some(vm) => {
-                        let vm_copy = vm.clone();
-                        let func = Box::new(move |lock: Option<isize>| {
-                            if let Some(queue) = lock {
-                                //为虚拟机设置当前任务的队列
-                                vm_copy.set_tasks(queue);
-                            }
-                            vm_copy.get_link_function((&port).to_string());
-                            let args_size = args(vm_copy.clone());
-                            vm_copy.call(args_size);
-                        });
-                        match src {
-                            None => {
-                                cast_js_task(TaskType::Async(false), JS_TASK_PRIORITY, None, func, info);
-                            },
-                            Some(src_id) => {
-                                cast_js_task(TaskType::Sync(true), 0, Some(new_queue(src_id)), func, info);
-                            },
-                        }
-
-                        VM_CALL_COUNT.sum(1);
+                        //构建完成，则运行
+                        self.async_run(vm, src, port, args, info);
                     }
                 }
             },
             Ok(vm) => {
-                let vm_copy = vm.clone();
-                let producer = self.producer.clone();
-                let func = Box::new(move |lock: Option<isize>| {
-                    if let Some(queue) = lock {
-                        //为虚拟机设置当前任务的队列
-                        vm_copy.set_tasks(lock.unwrap());
-                    }
-                    vm_copy.get_link_function(port.to_string());
-                    let args_size = args(vm_copy.clone());
-                    vm_copy.call(args_size);
-                    //调用完成后复用虚拟机
-                    match producer.produce(vm_copy) {
-                        Err(e) => {
-                            println!("!!!> Vm Factory Reused Failed, e: {:?}", e);
-                        },
-                        Ok(_) => (),
-                    }
-                });
-                match src {
-                    None => {
-                        cast_js_task(TaskType::Async(false), JS_TASK_PRIORITY, None, func, info);
-                    },
-                    Some(src_id) => {
-                        cast_js_task(TaskType::Sync(true), 0, Some(new_queue(src_id)), func, info);
-                    },
-                }
-
-                VM_CALL_COUNT.sum(1);
+                //有空闲虚拟机，则运行
+                self.async_run(vm, src, port, args, info);
+            },
+            Err(e) => {
+                panic!("Vm Factory Call Error, factory: {:?}, size: {:?}, e: {:?}",
+                       (&self.name).to_string(), self.size(), e);
             },
         }
     }
@@ -220,12 +221,28 @@ impl VMFactory {
     fn new_vm(&self, auth: Arc<NativeObjsAuth>) -> Option<Arc<JS>> {
         let start = VM_NEW_TIME.start();
 
-        match JS::new(auth.clone()) {
+        if (self.capacity() != 0) && (self.size() + 1) > self.capacity() {
+            //超过最大容量，则忽略
+            println!("!!!> Vm Factory Full, factory: {:?}, capacity: {:?}, size: {:?}", (&self.name).to_string(), self.capacity(), self.size());
+            return None
+        }
+
+        let result = if self.capacity() == 0 {
+            //构建一个无法复用的虚拟机
+            JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), auth.clone(), None)
+        } else {
+            //构建一个可以复用的虚拟机
+            JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), auth.clone(),
+                    Some((Arc::new(AtomicBool::new(false)), self.producer.clone())))
+        };
+
+        match result {
             None => None,
             Some(vm) => {
                 VM_NEW_TIME.timing(start);
                 let start = VM_LOAD_TIME.start();
 
+                //为当前虚拟机加载当前虚拟机工厂绑定的所有字节码
                 for code in self.codes.iter() {
                     if vm.load(code.as_slice()) {
                         while !vm.is_ran() {
@@ -236,12 +253,55 @@ impl VMFactory {
                     return None;
                 }
 
+                //如果是可以复用的虚拟机，则需要创建全局对象模板，并替换当前全局对象
+                if self.capacity() > 0 {
+                    if !vm.new_global_template() {
+                        println!("!!!> Vm Factory Call Error, new vm global template failed, factory: {:?}",
+                                 (&self.name).to_string());
+                        return None;
+                    }
+
+                    if !vm.alloc_global() {
+                        println!("!!!> Vm Factory Call Error, alloc global failed, factory: {:?}",
+                                 (&self.name).to_string());
+                        return None;
+                    }
+
+                    vm.unlock_collection(); //解锁回收器
+                }
+
+                self.size.fetch_add(1, Ordering::SeqCst); //增加虚拟机池中虚拟机的总数
+
                 VM_LOAD_TIME.timing(start);
                 VM_COUNT.sum(1);
 
                 Some(vm)
             }
         }
+    }
+
+    //异步运行指定虚拟机
+    fn async_run(&self, vm: Arc<JS>, src: Option<usize>, port: Atom, args: Box<FnBox(Arc<JS>) -> usize>, info: Atom) {
+        let vm_copy = vm.clone();
+        let func = Box::new(move |lock: Option<isize>| {
+            if let Some(queue) = lock {
+                //为虚拟机设置当前任务的队列
+                vm_copy.set_tasks(queue);
+            }
+            vm_copy.get_link_function((&port).to_string());
+            let args_size = args(vm_copy.clone());
+            vm_copy.call(args_size);
+        });
+        match src {
+            None => {
+                cast_js_task(TaskType::Async(false), JS_TASK_PRIORITY, None, func, info);
+            },
+            Some(src_id) => {
+                cast_js_task(TaskType::Sync(true), 0, Some(new_queue(src_id)), func, info);
+            },
+        }
+
+        VM_CALL_COUNT.sum(1);
     }
 }
 

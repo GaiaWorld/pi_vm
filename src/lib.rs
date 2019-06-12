@@ -8,13 +8,10 @@
 #![feature(slice_internals)]
 #![feature(proc_macro_hygiene)]
 
-extern crate fnv;
 extern crate core;
-extern crate time;
 extern crate libc;
 extern crate rand;
-extern crate npnc;
-extern crate magnetic;
+extern crate crossbeam_channel;
 
 #[macro_use]
 extern crate lazy_static;
