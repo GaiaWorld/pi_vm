@@ -288,7 +288,7 @@ impl VMFactory {
                         return None;
                     }
 
-                    vm.unlock_collection(); //解锁回收器
+                    vm.unlock_collection(); //解锁回收器，必须在虚拟机初始化、加载代码、运行代码等操作后解锁
                 }
 
                 VM_LOAD_TIME.timing(start);
