@@ -221,8 +221,29 @@ impl VMFactory {
     fn new_vm(&self, auth: Arc<NativeObjsAuth>) -> Option<Arc<JS>> {
         let start = VM_NEW_TIME.start();
 
-        if (self.capacity() != 0) && (self.size() + 1) > self.capacity() {
-            //超过最大容量，则忽略
+        let capacity = self.capacity();
+        let mut curr_size = self.size.load(Ordering::SeqCst);
+        if (capacity != 0) && (curr_size < capacity) {
+            //容量有限，且当前虚拟机数量未达上限，则原子增加当前虚拟机数量
+            loop {
+                match self.size.compare_and_swap(curr_size, curr_size + 1, Ordering::SeqCst) {
+                    curr_size => {
+                        //原子增加当前虚拟机数量成功，则继续构建虚拟机
+                        break;
+                    },
+                    new_curr_size if new_curr_size >= capacity => {
+                        //原子增加当前虚拟机数量失败，且虚拟机数量已达上限，则退出
+                        println!("!!!> Vm Factory Full, factory: {:?}, capacity: {:?}, size: {:?}", (&self.name).to_string(), self.capacity(), self.size());
+                        return None;
+                    },
+                    new_curr_size => {
+                        //原子增加当前虚拟机数量失败，但虚拟机数量未达上限，则从新的当前虚拟机数量开始重试
+                        curr_size = new_curr_size;
+                    }
+                }
+            }
+        } else if curr_size >= capacity {
+            //容量有限，且当前虚拟机数量已达上限，则忽略
             println!("!!!> Vm Factory Full, factory: {:?}, capacity: {:?}, size: {:?}", (&self.name).to_string(), self.capacity(), self.size());
             return None
         }
@@ -269,8 +290,6 @@ impl VMFactory {
 
                     vm.unlock_collection(); //解锁回收器
                 }
-
-                self.size.fetch_add(1, Ordering::SeqCst); //增加虚拟机池中虚拟机的总数
 
                 VM_LOAD_TIME.timing(start);
                 VM_COUNT.sum(1);
