@@ -242,7 +242,7 @@ impl VMFactory {
                     }
                 }
             }
-        } else if curr_size >= capacity {
+        } else if (capacity != 0) && (curr_size >= capacity) {
             //容量有限，且当前虚拟机数量已达上限，则忽略
             println!("!!!> Vm Factory Full, factory: {:?}, capacity: {:?}, size: {:?}", (&self.name).to_string(), self.capacity(), self.size());
             return None
