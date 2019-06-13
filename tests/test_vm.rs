@@ -258,7 +258,7 @@ fn test_vm_factory() {
     let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
-    let opts = js.compile("test_vm_factory.js".to_string(), "var tmp = 0; function call(x, y) { console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", y length: \" + y.length + \", tmp: \" + tmp); tmp += 1; };".to_string());
+    let opts = js.compile("test_vm_factory.js".to_string(), "var tmp = 0; function call(x, y) { console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", y length: \" + y.length + \", tmp: \" + tmp); tmp += 1; throw(\"test call throw\"); };".to_string());
     assert!(opts.is_some());
     let code = opts.unwrap();
 
@@ -307,7 +307,7 @@ fn test_vm_factory_sync_call() {
     let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
-    let opts = js.compile("test_vm_factory.js".to_string(), "function call(x, y) { var r = NativeObject.call(0x1, [true, 10, \"Hello World!\"]); console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", r: \" + r); };".to_string());
+    let opts = js.compile("test_vm_factory.js".to_string(), "function call(x, y) { var r = NativeObject.call(0x1, [true, 10, \"Hello World!\"]); console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", r: \" + r); throw(\"test sync throw\"); };".to_string());
     assert!(opts.is_some());
     let code = opts.unwrap();
 
@@ -352,11 +352,12 @@ fn test_vm_factory_block_call() {
     //初始化阻塞调用的环境
     register_native_object();
     register_native_function(0x1, js_test_vm_factory_block_call);
+    register_native_function(0x10, js_test_vm_factory_block_throw);
 
     let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
-    let opts = js.compile("test_vm_factory.js".to_string(), "function call(x, y) { NativeObject.call(0x1, [true, 10, \"Hello World!\"]); var r = __thread_yield(); console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", r: \" + r); };".to_string());
+    let opts = js.compile("test_vm_factory.js".to_string(), "function call(x, y) { NativeObject.call(0x1, [true, 10, \"Hello World!\"]); var r = __thread_yield(); console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", r: \" + r); NativeObject.call(0x10, [10]); r = __thread_yield(); };".to_string());
     assert!(opts.is_some());
     let code = opts.unwrap();
 
@@ -392,6 +393,11 @@ fn js_test_vm_factory_block_call(js: Arc<JS>, _args: Vec<JSType>) -> Option<Call
         vm.new_u32(0xffffffff);
     });
     block_reply(js, result, Atom::from("block reply task"));
+    None
+}
+
+fn js_test_vm_factory_block_throw(js: Arc<JS>, _args: Vec<JSType>) -> Option<CallResult> {
+    block_throw(js, "test block throw".to_string(), Atom::from("block throw task"));
     None
 }
 

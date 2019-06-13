@@ -168,7 +168,7 @@ pub extern "C" fn js_reply_callback(handler: *const c_void_ptr, status: c_int, e
 
             VM_RUN_PANIC_COUNT.sum(1);
 
-            println!("===> JS Run Error, vm: {:?}, err: {}", vm,
+            println!("===> JS Run Error, vm: {:?}, err: {}", js,
                      CStr::from_ptr(err).to_string_lossy().into_owned());
         }
 
@@ -230,7 +230,7 @@ pub unsafe fn handle_async_callback(js: Arc<JS>, vm: *const c_void_ptr) {
             println!("!!!> Handle Callback Error, unlock js task queue failed, tasks: {:?}", tasks);
         }
     }
-    
+
     if is_collection {
         //当前虚拟机可以回收
         collection_vm(js);
