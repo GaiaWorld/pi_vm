@@ -352,9 +352,10 @@ impl Drop for JS {
 
 impl Debug for JS {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
-        write!(f, "JS[id = {}, name = {:?}, vm = {}, tasks = {}, queue = {}, status = {}]",
+        write!(f, "JS[id = {}, name = {:?}, vm = {}, tasks = {}, queue = {}, status = {}, size = {}]",
                self.id, (&self.name).to_string(), self.vm,
-               self.get_tasks(), self.get_queue_len(), self.queue.size.load(Ordering::SeqCst))
+               self.get_tasks(), self.get_queue_len(), self.queue.size.load(Ordering::SeqCst),
+               self.heap_size())
     }
 }
 
