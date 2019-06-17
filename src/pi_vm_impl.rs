@@ -85,19 +85,20 @@ impl VMFactoryLoader {
 */
 #[derive(Clone)]
 pub struct VMFactory {
-    name:       Atom,                   //虚拟机工厂名
-    capacity:   usize,                  //虚拟机容量
-    size:       Arc<AtomicUsize>,       //虚拟机工厂当前虚拟机数量
-    alloc_id:   Arc<AtomicUsize>,       //虚拟机分配id
-    codes:      Arc<Vec<Arc<Vec<u8>>>>, //字节码列表
-    producer:   Arc<Sender<Arc<JS>>>,   //虚拟机生产者
-    consumer:   Arc<Receiver<Arc<JS>>>, //虚拟机消费者
-    auth:       Arc<NativeObjsAuth>,    //虚拟机工厂本地对象授权
+    name:           Atom,                   //虚拟机工厂名
+    capacity:       usize,                  //虚拟机容量
+    size:           Arc<AtomicUsize>,       //虚拟机工厂当前虚拟机数量
+    alloc_id:       Arc<AtomicUsize>,       //虚拟机分配id
+    max_heap_size:  usize,                  //虚拟机最大堆大小
+    codes:          Arc<Vec<Arc<Vec<u8>>>>, //字节码列表
+    producer:       Arc<Sender<Arc<JS>>>,   //虚拟机生产者
+    consumer:       Arc<Receiver<Arc<JS>>>, //虚拟机消费者
+    auth:           Arc<NativeObjsAuth>,    //虚拟机工厂本地对象授权
 }
 
 impl VMFactory {
     //构建一个虚拟机工厂
-    pub fn new(name: &str, mut size: usize, auth: Arc<NativeObjsAuth>) -> Self {
+    pub fn new(name: &str, mut size: usize, max_heap_size: usize, auth: Arc<NativeObjsAuth>) -> Self {
         let capacity = size;
         if size == 0 {
             size = 1;
@@ -109,6 +110,7 @@ impl VMFactory {
             capacity,
             size: Arc::new(AtomicUsize::new(0)),
             alloc_id: Arc::new(AtomicUsize::new(0)),
+            max_heap_size,
             codes: Arc::new(Vec::new()),
             producer: Arc::new(p),
             consumer: Arc::new(c),
@@ -177,7 +179,7 @@ impl VMFactory {
 
     //生成并取出一个无法复用的虚拟机，但未加载字节码
     pub fn take(&self) -> Option<Arc<JS>> {
-        JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), self.auth.clone(), None)
+        JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), 0, self.auth.clone(), None)
     }
 
     //获取虚拟机工厂字节码加载器
@@ -250,10 +252,10 @@ impl VMFactory {
 
         let result = if self.capacity() == 0 {
             //构建一个无法复用的虚拟机
-            JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), auth.clone(), None)
+            JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), self.max_heap_size, auth.clone(), None)
         } else {
             //构建一个可以复用的虚拟机
-            JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), auth.clone(),
+            JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), self.max_heap_size, auth.clone(),
                     Some((Arc::new(AtomicBool::new(false)), self.producer.clone())))
         };
 

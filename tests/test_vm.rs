@@ -40,7 +40,7 @@ use pi_vm::bonmgr::{CallResult, NativeObjsAuth, FnMeta, BON_MGR};
 fn test_vm_performance() {
     register_native_object();
 
-    let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
+    let opts = JS::new(1, Atom::from("test vm"), 0, Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("test_vm_clone_performance.js".to_string(), "function call(x, y, z) { var r = [0, 0, 0]; r = NativeObject.call(0xffffffff, [x, y, z]); console.log(\"!!!!!!r: \" + r); };".to_string());
@@ -48,12 +48,12 @@ fn test_vm_performance() {
     let codes = opts.unwrap();
     let time = Instant::now();
     for vm_id in 0..10000 {
-        JS::new(vm_id, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None).unwrap().load(codes.as_slice());
+        JS::new(vm_id, Atom::from("test vm"), 0, Arc::new(NativeObjsAuth::new(None, None)), None).unwrap().load(codes.as_slice());
     }
     let finish_time = time.elapsed();
     println!("!!!!!!load time: {}", finish_time.as_secs() * 1000000 + (finish_time.subsec_micros() as u64));
 
-    let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
+    let opts = JS::new(1, Atom::from("test vm"), 0, Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("test_vm_run_performance.js".to_string(), "var x = 0; for(var n = 0; n < 100000000; n++) { x++; }".to_string());
@@ -70,7 +70,7 @@ fn test_vm_performance() {
 fn base_test() {
     load_lib_backtrace();
     register_native_object();
-    let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
+    let opts = JS::new(1, Atom::from("test vm"), 0, Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
     println!("js heap size: {}", js.heap_size());
@@ -250,21 +250,21 @@ fn base_test() {
 //测试从虚拟机工厂进行虚拟机js执行
 #[test]
 fn test_vm_factory() {
-    let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 8, 1024 * 1024, 500, JS_WORKER_WALKER.clone()));
+    let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 8, 1024 * 1024, 30000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     load_lib_backtrace();
     register_native_object();
-    let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
+    let opts = JS::new(1, Atom::from("test vm"), 0, Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
-    let opts = js.compile("test_vm_factory.js".to_string(), "var tmp = 0; function call(x, y) { console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", y length: \" + y.length + \", tmp: \" + tmp); tmp += 1; throw(\"test call throw\"); };".to_string());
+    let opts = js.compile("test_vm_factory.js".to_string(), "var buf = undefined; var tmp = 0; function call(x, y) { buf = new ArrayBuffer(64 * 1024 * 1024); console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", y length: \" + y.length + \", tmp: \" + tmp); tmp += 1; throw(\"test call throw\"); };".to_string());
     assert!(opts.is_some());
     let code = opts.unwrap();
 
     //要测试虚拟机复用，需要将factory capacity设置为大于0，且produce生成的虚拟机数量应该大于0
     //如果需要测试虚拟机不复用，需要将factory capacity和produce都设置为0
-    let factory = VMFactory::new("test vm", 3, Arc::new(NativeObjsAuth::new(None, None)));
+    let factory = VMFactory::new("test vm", 3, 604349096, Arc::new(NativeObjsAuth::new(None, None)));
     let factory = factory.append(Arc::new(code));
     match factory.produce(3) {
         Err(e) => println!("factory produce failed, e: {:?}", e),
@@ -297,23 +297,23 @@ fn register_native_function(id: u32, fun: fn(Arc<JS>, Vec<JSType>) -> Option<Cal
 //测试从虚拟机工厂进行虚拟机同步调用
 #[test]
 fn test_vm_factory_sync_call() {
-    let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 8, 1024 * 1024, 500, JS_WORKER_WALKER.clone()));
+    let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 8, 1024 * 1024, 30000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     //初始化同步调用的环境
     register_native_object();
     register_native_function(0x1, js_test_vm_factory_sync_call);
 
-    let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
+    let opts = JS::new(1, Atom::from("test vm"), 0, Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
-    let opts = js.compile("test_vm_factory.js".to_string(), "function call(x, y) { var r = NativeObject.call(0x1, [true, 10, \"Hello World!\"]); console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", r: \" + r); throw(\"test sync throw\"); };".to_string());
+    let opts = js.compile("test_vm_factory.js".to_string(), "var buf = undefined; function call(x, y) { buf = new ArrayBuffer(64 * 1024 * 1024); var r = NativeObject.call(0x1, [true, 10, \"Hello World!\"]); console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", r: \" + r); throw(\"test sync throw\"); };".to_string());
     assert!(opts.is_some());
     let code = opts.unwrap();
 
     //要测试虚拟机复用，需要将factory capacity设置为大于0，且produce生成的虚拟机数量应该大于0
     //如果需要测试虚拟机不复用，需要将factory capacity和produce都设置为0
-    let factory = VMFactory::new("test vm", 3, Arc::new(NativeObjsAuth::new(None, None)));
+    let factory = VMFactory::new("test vm", 3, 604349096, Arc::new(NativeObjsAuth::new(None, None)));
     let factory = factory.append(Arc::new(code));
     match factory.produce(3) {
         Err(e) => println!("factory produce failed, e: {:?}", e),
@@ -346,7 +346,7 @@ fn js_test_vm_factory_sync_call(js: Arc<JS>, _args: Vec<JSType>) -> Option<CallR
 //测试从虚拟机工厂进行虚拟机阻塞调用
 #[test]
 fn test_vm_factory_block_call() {
-    let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 8, 1024 * 1024, 500, JS_WORKER_WALKER.clone()));
+    let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 8, 1024 * 1024, 30000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
 
     //初始化阻塞调用的环境
@@ -354,16 +354,16 @@ fn test_vm_factory_block_call() {
     register_native_function(0x1, js_test_vm_factory_block_call);
     register_native_function(0x10, js_test_vm_factory_block_throw);
 
-    let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
+    let opts = JS::new(1, Atom::from("test vm"), 0, Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
-    let opts = js.compile("test_vm_factory.js".to_string(), "function call(x, y) { NativeObject.call(0x1, [true, 10, \"Hello World!\"]); var r = __thread_yield(); console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", r: \" + r); NativeObject.call(0x10, [10]); r = __thread_yield(); };".to_string());
+    let opts = js.compile("test_vm_factory.js".to_string(), "var buf = undefined; function call(x, y) { buf = new ArrayBuffer(64 * 1024 * 1024); NativeObject.call(0x1, [true, 10, \"Hello World!\"]); var r = __thread_yield(); console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", r: \" + r); NativeObject.call(0x10, [10]); r = __thread_yield(); };".to_string());
     assert!(opts.is_some());
     let code = opts.unwrap();
 
     //要测试虚拟机复用，需要将factory capacity设置为大于0，且produce生成的虚拟机数量应该大于0
     //如果需要测试虚拟机不复用，需要将factory capacity和produce都设置为0
-    let factory = VMFactory::new("test vm", 3, Arc::new(NativeObjsAuth::new(None, None)));
+    let factory = VMFactory::new("test vm", 3, 604349096, Arc::new(NativeObjsAuth::new(None, None)));
     let factory = factory.append(Arc::new(code));
     match factory.produce(3) {
         Err(e) => println!("factory produce failed, e: {:?}", e),
@@ -405,7 +405,7 @@ fn js_test_vm_factory_block_throw(js: Arc<JS>, _args: Vec<JSType>) -> Option<Cal
 fn test_stack_length() {
     load_lib_backtrace();
     register_native_object();
-    let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
+    let opts = JS::new(1, Atom::from("test vm"), 0, Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("base_test.js".to_string(), "var obj = {a: 10, c: true, d: {a: 0.9999999, c: \"ADSFkfaf中()**&^$111\", d: [new Uint8Array(), new ArrayBuffer(), function(x) { return x; }]}}; console.log(\"!!!!!!obj:\", obj);".to_string());
@@ -444,7 +444,7 @@ fn test_stack_length() {
 fn test_js_string() {
     load_lib_backtrace();
     register_native_object();
-    let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
+    let opts = JS::new(1, Atom::from("test vm"), 0, Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("test_js_string.js".to_string(), "console.log(\"!!!!!!string: \" + \"你好!!!!!!\".length); var view = (new TextEncoder()).encode(\"你好!!!!!!\"); console.log(\"!!!!!!view: \" + view); var r = NativeObject.call(0xffffffff, [view]); console.log(\"!!!!!!r: \" + r); console.log(\"!!!!!!string: \" + (new TextDecoder()).decode(view));".to_string());
@@ -458,7 +458,7 @@ fn test_js_this() {
     load_lib_backtrace();
     register_native_object();
 
-    let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
+    let opts = JS::new(1, Atom::from("test vm"), 0, Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("test_js_this0.js".to_string(), "var obj = {}; function call() { console.log(\"!!!!!!obj: \" + obj); obj.a = 100; var a = 10; console.log(\"!!!!!!obj.a: \" + obj.a + \", a: \" + a); obj.func = function call0() { console.log(\"!!!!!!this.a: \" + this.a); }; obj.func();}; call();".to_string());
@@ -466,7 +466,7 @@ fn test_js_this() {
     let codes0 = opts.unwrap();
     assert!(js.load(codes0.as_slice()));
 
-    let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
+    let opts = JS::new(1, Atom::from("test vm"), 0, Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("test_js_this1.js".to_string(), "var obj = {str: \"Hello\", func: function() { console.log(\"!!!!!!this.str: \" + this.str); this.str = 10; console.log(\"!!!!!!this.str: \" + this.str); } }; obj.func();".to_string());
@@ -474,7 +474,7 @@ fn test_js_this() {
     let codes0 = opts.unwrap();
     assert!(js.load(codes0.as_slice()));
 
-    let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
+    let opts = JS::new(1, Atom::from("test vm"), 0, Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("test_js_this2.js".to_string(), "var obj = {x: 10, y: { func: function() { console.log(\"!!!!!!this.x: \" + this.x); this.x = \"Hello\"; console.log(\"!!!!!!this.x: \" + this.x); } } }; obj.y.func();".to_string());
@@ -482,7 +482,7 @@ fn test_js_this() {
     let codes0 = opts.unwrap();
     assert!(js.load(codes0.as_slice()));
 
-    let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
+    let opts = JS::new(1, Atom::from("test vm"), 0, Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
     let opts = js.compile("test_js_this3.js".to_string(), "var obj = {name : 'linxin'}; function func(firstName, lastName) { console.log(firstName + ' ' + this.name + ' ' + lastName); } func.apply(obj, ['A', 'B']);".to_string());

@@ -66,6 +66,7 @@ extern "C" {
     fn dukc_vm_global_template(vm: *const c_void_ptr) -> uint32_t;
     fn dukc_vm_global_swap(vm: *const c_void_ptr) -> uint32_t;
     fn dukc_vm_global_clear(vm: *const c_void_ptr) -> uint32_t;
+    fn dukc_vm_global_free(vm: *const c_void_ptr) -> uint32_t;
     pub fn dukc_vm_status_check(vm: *const c_void_ptr, value: int8_t) -> uint8_t;
     pub fn dukc_vm_status_switch(vm: *const c_void_ptr, old_status: int8_t, new_status: int8_t) -> int8_t;
     pub fn dukc_vm_status_sub(vm: *const c_void_ptr, value: int8_t) -> int8_t;
@@ -243,24 +244,29 @@ fn collection_vm(js: Arc<JS>) {
         if lock.load(Ordering::SeqCst) {
             //回收器已解锁，则清理
             let copy = js.clone();
-            if js.free_global() {
-                //清理成功，则重新分配全局环境
-                if js.alloc_global() {
-                    match sender.try_send(js) {
-                        Err(e) => {
-                            //回收失败，则当前虚拟机将被释放
-                            println!("!!!> Vm Collection Failed, vm: {:?}, e: {:?}", copy, e);
-                        },
-                        Ok(_) => {
-                            //回收成功，则当前虚拟机将被复用
-                            ()
-                        },
+            if js.clear_global() {
+                //清理成功，则尝试释放虚拟机堆内存
+                if js.free_global() {
+                    //释放成功，则重新分配全局环境
+                    if js.alloc_global() {
+                        match sender.try_send(js) {
+                            Err(e) => {
+                                //回收失败，则当前虚拟机将被释放
+                                println!("!!!> Vm Collection Failed, vm: {:?}, e: {:?}", copy, e);
+                            },
+                            Ok(_) => {
+                                //回收成功，则当前虚拟机将被复用
+                                ()
+                            },
+                        }
+                    } else {
+                        println!("!!!> Vm Collection Failed, vm: {:?}, e: alloc global failed", copy);
                     }
                 } else {
-                    println!("!!!> Vm Collection Failed, vm: {:?}, e: alloc global failed", copy);
+                    println!("!!!> Vm Collection Failed, vm: {:?}, e: free global failed", copy);
                 }
             } else {
-                println!("!!!> Vm Collection Failed, vm: {:?}, e: free global failed", copy);
+                println!("!!!> Vm Collection Failed, vm: {:?}, e: clear global failed", copy);
             }
         }
     }
@@ -317,16 +323,17 @@ struct JSMsgQueue {
 */
 #[derive(Clone)]
 pub struct JS {
-    vm:         usize,                                              //虚拟机
-    tasks:      Arc<AtomicIsize>,                                   //虚拟机任务队列
-    queue:      JSMsgQueue,                                         //虚拟机消息队列
-    auth:       Arc<NativeObjsAuth>,                                //虚拟机本地对象授权
-    objs:       NativeObjs,                                         //虚拟机本地对象表
-    objs_ref:   Arc<RefCell<HashMap<usize, NObject>>>,              //虚拟机本地对象引用表
-    ret:        Arc<RefCell<Option<String>>>,                       //虚拟机执行栈返回结果缓存
-    id:         usize,                                              //虚拟机id
-    name:       Atom,                                               //虚拟机名
-    collection: Option<(Arc<AtomicBool>, Arc<Sender<Arc<JS>>>)>,    //虚拟机回收器
+    vm:             usize,                                              //虚拟机
+    tasks:          Arc<AtomicIsize>,                                   //虚拟机任务队列
+    queue:          JSMsgQueue,                                         //虚拟机消息队列
+    auth:           Arc<NativeObjsAuth>,                                //虚拟机本地对象授权
+    objs:           NativeObjs,                                         //虚拟机本地对象表
+    objs_ref:       Arc<RefCell<HashMap<usize, NObject>>>,              //虚拟机本地对象引用表
+    ret:            Arc<RefCell<Option<String>>>,                       //虚拟机执行栈返回结果缓存
+    id:             usize,                                              //虚拟机id
+    name:           Atom,                                               //虚拟机名
+    max_heap_size:  usize,                                              //虚拟机最大堆大小，软限制，当达到限制会在虚拟机清理后释放可回收的内存
+    collection:     Option<(Arc<AtomicBool>, Arc<Sender<Arc<JS>>>)>,    //虚拟机回收器
 }
 
 /*
@@ -361,7 +368,7 @@ impl Debug for JS {
 
 impl JS {
     //构建一个虚拟机
-    pub fn new(vm_id: usize, name: Atom, auth: Arc<NativeObjsAuth>, collection: Option<(Arc<AtomicBool>, Arc<Sender<Arc<JS>>>)>) -> Option<Arc<Self>> {
+    pub fn new(vm_id: usize, name: Atom, max_heap_size: usize, auth: Arc<NativeObjsAuth>, collection: Option<(Arc<AtomicBool>, Arc<Sender<Arc<JS>>>)>) -> Option<Arc<Self>> {
         let ptr: *const c_void_ptr;
         unsafe { ptr = dukc_heap_create() }
         if ptr.is_null() {
@@ -393,6 +400,7 @@ impl JS {
                 ret: Arc::new(RefCell::new(None)),
                 id: vm_id,
                 name,
+                max_heap_size,
                 collection,
             });
             unsafe {
@@ -488,8 +496,8 @@ impl JS {
         }
     }
 
-    //为当前虚拟机释放全局环境
-    pub fn free_global(&self) -> bool {
+    //为当前虚拟机清理全局环境
+    pub fn clear_global(&self) -> bool {
         unsafe {
             let status = dukc_vm_status_switch(self.vm as *const c_void_ptr, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
             if status == JSStatus::SingleTask as i8 {
@@ -498,6 +506,29 @@ impl JS {
             } else {
                 let result = dukc_vm_global_clear(self.vm as *const c_void_ptr) != 0;
                 dukc_vm_status_switch(self.vm as *const c_void_ptr, JSStatus::SingleTask as i8, JSStatus::NoTask as i8);
+                result
+            }
+        }
+    }
+
+    //为当前虚拟机释放当前和历史全局环境
+    pub fn free_global(&self) -> bool {
+        if self.heap_size() < self.max_heap_size {
+            //当前虚拟机堆大小未超过限制，则忽略
+            return true;
+        }
+
+        unsafe {
+            let status = dukc_vm_status_switch(self.vm as *const c_void_ptr, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
+            if status == JSStatus::SingleTask as i8 {
+                //当前虚拟机状态错误，无法清理
+                false
+            } else {
+                let result = dukc_vm_global_free(self.vm as *const c_void_ptr) != 0;
+                dukc_vm_status_switch(self.vm as *const c_void_ptr, JSStatus::SingleTask as i8, JSStatus::NoTask as i8);
+                if result {
+                    println!("===> JS Free Heap Memory Ok, vm: {:?}", self);
+                }
                 result
             }
         }
