@@ -378,6 +378,7 @@ pub unsafe fn try_js_destroy(js: &JS) {
     let old_status = dukc_vm_status_switch(js.vm as *const c_void_ptr, JSStatus::NoTask as i8, JSStatus::Destroy as i8);
     if old_status == JSStatus::NoTask as i8 {
         //当前js虚拟机无任务，则可以destroy
+        println!("===> Vm Destroy Ok, vm: {:?}", js);
         dukc_vm_destroy(js.vm as *const c_void_ptr);
     }
 }
