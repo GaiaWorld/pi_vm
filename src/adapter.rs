@@ -249,6 +249,7 @@ fn collection_vm(js: Arc<JS>) {
                 if js.free_global() {
                     //释放成功，则重新分配全局环境
                     if js.alloc_global() {
+                        js.queue.size.store(0, Ordering::Relaxed); //重置虚拟机当前消息队列
                         match sender.try_send(js) {
                             Err(e) => {
                                 //回收失败，则当前虚拟机将被释放
@@ -323,17 +324,20 @@ struct JSMsgQueue {
 */
 #[derive(Clone)]
 pub struct JS {
-    vm:             usize,                                              //虚拟机
-    tasks:          Arc<AtomicIsize>,                                   //虚拟机任务队列
-    queue:          JSMsgQueue,                                         //虚拟机消息队列
-    auth:           Arc<NativeObjsAuth>,                                //虚拟机本地对象授权
-    objs:           NativeObjs,                                         //虚拟机本地对象表
-    objs_ref:       Arc<RefCell<HashMap<usize, NObject>>>,              //虚拟机本地对象引用表
-    ret:            Arc<RefCell<Option<String>>>,                       //虚拟机执行栈返回结果缓存
-    id:             usize,                                              //虚拟机id
-    name:           Atom,                                               //虚拟机名
-    max_heap_size:  usize,                                              //虚拟机最大堆大小，软限制，当达到限制会在虚拟机清理后释放可回收的内存
-    collection:     Option<(Arc<AtomicBool>, Arc<Sender<Arc<JS>>>)>,    //虚拟机回收器
+    vm:                 usize,                                              //虚拟机
+    tasks:              Arc<AtomicIsize>,                                   //虚拟机任务队列
+    queue:              JSMsgQueue,                                         //虚拟机消息队列
+    auth:               Arc<NativeObjsAuth>,                                //虚拟机本地对象授权
+    objs:               NativeObjs,                                         //虚拟机本地对象表
+    objs_ref:           Arc<RefCell<HashMap<usize, NObject>>>,              //虚拟机本地对象引用表
+    ret:                Arc<RefCell<Option<String>>>,                       //虚拟机执行栈返回结果缓存
+    id:                 usize,                                              //虚拟机id
+    name:               Atom,                                               //虚拟机名
+    min_reused_count:   usize,                                              //虚拟机最小执行次数，当达到最小堆大小限制后才会检查最小执行次数
+    min_heap_size:      usize,                                              //虚拟机最小堆大小，当达到限制会在虚拟机执行指定数量后释放可回收的内存
+    max_heap_size:      usize,                                              //虚拟机最大堆大小，当达到限制会在虚拟机清理后立即释放可回收的内存
+    reused_count:       Arc<AtomicUsize>,                                   //虚拟机当前复用次数
+    collection:         Option<(Arc<AtomicBool>, Arc<Sender<Arc<JS>>>)>,    //虚拟机回收器
 }
 
 /*
@@ -359,16 +363,22 @@ impl Drop for JS {
 
 impl Debug for JS {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
-        write!(f, "JS[id = {}, name = {:?}, vm = {}, tasks = {}, queue = {}, status = {}, size = {}]",
+        write!(f, "JS[id = {}, name = {:?}, vm = {}, tasks = {}, queue = {}, finish = {}, size = {}]",
                self.id, (&self.name).to_string(), self.vm,
-               self.get_tasks(), self.get_queue_len(), self.queue.size.load(Ordering::SeqCst),
+               self.get_tasks(), self.get_queue_len(), self.is_ran(),
                self.heap_size())
     }
 }
 
 impl JS {
     //构建一个虚拟机
-    pub fn new(vm_id: usize, name: Atom, max_heap_size: usize, auth: Arc<NativeObjsAuth>, collection: Option<(Arc<AtomicBool>, Arc<Sender<Arc<JS>>>)>) -> Option<Arc<Self>> {
+    pub fn new(vm_id: usize,
+               name: Atom,
+               min_reused_count: usize,
+               min_heap_size: usize,
+               max_heap_size: usize,
+               auth: Arc<NativeObjsAuth>,
+               collection: Option<(Arc<AtomicBool>, Arc<Sender<Arc<JS>>>)>) -> Option<Arc<Self>> {
         let ptr: *const c_void_ptr;
         unsafe { ptr = dukc_heap_create() }
         if ptr.is_null() {
@@ -400,7 +410,10 @@ impl JS {
                 ret: Arc::new(RefCell::new(None)),
                 id: vm_id,
                 name,
+                min_reused_count,
+                min_heap_size,
                 max_heap_size,
+                reused_count: Arc::new(AtomicUsize::new(0)),
                 collection,
             });
             unsafe {
@@ -449,6 +462,11 @@ impl JS {
     //获取虚拟机堆大小
     pub fn heap_size(&self) -> usize {
         unsafe { dukc_vm_size(self.vm as *const c_void_ptr) }
+    }
+
+    //获取虚拟机复用次数
+    pub fn reused_count(&self) -> usize {
+        self.reused_count.load(Ordering::Relaxed)
     }
 
     //初始化虚拟机字符输出
@@ -513,9 +531,18 @@ impl JS {
 
     //为当前虚拟机释放当前和历史全局环境
     pub fn free_global(&self) -> bool {
-        if self.heap_size() < self.max_heap_size {
-            //当前虚拟机堆大小未超过限制，则忽略
-            return true;
+        let size = self.heap_size();
+        if (self.heap_size() < self.max_heap_size)  {
+            //当前虚拟机堆大小未达到释放上限
+            if (size < self.min_heap_size) {
+                //当前虚拟机堆大小未达到释放下限，则忽略
+                self.reused_count.fetch_add(1, Ordering::Relaxed); //增加虚拟机复用次数
+                return true;
+            } else if (size >= self.min_heap_size) && (self.reused_count() < self.min_reused_count) {
+                //当前虚拟机堆大小达到释放下限，但未达到复用下限，则忽略
+                self.reused_count.fetch_add(1, Ordering::Relaxed); //增加虚拟机复用次数
+                return true;
+            }
         }
 
         unsafe {
@@ -527,6 +554,8 @@ impl JS {
                 let result = dukc_vm_global_free(self.vm as *const c_void_ptr) != 0;
                 dukc_vm_status_switch(self.vm as *const c_void_ptr, JSStatus::SingleTask as i8, JSStatus::NoTask as i8);
                 if result {
+                    //释放成功，则重置当前虚拟机复用次数
+                    self.reused_count.store(0, Ordering::Relaxed);
                     println!("===> JS Free Heap Memory Ok, vm: {:?}", self);
                 }
                 result

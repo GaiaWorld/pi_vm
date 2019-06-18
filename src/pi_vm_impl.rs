@@ -85,20 +85,27 @@ impl VMFactoryLoader {
 */
 #[derive(Clone)]
 pub struct VMFactory {
-    name:           Atom,                   //虚拟机工厂名
-    capacity:       usize,                  //虚拟机容量
-    size:           Arc<AtomicUsize>,       //虚拟机工厂当前虚拟机数量
-    alloc_id:       Arc<AtomicUsize>,       //虚拟机分配id
-    max_heap_size:  usize,                  //虚拟机最大堆大小
-    codes:          Arc<Vec<Arc<Vec<u8>>>>, //字节码列表
-    producer:       Arc<Sender<Arc<JS>>>,   //虚拟机生产者
-    consumer:       Arc<Receiver<Arc<JS>>>, //虚拟机消费者
-    auth:           Arc<NativeObjsAuth>,    //虚拟机工厂本地对象授权
+    name:               Atom,                   //虚拟机工厂名
+    capacity:           usize,                  //虚拟机容量
+    size:               Arc<AtomicUsize>,       //虚拟机工厂当前虚拟机数量
+    alloc_id:           Arc<AtomicUsize>,       //虚拟机分配id
+    min_reused_count:   usize,                  //虚拟机最小复用次数
+    min_heap_size:      usize,                  //虚拟机最小堆大小
+    max_heap_size:      usize,                  //虚拟机最大堆大小
+    codes:              Arc<Vec<Arc<Vec<u8>>>>, //字节码列表
+    producer:           Arc<Sender<Arc<JS>>>,   //虚拟机生产者
+    consumer:           Arc<Receiver<Arc<JS>>>, //虚拟机消费者
+    auth:               Arc<NativeObjsAuth>,    //虚拟机工厂本地对象授权
 }
 
 impl VMFactory {
     //构建一个虚拟机工厂
-    pub fn new(name: &str, mut size: usize, max_heap_size: usize, auth: Arc<NativeObjsAuth>) -> Self {
+    pub fn new(name: &str,
+               mut size: usize,
+               min_reused_count: usize,
+               min_heap_size: usize,
+               max_heap_size: usize,
+               auth: Arc<NativeObjsAuth>) -> Self {
         let capacity = size;
         if size == 0 {
             size = 1;
@@ -110,6 +117,8 @@ impl VMFactory {
             capacity,
             size: Arc::new(AtomicUsize::new(0)),
             alloc_id: Arc::new(AtomicUsize::new(0)),
+            min_reused_count,
+            min_heap_size,
             max_heap_size,
             codes: Arc::new(Vec::new()),
             producer: Arc::new(p),
@@ -179,7 +188,7 @@ impl VMFactory {
 
     //生成并取出一个无法复用的虚拟机，但未加载字节码
     pub fn take(&self) -> Option<Arc<JS>> {
-        JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), 0, self.auth.clone(), None)
+        JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), 0, 0, 0, self.auth.clone(), None)
     }
 
     //获取虚拟机工厂字节码加载器
@@ -252,10 +261,10 @@ impl VMFactory {
 
         let result = if self.capacity() == 0 {
             //构建一个无法复用的虚拟机
-            JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), self.max_heap_size, auth.clone(), None)
+            JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), self.min_reused_count, self.min_heap_size, self.max_heap_size, auth.clone(), None)
         } else {
             //构建一个可以复用的虚拟机
-            JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), self.max_heap_size, auth.clone(),
+            JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), self.min_reused_count, self.min_heap_size, self.max_heap_size, auth.clone(),
                     Some((Arc::new(AtomicBool::new(false)), self.producer.clone())))
         };
 
@@ -306,7 +315,7 @@ impl VMFactory {
         let vm_copy = vm.clone();
         let func = Box::new(move |lock: Option<isize>| {
             if let Some(queue) = lock {
-                //为虚拟机设置当前任务的队列
+                //为虚拟机设置当前任务的队列，将会重置可复用虚拟机的当前任务队列
                 vm_copy.set_tasks(queue);
             }
             vm_copy.get_link_function((&port).to_string());

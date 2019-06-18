@@ -141,11 +141,11 @@ impl ShellManager {
         }
 
         //使用临时虚拟机，编译全局环境初始化的代码
-        let tmp = JS::new(1, Atom::from("tmp vm"), 0, Arc::new(NativeObjsAuth::new(None, None)), None).unwrap();
+        let tmp = JS::new(1, Atom::from("tmp vm"), 0, 0, 0, Arc::new(NativeObjsAuth::new(None, None)), None).unwrap();
         let init_code = Arc::new(tmp.compile(SHELL_SET_GLOBAL_ENV_FILE_NAME.to_string(), SHELL_SET_GLOBAL_ENV_CODE.to_string()).unwrap());
 
         //顺序加载全局环境初始化代码和其它代码
-        let mut factory = VMFactory::new("native shell", 0, 0, Arc::new(NativeObjsAuth::new(None, None)));
+        let mut factory = VMFactory::new("native shell", 0, 0, 0, 0, Arc::new(NativeObjsAuth::new(None, None)));
         factory = factory.append(init_code);
         if let Some(list) = codes {
             for code in list {
