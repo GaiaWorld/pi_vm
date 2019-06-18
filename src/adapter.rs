@@ -284,26 +284,21 @@ fn collection_vm(js: Arc<JS>) {
             }
 
             let copy = js.clone();
-//            if js.clear_global() {
-//                //清理成功，则重新分配全局环境
-                if js.alloc_global() {
-                    js.queue.size.store(0, Ordering::Relaxed); //重置虚拟机当前消息队列
-                    match sender.try_send(js) {
-                        Err(e) => {
-                            //回收失败，则当前虚拟机将被丢弃
-                            println!("!!!> Vm Collection Failed, vm: {:?}, e: {:?}", copy, e);
-                        },
-                        Ok(_) => {
-                            //回收成功，则当前虚拟机将被复用
-                            ()
-                        },
-                    }
-                } else {
-                    println!("!!!> Vm Collection Failed, vm: {:?}, e: alloc global failed", copy);
+            if js.alloc_global() {
+                js.queue.size.store(0, Ordering::Relaxed); //重置虚拟机当前消息队列
+                match sender.try_send(js) {
+                    Err(e) => {
+                        //回收失败，则当前虚拟机将被丢弃
+                        println!("!!!> Vm Collection Failed, vm: {:?}, e: {:?}", copy, e);
+                    },
+                    Ok(_) => {
+                        //回收成功，则当前虚拟机将被复用
+                        ()
+                    },
                 }
-//            } else {
-//                println!("!!!> Vm Collection Failed, vm: {:?}, e: clear global failed", copy);
-//            }
+            } else {
+                println!("!!!> Vm Collection Failed, vm: {:?}, e: alloc global failed", copy);
+            }
         }
     }
 }
