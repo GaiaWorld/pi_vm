@@ -393,7 +393,7 @@ impl Debug for JS {
         write!(f, "JS[id = {}, name = {:?}, vm = {}, tasks = {}, queue = {}, finish = {}, count = {}, size = {}]",
                self.id, (&self.name).to_string(), self.vm,
                self.get_tasks(), self.get_queue_len(), self.is_ran(),
-               self.reused.load(Ordering::Relaxed), self.heap_size())
+               self.reused_count.load(Ordering::Relaxed), self.heap_size())
     }
 }
 
