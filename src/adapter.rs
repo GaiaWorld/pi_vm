@@ -259,11 +259,11 @@ fn collection_vm(js: Arc<JS>) {
                     match factory.reset(1) {
                         Err(e) => {
                             //创建新虚拟机失败
-                            println!("!!!> Vm Reset Failed, last vm: {:?}, e: {:?}", js, e);
+                            println!("!!!> Vm Factory Reset Failed, last vm: {:?}, e: {:?}", js, e);
                         },
                         Ok(count) => {
                             //创建新虚拟机成功
-                            println!("===> Vm Reset Ok, last vm: {:?}, count: {:?}", js, count);
+                            println!("===> Vm Factory Reset Ok, last vm: {:?}, count: {:?}", js, count);
                         }
                     }
                     return;
@@ -273,11 +273,11 @@ fn collection_vm(js: Arc<JS>) {
                 match factory.reset(1) {
                     Err(e) => {
                         //创建新虚拟机失败
-                        println!("!!!> Vm Reset Failed, last vm: {:?}, e: {:?}", js, e);
+                        println!("!!!> Vm Factory Reset Failed, last vm: {:?}, e: {:?}", js, e);
                     },
                     Ok(count) => {
                         //创建新虚拟机成功
-                        println!("===> Vm Reset Ok, last vm: {:?}, count: {:?}", js, count);
+                        println!("===> Vm Factory Reset Ok, last vm: {:?}, count: {:?}", js, count);
                     }
                 }
                 return;
