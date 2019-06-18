@@ -258,13 +258,13 @@ fn test_vm_factory() {
     let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
-    let opts = js.compile("test_vm_factory.js".to_string(), "var buf = undefined; var tmp = 0; function call(x, y) { buf = new ArrayBuffer(64 * 1024 * 1024); console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", y length: \" + y.length + \", tmp: \" + tmp); tmp += 1; throw(\"test call throw\"); };".to_string());
+    let opts = js.compile("test_vm_factory.js".to_string(), "var buf = undefined; var tmp = 0; function call(x, y) { buf = new ArrayBuffer(256 * 1024 * 1024); console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", y length: \" + y.length + \", tmp: \" + tmp); tmp += 1; throw(\"test call throw\"); };".to_string());
     assert!(opts.is_some());
     let code = opts.unwrap();
 
     //要测试虚拟机复用，需要将factory capacity设置为大于0，且produce生成的虚拟机数量应该大于0
     //如果需要测试虚拟机不复用，需要将factory capacity和produce都设置为0
-    let factory = VMFactory::new("test vm", 3, 2, 67108864, 604349096, Arc::new(NativeObjsAuth::new(None, None)));
+    let factory = VMFactory::new("test vm", 3, 2, 536870912, 536870912, Arc::new(NativeObjsAuth::new(None, None)));
     let factory = factory.append(Arc::new(code));
     match factory.produce(3) {
         Err(e) => println!("factory produce failed, e: {:?}", e),
@@ -307,13 +307,13 @@ fn test_vm_factory_sync_call() {
     let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
-    let opts = js.compile("test_vm_factory.js".to_string(), "var buf = undefined; function call(x, y) { buf = new ArrayBuffer(64 * 1024 * 1024); var r = NativeObject.call(0x1, [true, 10, \"Hello World!\"]); console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", r: \" + r); throw(\"test sync throw\"); };".to_string());
+    let opts = js.compile("test_vm_factory.js".to_string(), "var buf = undefined; function call(x, y) { buf = new ArrayBuffer(256 * 1024 * 1024); var r = NativeObject.call(0x1, [true, 10, \"Hello World!\"]); console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", r: \" + r); throw(\"test sync throw\"); };".to_string());
     assert!(opts.is_some());
     let code = opts.unwrap();
 
     //要测试虚拟机复用，需要将factory capacity设置为大于0，且produce生成的虚拟机数量应该大于0
     //如果需要测试虚拟机不复用，需要将factory capacity和produce都设置为0
-    let factory = VMFactory::new("test vm", 3, 2, 67108864, 604349096, Arc::new(NativeObjsAuth::new(None, None)));
+    let factory = VMFactory::new("test vm", 3, 2, 536870912, 536870912, Arc::new(NativeObjsAuth::new(None, None)));
     let factory = factory.append(Arc::new(code));
     match factory.produce(3) {
         Err(e) => println!("factory produce failed, e: {:?}", e),
@@ -357,13 +357,13 @@ fn test_vm_factory_block_call() {
     let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
-    let opts = js.compile("test_vm_factory.js".to_string(), "var buf = undefined; function call(x, y) { buf = new ArrayBuffer(64 * 1024 * 1024); NativeObject.call(0x1, [true, 10, \"Hello World!\"]); var r = __thread_yield(); console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", r: \" + r); NativeObject.call(0x10, [10]); r = __thread_yield(); };".to_string());
+    let opts = js.compile("test_vm_factory.js".to_string(), "var buf = undefined; function call(x, y) { buf = new ArrayBuffer(256 * 1024 * 1024); NativeObject.call(0x1, [true, 10, \"Hello World!\"]); var r = __thread_yield(); console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", r: \" + r); NativeObject.call(0x10, [10]); r = __thread_yield(); };".to_string());
     assert!(opts.is_some());
     let code = opts.unwrap();
 
     //要测试虚拟机复用，需要将factory capacity设置为大于0，且produce生成的虚拟机数量应该大于0
     //如果需要测试虚拟机不复用，需要将factory capacity和produce都设置为0
-    let factory = VMFactory::new("test vm", 3, 2, 67108864, 604349096, Arc::new(NativeObjsAuth::new(None, None)));
+    let factory = VMFactory::new("test vm", 3, 2, 536870912, 536870912, Arc::new(NativeObjsAuth::new(None, None)));
     let factory = factory.append(Arc::new(code));
     match factory.produce(3) {
         Err(e) => println!("factory produce failed, e: {:?}", e),
