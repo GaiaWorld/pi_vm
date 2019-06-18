@@ -89,9 +89,9 @@ pub struct VMFactory {
     capacity:           usize,                  //虚拟机容量
     size:               Arc<AtomicUsize>,       //虚拟机工厂当前虚拟机数量
     alloc_id:           Arc<AtomicUsize>,       //虚拟机分配id
-    min_reused_count:   usize,                  //虚拟机最小复用次数
-    min_heap_size:      usize,                  //虚拟机最小堆大小
-    max_heap_size:      usize,                  //虚拟机最大堆大小
+    min_reused_count:   usize,                  //虚拟机最小执行次数，当达到最小堆大小限制后才会检查最小执行次数
+    min_heap_size:      usize,                  //虚拟机最小堆大小，当达到限制会在虚拟机执行指定数量后释放可回收的内存
+    max_heap_size:      usize,                  //虚拟机最大堆大小，当达到限制会在虚拟机清理后立即释放可回收的内存
     codes:              Arc<Vec<Arc<Vec<u8>>>>, //字节码列表
     producer:           Arc<Sender<Arc<JS>>>,   //虚拟机生产者
     consumer:           Arc<Receiver<Arc<JS>>>, //虚拟机消费者
@@ -153,6 +153,21 @@ impl VMFactory {
         self.producer.len()
     }
 
+    //获取虚拟机最小执行次数
+    pub fn min_reused_count(&self) -> usize {
+        self.min_reused_count
+    }
+
+    //获取虚拟机最小堆大小
+    pub fn min_heap_size(&self) -> usize {
+        self.min_heap_size
+    }
+
+    //获取虚拟机最大堆大小
+    pub fn max_heap_size(&self) -> usize {
+        self.max_heap_size
+    }
+
     //生成指定数量的虚拟机，返回生成前虚拟机池中虚拟机数量
     pub fn produce(&self, count: usize) -> Result<usize, String> {
         if count == 0 {
@@ -186,9 +201,15 @@ impl VMFactory {
         return Ok(self.size());
     }
 
+    //重置指定数量的虚拟机，返回生成前虚拟机池中虚拟机数量
+    pub fn reset(&self, count: usize) -> Result<usize, String> {
+        self.size.fetch_sub(count, Ordering::SeqCst);
+        self.produce(count)
+    }
+
     //生成并取出一个无法复用的虚拟机，但未加载字节码
     pub fn take(&self) -> Option<Arc<JS>> {
-        JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), 0, 0, 0, self.auth.clone(), None)
+        JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), self.auth.clone(), None)
     }
 
     //获取虚拟机工厂字节码加载器
@@ -261,11 +282,10 @@ impl VMFactory {
 
         let result = if self.capacity() == 0 {
             //构建一个无法复用的虚拟机
-            JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), self.min_reused_count, self.min_heap_size, self.max_heap_size, auth.clone(), None)
+            JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), auth.clone(), None)
         } else {
             //构建一个可以复用的虚拟机
-            JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), self.min_reused_count, self.min_heap_size, self.max_heap_size, auth.clone(),
-                    Some((Arc::new(AtomicBool::new(false)), self.producer.clone())))
+            JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), auth.clone(), Some((Arc::new(AtomicBool::new(false)), self.producer.clone(), Arc::new(self.clone()))))
         };
 
         match result {

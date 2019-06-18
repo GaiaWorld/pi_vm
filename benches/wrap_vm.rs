@@ -590,7 +590,7 @@ fn init_async_request_env(port: &str, file: &str) {
     }
 
     let mut factory = VMFactory::new("wrap vm benches", 1000, 1000, 8388608, 67108864, Arc::new(NativeObjsAuth::new(None, None)));
-    let js = JS::new(0, Atom::from("wrap vm benches"), 0, 0, 0, Arc::new(NativeObjsAuth::new(None, None)), None).unwrap();
+    let js = JS::new(0, Atom::from("wrap vm benches"), Arc::new(NativeObjsAuth::new(None, None)), None).unwrap();
     let file_name = &String::from("benches/core.js");
     if let Ok(mut file) = File::open("benches/core.js") {
         let mut contents = String::new();
@@ -622,7 +622,7 @@ fn register_native_function(id: u32, fun: fn(Arc<JS>, Vec<JSType>) -> Option<Cal
 
 //创建虚拟机
 fn create_js() -> Arc<JS> {
-    if let Some(js) = JS::new(0, Atom::from("wrap vm benches"), 0, 0, 0, Arc::new(NativeObjsAuth::new(None, None)), None) {
+    if let Some(js) = JS::new(0, Atom::from("wrap vm benches"), Arc::new(NativeObjsAuth::new(None, None)), None) {
         load_js(js.clone(), "benches/core.js");
         return js;
     }

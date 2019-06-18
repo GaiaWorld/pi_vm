@@ -25,6 +25,7 @@ use atom::Atom;
 
 use native_object_impl::*;
 use bonmgr::{NativeObjs, NObject, NativeObjsAuth};
+use pi_vm_impl::VMFactory;
 
 /*
 * 虚拟机消息队列默认优先级
@@ -240,35 +241,69 @@ pub unsafe fn handle_async_callback(js: Arc<JS>, vm: *const c_void_ptr) {
 
 //处理虚拟机回收复用
 fn collection_vm(js: Arc<JS>) {
-    if let Some((lock, sender)) = js.collection.clone() {
+    if let Some((lock, sender, factory)) = js.collection.clone() {
         if lock.load(Ordering::SeqCst) {
-            //回收器已解锁，则清理
-            let copy = js.clone();
-            if js.clear_global() {
-                //清理成功，则尝试释放虚拟机堆内存
-                if js.free_global() {
-                    //释放成功，则重新分配全局环境
-                    if js.alloc_global() {
-                        js.queue.size.store(0, Ordering::Relaxed); //重置虚拟机当前消息队列
-                        match sender.try_send(js) {
-                            Err(e) => {
-                                //回收失败，则当前虚拟机将被释放
-                                println!("!!!> Vm Collection Failed, vm: {:?}, e: {:?}", copy, e);
-                            },
-                            Ok(_) => {
-                                //回收成功，则当前虚拟机将被复用
-                                ()
-                            },
-                        }
-                    } else {
-                        println!("!!!> Vm Collection Failed, vm: {:?}, e: alloc global failed", copy);
-                    }
+            //回收器已解锁，则检查是否需要清理后复用
+            let heap_size = js.heap_size();
+            if (heap_size < factory.max_heap_size())  {
+                //当前虚拟机堆大小未达到丢弃上限
+                let min_heap_size = factory.min_heap_size();
+                if (heap_size < min_heap_size) {
+                    //当前虚拟机堆大小未达到释放下限，则忽略
+                    js.reused_count.fetch_add(1, Ordering::Relaxed); //增加虚拟机复用次数
+                } else if (heap_size >= min_heap_size) && (js.reused_count() < factory.min_reused_count()) {
+                    //当前虚拟机堆大小达到释放下限，但未达到复用下限，则忽略
+                    js.reused_count.fetch_add(1, Ordering::Relaxed); //增加虚拟机复用次数
                 } else {
-                    println!("!!!> Vm Collection Failed, vm: {:?}, e: free global failed", copy);
+                    //当前虚拟机堆大小达到释放下限，且达到复用下限，则创建新的虚拟机，并丢弃当前虚拟机
+                    match factory.reset(1) {
+                        Err(e) => {
+                            //创建新虚拟机失败
+                            println!("!!!> Vm Produce Failed, js: {:?}, e: {:?}", js, e);
+                        },
+                        Ok(count) => {
+                            //创建新虚拟机成功
+                            println!("===> Vm Produce Ok, js: {:?}, count: {:?}", js, count);
+                        }
+                    }
+                    return;
                 }
             } else {
-                println!("!!!> Vm Collection Failed, vm: {:?}, e: clear global failed", copy);
+                //当前虚拟机堆大小达到丢弃上限，则创建新的虚拟机，并丢弃当前虚拟机
+                match factory.reset(1) {
+                    Err(e) => {
+                        //创建新虚拟机失败
+                        println!("!!!> Vm Produce Failed, js: {:?}, e: {:?}", js, e);
+                    },
+                    Ok(count) => {
+                        //创建新虚拟机成功
+                        println!("===> Vm Produce Ok, js: {:?}, count: {:?}", js, count);
+                    }
+                }
+                return;
             }
+
+            let copy = js.clone();
+//            if js.clear_global() {
+//                //清理成功，则重新分配全局环境
+                if js.alloc_global() {
+                    js.queue.size.store(0, Ordering::Relaxed); //重置虚拟机当前消息队列
+                    match sender.try_send(js) {
+                        Err(e) => {
+                            //回收失败，则当前虚拟机将被丢弃
+                            println!("!!!> Vm Collection Failed, vm: {:?}, e: {:?}", copy, e);
+                        },
+                        Ok(_) => {
+                            //回收成功，则当前虚拟机将被复用
+                            ()
+                        },
+                    }
+                } else {
+                    println!("!!!> Vm Collection Failed, vm: {:?}, e: alloc global failed", copy);
+                }
+//            } else {
+//                println!("!!!> Vm Collection Failed, vm: {:?}, e: clear global failed", copy);
+//            }
         }
     }
 }
@@ -324,20 +359,17 @@ struct JSMsgQueue {
 */
 #[derive(Clone)]
 pub struct JS {
-    vm:                 usize,                                              //虚拟机
-    tasks:              Arc<AtomicIsize>,                                   //虚拟机任务队列
-    queue:              JSMsgQueue,                                         //虚拟机消息队列
-    auth:               Arc<NativeObjsAuth>,                                //虚拟机本地对象授权
-    objs:               NativeObjs,                                         //虚拟机本地对象表
-    objs_ref:           Arc<RefCell<HashMap<usize, NObject>>>,              //虚拟机本地对象引用表
-    ret:                Arc<RefCell<Option<String>>>,                       //虚拟机执行栈返回结果缓存
-    id:                 usize,                                              //虚拟机id
-    name:               Atom,                                               //虚拟机名
-    min_reused_count:   usize,                                              //虚拟机最小执行次数，当达到最小堆大小限制后才会检查最小执行次数
-    min_heap_size:      usize,                                              //虚拟机最小堆大小，当达到限制会在虚拟机执行指定数量后释放可回收的内存
-    max_heap_size:      usize,                                              //虚拟机最大堆大小，当达到限制会在虚拟机清理后立即释放可回收的内存
-    reused_count:       Arc<AtomicUsize>,                                   //虚拟机当前复用次数
-    collection:         Option<(Arc<AtomicBool>, Arc<Sender<Arc<JS>>>)>,    //虚拟机回收器
+    vm:                 usize,                                                              //虚拟机
+    tasks:              Arc<AtomicIsize>,                                                   //虚拟机任务队列
+    queue:              JSMsgQueue,                                                         //虚拟机消息队列
+    auth:               Arc<NativeObjsAuth>,                                                //虚拟机本地对象授权
+    objs:               NativeObjs,                                                         //虚拟机本地对象表
+    objs_ref:           Arc<RefCell<HashMap<usize, NObject>>>,                              //虚拟机本地对象引用表
+    ret:                Arc<RefCell<Option<String>>>,                                       //虚拟机执行栈返回结果缓存
+    id:                 usize,                                                              //虚拟机id
+    name:               Atom,                                                               //虚拟机名
+    reused_count:       Arc<AtomicUsize>,                                                   //虚拟机当前复用次数
+    collection:         Option<(Arc<AtomicBool>, Arc<Sender<Arc<JS>>>, Arc<VMFactory>)>,    //虚拟机回收器
 }
 
 /*
@@ -374,11 +406,8 @@ impl JS {
     //构建一个虚拟机
     pub fn new(vm_id: usize,
                name: Atom,
-               min_reused_count: usize,
-               min_heap_size: usize,
-               max_heap_size: usize,
                auth: Arc<NativeObjsAuth>,
-               collection: Option<(Arc<AtomicBool>, Arc<Sender<Arc<JS>>>)>) -> Option<Arc<Self>> {
+               collection: Option<(Arc<AtomicBool>, Arc<Sender<Arc<JS>>>, Arc<VMFactory>)>) -> Option<Arc<Self>> {
         let ptr: *const c_void_ptr;
         unsafe { ptr = dukc_heap_create() }
         if ptr.is_null() {
@@ -410,9 +439,6 @@ impl JS {
                 ret: Arc::new(RefCell::new(None)),
                 id: vm_id,
                 name,
-                min_reused_count,
-                min_heap_size,
-                max_heap_size,
                 reused_count: Arc::new(AtomicUsize::new(0)),
                 collection,
             });
@@ -478,7 +504,7 @@ impl JS {
 
     //解锁虚拟机回收器
     pub fn unlock_collection(&self) {
-        if let Some((lock, _)) = &self.collection {
+        if let Some((lock, _, _)) = &self.collection {
             //有回收器，则解锁
             lock.swap(true, Ordering::SeqCst);
         }
@@ -524,41 +550,6 @@ impl JS {
             } else {
                 let result = dukc_vm_global_clear(self.vm as *const c_void_ptr) != 0;
                 dukc_vm_status_switch(self.vm as *const c_void_ptr, JSStatus::SingleTask as i8, JSStatus::NoTask as i8);
-                result
-            }
-        }
-    }
-
-    //为当前虚拟机释放当前和历史全局环境
-    pub fn free_global(&self) -> bool {
-        let size = self.heap_size();
-        if (self.heap_size() < self.max_heap_size)  {
-            //当前虚拟机堆大小未达到释放上限
-            if (size < self.min_heap_size) {
-                //当前虚拟机堆大小未达到释放下限，则忽略
-                self.reused_count.fetch_add(1, Ordering::Relaxed); //增加虚拟机复用次数
-                return true;
-            } else if (size >= self.min_heap_size) && (self.reused_count() < self.min_reused_count) {
-                //当前虚拟机堆大小达到释放下限，但未达到复用下限，则忽略
-                self.reused_count.fetch_add(1, Ordering::Relaxed); //增加虚拟机复用次数
-                return true;
-            }
-        }
-
-        unsafe {
-            let status = dukc_vm_status_switch(self.vm as *const c_void_ptr, JSStatus::NoTask as i8, JSStatus::SingleTask as i8);
-            if status == JSStatus::SingleTask as i8 {
-                //当前虚拟机状态错误，无法清理
-                false
-            } else {
-                let before = self.heap_size();
-                let result = dukc_vm_global_free(self.vm as *const c_void_ptr) != 0;
-                dukc_vm_status_switch(self.vm as *const c_void_ptr, JSStatus::SingleTask as i8, JSStatus::NoTask as i8);
-                if result {
-                    //释放成功，则重置当前虚拟机复用次数
-                    self.reused_count.store(0, Ordering::Relaxed);
-                    println!("===> JS Free Heap Memory Ok, before: {:?}, vm: {:?}", before, self);
-                }
                 result
             }
         }
