@@ -265,7 +265,7 @@ impl VMFactory {
                     },
                     new_curr_size if new_curr_size >= capacity => {
                         //原子增加当前虚拟机数量失败，且虚拟机数量已达上限，则退出
-                        println!("!!!> Vm Factory Full, factory: {:?}, capacity: {:?}, size: {:?}", (&self.name).to_string(), self.capacity(), self.size());
+                        println!("!!!> Vm Factory Create Vm Error, factory full, factory: {:?}, capacity: {:?}, size: {:?}", (&self.name).to_string(), self.capacity(), self.size());
                         return None;
                     },
                     new_curr_size => {
@@ -276,7 +276,7 @@ impl VMFactory {
             }
         } else if (capacity != 0) && (curr_size >= capacity) {
             //容量有限，且当前虚拟机数量已达上限，则忽略
-            println!("!!!> Vm Factory Full, factory: {:?}, capacity: {:?}, size: {:?}", (&self.name).to_string(), self.capacity(), self.size());
+            println!("!!!> Vm Factory Create Vm Error, factory full, factory: {:?}, capacity: {:?}, size: {:?}", (&self.name).to_string(), self.capacity(), self.size());
             return None
         }
 
@@ -308,19 +308,22 @@ impl VMFactory {
                 //如果是可以复用的虚拟机，则需要创建全局对象模板，并替换当前全局对象
                 if self.capacity() > 0 {
                     if !vm.new_global_template() {
-                        println!("!!!> Vm Factory Call Error, new vm global template failed, factory: {:?}",
+                        println!("!!!> Vm Factory Create Vm Error, new global template failed, factory: {:?}",
                                  (&self.name).to_string());
                         return None;
                     }
 
                     if !vm.alloc_global() {
-                        println!("!!!> Vm Factory Call Error, alloc global failed, factory: {:?}",
+                        println!("!!!> Vm Factory Create Vm Error, alloc global failed, factory: {:?}",
                                  (&self.name).to_string());
                         return None;
                     }
 
                     vm.unlock_collection(); //解锁回收器，必须在虚拟机初始化、加载代码、运行代码等操作后解锁
                 }
+
+                println!("===> Vm Factory Create Vm Ok, factory: {:?}, vm: {:?}",
+                         (&self.name).to_string(), vm);
 
                 VM_LOAD_TIME.timing(start);
                 VM_COUNT.sum(1);
