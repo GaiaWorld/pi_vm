@@ -551,12 +551,13 @@ impl JS {
                 //当前虚拟机状态错误，无法清理
                 false
             } else {
+                let before = self.heap_size();
                 let result = dukc_vm_global_free(self.vm as *const c_void_ptr) != 0;
                 dukc_vm_status_switch(self.vm as *const c_void_ptr, JSStatus::SingleTask as i8, JSStatus::NoTask as i8);
                 if result {
                     //释放成功，则重置当前虚拟机复用次数
                     self.reused_count.store(0, Ordering::Relaxed);
-                    println!("===> JS Free Heap Memory Ok, vm: {:?}", self);
+                    println!("===> JS Free Heap Memory Ok, before: {:?}, vm: {:?}", before, self);
                 }
                 result
             }
