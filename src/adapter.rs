@@ -845,14 +845,21 @@ impl JS {
     }
 
     //构建字符串，注意rust的字符串默认是UTF8编码，而JS是UTF16编码
-    pub fn new_str(&self, str: String) -> JSType {
-        let ptr: u32;
-        unsafe { ptr = dukc_new_string(self.vm as *const c_void_ptr, CString::new(str).unwrap().as_ptr()) }
-        JSType {
-            type_id: JSValueType::String as u8,
-            is_drop: false,
-            vm: self.vm,
-            value: ptr as usize,
+    pub fn new_str(&self, str: String) -> Result<JSType, String> {
+        match CString::new(str) {
+            Err(e) => {
+                Err(e.to_string())
+            },
+            Ok(cstring) => {
+                let ptr: u32;
+                unsafe { ptr = dukc_new_string(self.vm as *const c_void_ptr, cstring.as_ptr()) }
+                Ok(JSType {
+                    type_id: JSValueType::String as u8,
+                    is_drop: false,
+                    vm: self.vm,
+                    value: ptr as usize,
+                })
+            }
         }
     }
 
