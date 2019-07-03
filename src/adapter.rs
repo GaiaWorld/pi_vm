@@ -506,11 +506,6 @@ impl JS {
         self.reused_count.load(Ordering::Relaxed)
     }
 
-    //设置虚拟机复用次数，返回最近复用次数
-    pub fn set_reused_count(&self, count: usize) -> usize {
-        self.reused_count.swap(count, Ordering::SeqCst)
-    }
-
     //更新虚拟机上次堆大小，并更新所有虚拟机占用内存大小
     pub fn update_last_heap_size(&self) {
         let cur_size = self.heap_size() as isize;
@@ -530,10 +525,15 @@ impl JS {
         self.last_time.load(Ordering::Relaxed)
     }
 
+    //设置虚拟机上次运行时间，单位ms，返回上次运行时间
+    pub fn set_last_time(&self, time: usize) -> usize {
+        self.last_time.swap(time * 1000, Ordering::SeqCst)
+    }
+
     //更新虚拟机上次运行时间，并返回上次与本次运行间隔时长，注意不是本次运行时长
     pub fn update_last_time(&self) -> isize {
         let now = now_utc();
-        let last = self.last_time.swap(now, Ordering::Relaxed);
+        let last = self.last_time.swap(now, Ordering::SeqCst);
         now as isize - last as isize
     }
 
@@ -2063,10 +2063,10 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
         //当前已分配内存仍然已达最大堆限制，则开始虚拟机工厂的空闲虚拟机丢弃整理
         let mut throw_count = 0;
         for i in 0..caches.len() {
-            let (max_reused_count, cache) = &caches[i];
+            let (_, cache) = &caches[i];
             while let Ok(vm) = cache.pop() {
-                //设置虚拟机为最大执行次数，并释放虚拟机引用
-                vm.set_reused_count(max_reused_count.clone());
+                //设置虚拟机上次运行时间为0，以保证虚拟机在下次全局整理中被丢弃，并释放虚拟机引用
+                vm.set_last_time(0);
                 throw_count += 1;
             }
         }
