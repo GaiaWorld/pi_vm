@@ -17,6 +17,12 @@ use std::sync::{Arc, Mutex, Condvar};
 #[macro_use]
 extern crate lazy_static;
 
+extern crate rand;
+
+use rand::prelude::*;
+use rand::{Rng, SeedableRng};
+use rand::rngs::SmallRng;
+
 use handler::{Env, GenType, Handler, Args};
 use worker::task::TaskType;
 use worker::worker::WorkerType;
@@ -108,14 +114,14 @@ fn base_test() {
     let val = js.new_f64(921.1356737853f64);
     assert!(val.is_number() && val.get_f64() == 921.1356737853f64);
 
-    let val = js.new_str("Hello World".to_string());
+    let val = js.new_str("Hello World".to_string()).unwrap();
     assert!(val.is_string() && val.get_str() == "Hello World".to_string());
-    let val = js.new_str("Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
+    let val = js.new_str("Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string()).unwrap();
     assert!(val.is_string() && val.get_str() == "Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
 
     let object = js.new_object();
     assert!(object.is_object());
-    let mut val = js.new_str("Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
+    let mut val = js.new_str("Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string()).unwrap();
     js.set_field(&object, "x".to_string(), &mut val);
     {
         let tmp = object.get_field("x".to_string());
@@ -131,7 +137,7 @@ fn base_test() {
     let array = js.new_type("Array".to_string(), 1);
     assert!(array.is_array() && array.get_array_length() == 10);
     let mut object = js.new_object();
-    let mut val = js.new_str("Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
+    let mut val = js.new_str("Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string()).unwrap();
     js.set_field(&object, "x".to_string(), &mut val);
     js.set_index(&array, 3, &mut object);
     assert!(js.set_global_var("$array".to_string(), array));
@@ -151,10 +157,10 @@ fn base_test() {
     let array = js.new_array();
     assert!(array.is_array() && array.get_array_length() == 0);
     let mut object = js.new_object();
-    let mut val = js.new_str("Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
+    let mut val = js.new_str("Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string()).unwrap();
     js.set_field(&object, "x".to_string(), &mut val);
     js.set_index(&array, 3, &mut object);
-    let mut val = js.new_str("Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string());
+    let mut val = js.new_str("Hello Hello Hello Hello Hello Hello你好^)(*&^%%$#^\r\n".to_string()).unwrap();
     js.set_index(&array, 30, &mut val); //数组自动扩容
     {
         let tmp = array.get_index(3);
@@ -258,22 +264,22 @@ fn test_vm_factory() {
     let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
-    let opts = js.compile("test_vm_factory.js".to_string(), "var buf = undefined; var tmp = 0; function call(x, y) { buf = new ArrayBuffer(256 * 1024 * 1024); console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", y length: \" + y.length + \", tmp: \" + tmp); tmp += 1; throw(\"test call throw\"); };".to_string());
+    let opts = js.compile("test_vm_factory.js".to_string(), "var tmp = 0; function call(x, y) { var buf = undefined; if (buf != undefined) { console.log(\"buf len:\", buf.byteLength); throw(new Error(\"invalid global\")); } buf = new ArrayBuffer(256 * 1024 * 1024); console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", y length: \" + y.length + \", tmp: \" + tmp); tmp += 1; throw(\"test call throw\"); };".to_string());
     assert!(opts.is_some());
     let code = opts.unwrap();
 
     //要测试虚拟机复用，需要将factory capacity设置为大于0，且produce生成的虚拟机数量应该大于0
     //如果需要测试虚拟机不复用，需要将factory capacity和produce都设置为0
-    let factory = VMFactory::new("test vm", 3, 2, 536870912, 536870912, Arc::new(NativeObjsAuth::new(None, None)));
+    let factory = VMFactory::new("test vm", 1, 29, 536870912, 536870912, Arc::new(NativeObjsAuth::new(None, None)));
     let factory = factory.append(Arc::new(code));
-    match factory.produce(3) {
+    match factory.produce(1) {
         Err(e) => println!("factory produce failed, e: {:?}", e),
         Ok(len) => {
             println!("!!!!!!factory vm len: {:?}", len);
             let now = Instant::now();
-            for _ in 0..30 {
+            for _ in 0..32 {
                 let func = Box::new(move |js: Arc<JS>| {
-                    js.new_str("Hello World".to_string());
+                    js.new_str("Hello World".to_string()).unwrap();
                     js.new_f32(0.999999);
                     2usize
                 });
@@ -307,22 +313,22 @@ fn test_vm_factory_sync_call() {
     let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
-    let opts = js.compile("test_vm_factory.js".to_string(), "var buf = undefined; function call(x, y) { buf = new ArrayBuffer(256 * 1024 * 1024); var r = NativeObject.call(0x1, [true, 10, \"Hello World!\"]); console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", r: \" + r); throw(\"test sync throw\"); };".to_string());
+    let opts = js.compile("test_vm_factory.js".to_string(), "function call(x, y) { var buf = undefined; if (buf != undefined) { console.log(\"buf len:\", buf.byteLength); throw(new Error(\"invalid global\")); } buf = new ArrayBuffer(256 * 1024 * 1024); var r = NativeObject.call(0x1, [true, 10, \"Hello World!\"]); console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", r: \" + r); throw(\"test sync throw\"); };".to_string());
     assert!(opts.is_some());
     let code = opts.unwrap();
 
     //要测试虚拟机复用，需要将factory capacity设置为大于0，且produce生成的虚拟机数量应该大于0
     //如果需要测试虚拟机不复用，需要将factory capacity和produce都设置为0
-    let factory = VMFactory::new("test vm", 3, 2, 536870912, 536870912, Arc::new(NativeObjsAuth::new(None, None)));
+    let factory = VMFactory::new("test vm", 1, 29, 536870912, 536870912, Arc::new(NativeObjsAuth::new(None, None)));
     let factory = factory.append(Arc::new(code));
-    match factory.produce(3) {
+    match factory.produce(1) {
         Err(e) => println!("factory produce failed, e: {:?}", e),
         Ok(len) => {
             println!("!!!!!!factory vm len: {:?}", len);
             let now = Instant::now();
-            for _ in 0..30 {
+            for _ in 0..32 {
                 let func = Box::new(move |js: Arc<JS>| {
-                    js.new_str("Hello World".to_string());
+                    js.new_str("Hello World".to_string()).unwrap();
                     js.new_f32(0.999999);
                     2usize
                 });
@@ -357,22 +363,22 @@ fn test_vm_factory_block_call() {
     let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
-    let opts = js.compile("test_vm_factory.js".to_string(), "var buf = undefined; function call(x, y) { buf = new ArrayBuffer(256 * 1024 * 1024); NativeObject.call(0x1, [true, 10, \"Hello World!\"]); var r = __thread_yield(); console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", r: \" + r); NativeObject.call(0x10, [10]); r = __thread_yield(); };".to_string());
+    let opts = js.compile("test_vm_factory.js".to_string(), "function call(x, y) { var buf = undefined; if (buf != undefined) { console.log(\"buf len:\", buf.byteLength); throw(new Error(\"invalid global\")); } buf = new ArrayBuffer(256 * 1024 * 1024); NativeObject.call(0x1, [true, 10, \"Hello World!\"]); var r = __thread_yield(); console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", r: \" + r); NativeObject.call(0x10, [10]); r = __thread_yield(); };".to_string());
     assert!(opts.is_some());
     let code = opts.unwrap();
 
     //要测试虚拟机复用，需要将factory capacity设置为大于0，且produce生成的虚拟机数量应该大于0
     //如果需要测试虚拟机不复用，需要将factory capacity和produce都设置为0
-    let factory = VMFactory::new("test vm", 3, 2, 536870912, 536870912, Arc::new(NativeObjsAuth::new(None, None)));
+    let factory = VMFactory::new("test vm", 1, 29, 536870912, 536870912, Arc::new(NativeObjsAuth::new(None, None)));
     let factory = factory.append(Arc::new(code));
-    match factory.produce(3) {
+    match factory.produce(1) {
         Err(e) => println!("factory produce failed, e: {:?}", e),
         Ok(len) => {
             println!("!!!!!!factory vm len: {:?}", len);
             let now = Instant::now();
-            for _ in 0..30 {
+            for _ in 0..32 {
                 let func = Box::new(move |js: Arc<JS>| {
-                    js.new_str("Hello World".to_string());
+                    js.new_str("Hello World".to_string()).unwrap();
                     js.new_f32(0.999999);
                     2usize
                 });
@@ -399,6 +405,23 @@ fn js_test_vm_factory_block_call(js: Arc<JS>, _args: Vec<JSType>) -> Option<Call
 fn js_test_vm_factory_block_throw(js: Arc<JS>, _args: Vec<JSType>) -> Option<CallResult> {
     block_throw(js, "test block throw".to_string(), Atom::from("block throw task"));
     None
+}
+
+#[test]
+fn test_vm_collect() {
+    let mut rng = SmallRng::from_entropy();
+
+    let mut x = 0;
+    let mut y = 0;
+    let r = 0.5f64.powf(8.0).powf(0.9);
+    for _ in 0..10000 {
+        if rng.gen_bool(r) {
+            x += 1;
+        } else {
+            y += 1;
+        }
+    }
+    println!("!!!!!!r: {}, x: {}, y: {}", r, x, y);
 }
 
 // #[test]

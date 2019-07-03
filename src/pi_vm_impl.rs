@@ -2,17 +2,16 @@ use std::boxed::FnBox;
 use std::ffi::CString;
 use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-
-use crossbeam_channel::{bounded, Sender, Receiver, TryRecvError};
+use std::sync::atomic::{AtomicBool, AtomicUsize, AtomicIsize, Ordering};
 
 use worker::task::TaskType;
 use worker::impls::{create_js_task_queue, unlock_js_task_queue, cast_js_task, remove_js_task_queue};
 use handler::Handler;
 use atom::Atom;
-use apm::counter::{GLOBAL_PREF_COLLECT, PrefCounter, PrefTimer};
+use apm::{allocator::{get_max_alloced_limit, is_alloced_limit, all_alloced_size}, counter::{GLOBAL_PREF_COLLECT, PrefCounter, PrefTimer}};
+use lfstack::LFStack;
 
-use adapter::{JSStatus, JS, JSType, pause, js_reply_callback, handle_async_callback, try_js_destroy, dukc_vm_status_check, dukc_vm_status_switch, dukc_new_error, dukc_wakeup, dukc_continue};
+use adapter::{VM_FACTORY_REGISTERS, JSStatus, JS, JSType, pause, js_reply_callback, handle_async_callback, try_js_destroy, dukc_vm_status_check, dukc_vm_status_switch, dukc_new_error, dukc_wakeup, dukc_continue, now_utc};
 use channel_map::VMChannelMap;
 use bonmgr::NativeObjsAuth;
 
@@ -89,21 +88,23 @@ pub struct VMFactory {
     capacity:           usize,                  //虚拟机容量
     size:               Arc<AtomicUsize>,       //虚拟机工厂当前虚拟机数量
     alloc_id:           Arc<AtomicUsize>,       //虚拟机分配id
-    min_reused_count:   usize,                  //虚拟机最小执行次数，当达到最小堆大小限制后才会检查最小执行次数
-    min_heap_size:      usize,                  //虚拟机最小堆大小，当达到限制会在虚拟机执行指定数量后释放可回收的内存
-    max_heap_size:      usize,                  //虚拟机最大堆大小，当达到限制会在虚拟机清理后立即释放可回收的内存
+    max_reused_count:   usize,                  //虚拟机最大执行次数，当达到虚拟机最大堆限制后才会检查
+    heap_size:          usize,                  //虚拟机堆大小
+    max_heap_size:      usize,                  //虚拟机最大堆大小，当达到限制后释放可回收的内存
     codes:              Arc<Vec<Arc<Vec<u8>>>>, //字节码列表
-    producer:           Arc<Sender<Arc<JS>>>,   //虚拟机生产者
-    consumer:           Arc<Receiver<Arc<JS>>>, //虚拟机消费者
+    pool:               Arc<LFStack<Arc<JS>>>,  //虚拟机池
     auth:               Arc<NativeObjsAuth>,    //虚拟机工厂本地对象授权
 }
+
+unsafe impl Send for VMFactory {}
+unsafe impl Sync for VMFactory {}
 
 impl VMFactory {
     //构建一个虚拟机工厂
     pub fn new(name: &str,
                mut size: usize,
-               min_reused_count: usize,
-               min_heap_size: usize,
+               max_reused_count: usize,
+               heap_size: usize,
                max_heap_size: usize,
                auth: Arc<NativeObjsAuth>) -> Self {
         let capacity = size;
@@ -111,18 +112,16 @@ impl VMFactory {
             size = 1;
         }
 
-        let (p, c) = bounded(size);
         VMFactory {
             name: Atom::from(name),
             capacity,
             size: Arc::new(AtomicUsize::new(0)),
             alloc_id: Arc::new(AtomicUsize::new(0)),
-            min_reused_count,
-            min_heap_size,
+            max_reused_count,
+            heap_size,
             max_heap_size,
             codes: Arc::new(Vec::new()),
-            producer: Arc::new(p),
-            consumer: Arc::new(c),
+            pool: Arc::new(LFStack::new()),
             auth: auth.clone(),
         }
     }
@@ -150,26 +149,32 @@ impl VMFactory {
 
     //获取当前虚拟机池中空闲虚拟机数量
     pub fn free_size(&self) -> usize {
-        self.producer.len()
+        self.pool.size()
     }
 
-    //获取虚拟机最小执行次数
-    pub fn min_reused_count(&self) -> usize {
-        self.min_reused_count
+    //获取虚拟机最大执行次数
+    pub fn max_reused_count(&self) -> usize {
+        self.max_reused_count
     }
 
-    //获取虚拟机最小堆大小
-    pub fn min_heap_size(&self) -> usize {
-        self.min_heap_size
+    //获取虚拟机堆限制
+    pub fn heap_size(&self) -> usize {
+        self.heap_size
     }
 
-    //获取虚拟机最大堆大小
+    //获取虚拟机最大堆限制
     pub fn max_heap_size(&self) -> usize {
         self.max_heap_size
     }
 
     //生成指定数量的虚拟机，返回生成前虚拟机池中虚拟机数量
     pub fn produce(&self, count: usize) -> Result<usize, String> {
+        let factory_name = (&self.name).to_string();
+        if !VM_FACTORY_REGISTERS.read().unwrap().contains_key(&factory_name) {
+            //注册虚拟机工厂
+            VM_FACTORY_REGISTERS.write().unwrap().insert(factory_name, self.clone());
+        }
+
         if count == 0 {
             return Ok(count);
         }
@@ -187,18 +192,22 @@ impl VMFactory {
                                        (&self.name).to_string()))
                 },
                 Some(vm) => {
-                    match self.producer.try_send(vm) {
-                        Err(e) => {
-                            return Err(format!("vm factory full, new vm failed, factory: {:?}, e: {:?}",
-                                               (&self.name).to_string(), e));
-                        },
-                        Ok(_) => continue,
-                    }
+                    self.pool.push(vm);
                 }
             }
         }
 
         return Ok(self.size());
+    }
+
+    //复用指定虚拟机
+    pub fn reuse(&self, vm: Arc<JS>) {
+        self.pool.push(vm);
+    }
+
+    //丢弃指定数量的虚拟机，返回最近虚拟机池中虚拟机数量
+    pub fn throw(&self, count: usize) -> usize {
+        self.size.fetch_sub(count, Ordering::SeqCst)
     }
 
     //重置指定数量的虚拟机，返回生成前虚拟机池中虚拟机数量
@@ -224,8 +233,8 @@ impl VMFactory {
     //从虚拟机池中获取一个虚拟机，根据源创建同步任务队列，并调用指定的js全局函数
     pub fn call(&self, src: Option<usize>, port: Atom, args: Box<FnBox(Arc<JS>) -> usize>, info: Atom) {
         //弹出虚拟机，以保证同一时间只有一个线程访问同一个虚拟机
-        match self.consumer.try_recv() {
-            Err(e) if e == TryRecvError::Empty => {
+        match self.pool.pop() {
+            None => {
                 //没有空闲虚拟机，则立即构建新的虚拟机
                 match self.new_vm(self.auth.clone()) {
                     None => {
@@ -238,15 +247,16 @@ impl VMFactory {
                     }
                 }
             },
-            Ok(vm) => {
+            Some(vm) => {
                 //有空闲虚拟机，则运行
                 self.async_run(vm, src, port, args, info);
             },
-            Err(e) => {
-                panic!("Vm Factory Call Error, factory: {:?}, size: {:?}, e: {:?}",
-                       (&self.name).to_string(), self.size(), e);
-            },
         }
+    }
+
+    //整理虚拟机工厂的虚拟机池
+    pub fn collect(&self, handler: Arc<Fn(&mut Arc<JS>) -> bool>) {
+        self.pool.collect(handler);
     }
 
     //构建一个虚拟机，加载所有字节码，并提供虚拟机本地对象授权
@@ -271,6 +281,7 @@ impl VMFactory {
                     new_curr_size => {
                         //原子增加当前虚拟机数量失败，但虚拟机数量未达上限，则从新的当前虚拟机数量开始重试
                         curr_size = new_curr_size;
+                        pause();
                     }
                 }
             }
@@ -285,7 +296,7 @@ impl VMFactory {
             JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), auth.clone(), None)
         } else {
             //构建一个可以复用的虚拟机
-            JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), auth.clone(), Some((Arc::new(AtomicBool::new(false)), self.producer.clone(), Arc::new(self.clone()))))
+            JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), auth.clone(), Some((Arc::new(AtomicBool::new(false)), Arc::new(self.clone()))))
         };
 
         match result {
@@ -321,6 +332,8 @@ impl VMFactory {
 
                     vm.unlock_collection(); //解锁回收器，必须在虚拟机初始化、加载代码、运行代码等操作后解锁
                 }
+
+                vm.update_last_heap_size(); //更新初始化后虚拟机的堆大小和内存占用
 
                 println!("===> Vm Factory Create Vm Ok, factory: {:?}, vm: {:?}",
                          (&self.name).to_string(), vm);
