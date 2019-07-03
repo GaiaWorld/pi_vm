@@ -1995,7 +1995,7 @@ impl JSBuffer {
 * 线程安全的设置虚拟机超时时长，单位ms，返回上次超时时长
 */
 pub fn set_vm_timeout(timeout: usize) -> usize {
-    VM_TIMEOUT.swap(timeout, Ordering::SeqCst) / 1000
+    VM_TIMEOUT.swap(timeout * 1000, Ordering::SeqCst) / 1000
 }
 
 /*
