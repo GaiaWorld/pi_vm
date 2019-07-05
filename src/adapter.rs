@@ -2030,8 +2030,10 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
 
             factory.collect(Arc::new(move |vm: &mut Arc<JS>| {
                 //整理当前虚拟机工厂内，所有空闲的虚拟机
-                if (vm_timeout > 0) && (now - vm.last_time()) >= vm_timeout {
-                    //虚拟机已超时，则丢弃
+                if (factory_copy.size() > 1)
+                    && (vm_timeout > 0)
+                    && (now - vm.last_time()) >= vm_timeout {
+                    //虚拟机已超时且不是当前虚拟机工厂的唯一虚拟机，则丢弃
                     factory_copy.throw(1);
                     timeout_count_copy.fetch_add(1, Ordering::Relaxed);
                     true
@@ -2049,7 +2051,7 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
                 register_global_vm_heap_collect_timer(collect_timeout);
             }
 
-            println!("===> Vm Global Timeout Collect Finish, count: {}, before: {}, after: {}, limit: {}, time: {:?}",
+            println!("===> Vm Global Timeout Collect Finish, timeout count: {}, before: {}, after: {}, limit: {}, time: {:?}",
                      timeout_count.load(Ordering::Relaxed), last_heap_size, current_heap_size, max_heap_limit, Instant::now() - start_time);
             return;
         }
@@ -2075,8 +2077,9 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
 
         last_heap_size = current_heap_size;
         current_heap_size = all_alloced_size();
-        println!("===> Vm Global Throw Collect Finish, count: {}, before: {}, after: {}, limit: {}, time: {:?}",
-                 throw_count.load(Ordering::Relaxed), last_heap_size, current_heap_size, max_heap_limit, Instant::now() - start_time);
+        println!("===> Vm Global Throw Collect Finish, timeout count: {}, throw count: {}, before: {}, after: {}, limit: {}, time: {:?}",
+                 timeout_count.load(Ordering::Relaxed), throw_count.load(Ordering::Relaxed),
+                 last_heap_size, current_heap_size, max_heap_limit, Instant::now() - start_time);
     }));
 
     TIMER.set_timeout(runner, collect_timeout as u32);
