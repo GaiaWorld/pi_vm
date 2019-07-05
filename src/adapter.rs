@@ -23,7 +23,7 @@ use rand::rngs::SmallRng;
 use crossbeam_queue::{PopError, SegQueue};
 
 use worker::task::TaskType;
-use worker::impls::{create_js_task_queue, lock_js_task_queue, unlock_js_task_queue, cast_js_task};
+use worker::impls::{create_js_task_queue, lock_js_task_queue, unlock_js_task_queue, cast_js_task, cast_js_delay_task};
 use apm::{allocator::{VM_ALLOCATED, get_max_alloced_limit, is_alloced_limit, vm_alloced_size, all_alloced_size}, counter::{GLOBAL_PREF_COLLECT, PrefCounter, PrefTimer}};
 use timer::{TIMER, FuncRuner};
 use atom::Atom;
@@ -163,7 +163,7 @@ pub extern "C" fn js_reply_callback(handler: *const c_void_ptr, status: c_int, e
         if status != 0 {
             VM_INIT_PANIC_COUNT.sum(1);
 
-            println!("===> JS Init Error, status: {}, err: {}",
+            println!("!!!> JS Init Error, status: {}, err: {}",
                      status, unsafe { CStr::from_ptr(err).to_string_lossy().into_owned() });
         }
         return;
@@ -178,13 +178,10 @@ pub extern "C" fn js_reply_callback(handler: *const c_void_ptr, status: c_int, e
         //处理执行异常
         if status != 0 {
             //有异常，则重置虚拟机线程全局变量，保证虚拟机可以继续运行
-            let null = js.new_null();
-            js.set_global_var(JS_THREAD_GLOBAL_VAR_NAME.to_string(), null);
-
             VM_RUN_PANIC_COUNT.sum(1);
 
-            println!("===> JS Run Error, vm: {:?}, err: {}", js,
-                     CStr::from_ptr(err).to_string_lossy().into_owned());
+            println!("!!!> JS Run Error, vm: {:?}, err: {}",
+                     js, CStr::from_ptr(err).to_string_lossy().into_owned());
         }
 
         js.update_last_heap_size(); //在js当前任务执行完成后，更新虚拟机堆大小和内存占用
@@ -468,7 +465,8 @@ impl JS {
     }
 
     //向指定虚拟机的消息队列中推送消息
-    pub fn push(js: Arc<JS>, task_type: TaskType, callback: u32, args: Box<FnBox(Arc<JS>) -> usize>, info: Atom) -> usize {
+    pub fn push(js: Arc<JS>, task_type: TaskType, callback: u32,
+                args: Box<FnBox(Arc<JS>) -> usize>, timeout: Option<u32>, info: Atom) -> Option<isize> {
         let js_copy = js.clone();
         let func = Box::new(move |_lock| {
             let vm: *const c_void_ptr;
@@ -486,9 +484,15 @@ impl JS {
             let args_len = (args)(js_copy.clone());
             unsafe { dukc_call(vm, args_len as u8, js_reply_callback); }
         });
-        let size = js.queue.size.fetch_add(1, Ordering::SeqCst) + 1; //增加消息队列长度，并返回
-        cast_js_task(task_type, 0, Some(js.get_queue()), func, info); //向指定虚拟机的消息队列推送异步回调任务
-        size
+        js.queue.size.fetch_add(1, Ordering::SeqCst) + 1; //增加消息队列长度，并返回
+
+        if let Some(time) = timeout {
+            //向指定虚拟机的消息队列推送延迟异步回调任务
+            cast_js_delay_task(task_type, 0, Some(js.get_queue()), func, time, info)
+        } else {
+            //向指定虚拟机的消息队列推送异步回调任务
+            cast_js_task(task_type, 0, Some(js.get_queue()), func, info)
+        }
     }
 
     //获取内部虚拟机
@@ -2025,11 +2029,13 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
             let timeout_count_copy = timeout_count.clone();
             let cache = Arc::new(SegQueue::new());
             let cache_copy = cache.clone();
+            let factory_copy = factory.clone();
 
             factory.collect(Arc::new(move |vm: &mut Arc<JS>| {
                 //整理当前虚拟机工厂内，所有空闲的虚拟机
                 if (vm_timeout > 0) && (now - vm.last_time()) >= vm_timeout {
                     //虚拟机已超时，则丢弃
+                    factory_copy.throw(1);
                     timeout_count_copy.fetch_add(1, Ordering::Relaxed);
                     true
                 } else {
@@ -2065,7 +2071,7 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
         for i in 0..caches.len() {
             let (_, cache) = &caches[i];
             while let Ok(vm) = cache.pop() {
-                //设置虚拟机上次运行时间为0，以保证虚拟机在下次全局整理中被丢弃，并释放虚拟机引用
+                //设置虚拟机上次运行时间为0，以保证虚拟机在下次全局整理中被丢弃，并释放缓存的虚拟机引用
                 vm.set_last_time(0);
                 throw_count += 1;
             }

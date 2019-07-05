@@ -5,8 +5,10 @@ extern crate worker;
 extern crate util;
 extern crate atom;
 extern crate task_pool;
+extern crate timer;
 extern crate handler;
 extern crate pi_vm;
+extern crate apm;
 
 use std::mem;
 use std::thread;
@@ -24,16 +26,18 @@ use rand::{Rng, SeedableRng};
 use rand::rngs::SmallRng;
 
 use handler::{Env, GenType, Handler, Args};
-use worker::task::TaskType;
-use worker::worker::WorkerType;
+use timer::TIMER;
 use atom::Atom;
 use task_pool::TaskPool;
+use worker::task::TaskType;
+use worker::worker::WorkerType;
 use worker::worker_pool::WorkerPool;
-use worker::impls::{JS_WORKER_WALKER, JS_TASK_POOL, create_js_task_queue, lock_js_task_queue, unlock_js_task_queue, cast_js_task};
+use worker::impls::{TASK_POOL_TIMER, JS_WORKER_WALKER, JS_TASK_POOL, create_js_task_queue, lock_js_task_queue, unlock_js_task_queue, cast_js_task};
 use pi_vm::pi_vm_impl::{VMFactory, block_reply, block_throw, push_callback, register_async_request};
-use pi_vm::adapter::{load_lib_backtrace, register_native_object, dukc_remove_value, dukc_top, JS, JSType};
+use pi_vm::adapter::{load_lib_backtrace, register_native_object, dukc_remove_value, dukc_top, JS, JSType, set_vm_timeout};
 use pi_vm::channel_map::VMChannel;
 use pi_vm::bonmgr::{CallResult, NativeObjsAuth, FnMeta, BON_MGR};
+use apm::allocator::set_max_alloced_limit;
 
 // // #[test]
 // fn njsc_test() {
@@ -256,8 +260,11 @@ fn base_test() {
 //测试从虚拟机工厂进行虚拟机js执行
 #[test]
 fn test_vm_factory() {
+    TIMER.run();
     let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 8, 1024 * 1024, 30000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
+    set_max_alloced_limit(268435456);
+    set_vm_timeout(1000);
 
     load_lib_backtrace();
     register_native_object();
@@ -303,8 +310,11 @@ fn register_native_function(id: u32, fun: fn(Arc<JS>, Vec<JSType>) -> Option<Cal
 //测试从虚拟机工厂进行虚拟机同步调用
 #[test]
 fn test_vm_factory_sync_call() {
+    TIMER.run();
     let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 8, 1024 * 1024, 30000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
+    set_max_alloced_limit(268435456);
+    set_vm_timeout(1000);
 
     //初始化同步调用的环境
     register_native_object();
@@ -352,8 +362,11 @@ fn js_test_vm_factory_sync_call(js: Arc<JS>, _args: Vec<JSType>) -> Option<CallR
 //测试从虚拟机工厂进行虚拟机阻塞调用
 #[test]
 fn test_vm_factory_block_call() {
+    TIMER.run();
     let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 8, 1024 * 1024, 30000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
+    set_max_alloced_limit(268435456);
+    set_vm_timeout(1000);
 
     //初始化阻塞调用的环境
     register_native_object();
@@ -405,6 +418,74 @@ fn js_test_vm_factory_block_call(js: Arc<JS>, _args: Vec<JSType>) -> Option<Call
 fn js_test_vm_factory_block_throw(js: Arc<JS>, _args: Vec<JSType>) -> Option<CallResult> {
     block_throw(js, "test block throw".to_string(), Atom::from("block throw task"));
     None
+}
+
+//测试从虚拟机工厂进行虚拟机异步回调
+#[test]
+fn test_vm_factory_async_callback() {
+    TIMER.run();
+    TASK_POOL_TIMER.run();
+    let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 8, 1024 * 1024, 30000, JS_WORKER_WALKER.clone()));
+    worker_pool.run(JS_TASK_POOL.clone());
+    set_max_alloced_limit(268435456);
+    set_vm_timeout(1000);
+
+    //初始化阻塞调用的环境
+    register_native_object();
+    register_native_function(0x1, js_test_vm_factory_block_call);
+    register_native_function(0x10, js_test_vm_factory_block_throw);
+    register_native_function(0x100, js_async_callback_register_push);
+
+    let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
+    assert!(opts.is_some());
+    let js = opts.unwrap();
+    let opts = js.compile("test_vm_factory.js".to_string(), "function callback(x, y, z) { console.log(\"!!!!!!async callback ok, x:\", x, \", y:\", y, \", z:\", z); NativeObject.call(0x1, [true, 10, \"Hello Callback!\"]); var r = __thread_yield(); console.log(\"!!!!!!block call in callback, result:\", r); NativeObject.call(0x10, [10]); r = __thread_yield(); } function call(x, y) { var buf = undefined; if (buf != undefined) { console.log(\"buf len:\", buf.byteLength); throw(new Error(\"invalid global\")); } buf = new ArrayBuffer(256 * 1024 * 1024); var index = callbacks.register(callback); var handle = NativeObject.call(0x100, [index, 1000]); console.log(\"!!!!!!async callback index:\", index, \", handle:\", handle); NativeObject.call(0x1, [true, 10, \"Hello World!\"]); var r = __thread_yield(); console.log(\"!!!!!!x: \" + x + \", y: \" + y + \", r: \" + r); NativeObject.call(0x10, [10]); r = __thread_yield(); };".to_string());
+    assert!(opts.is_some());
+    let code = opts.unwrap();
+
+    //要测试虚拟机复用，需要将factory capacity设置为大于0，且produce生成的虚拟机数量应该大于0
+    //如果需要测试虚拟机不复用，需要将factory capacity和produce都设置为0
+    let factory = VMFactory::new("test vm", 1, 29, 536870912, 536870912, Arc::new(NativeObjsAuth::new(None, None)));
+    let factory = factory.append(Arc::new(code));
+    match factory.produce(1) {
+        Err(e) => println!("factory produce failed, e: {:?}", e),
+        Ok(len) => {
+            println!("!!!!!!factory vm len: {:?}", len);
+            let now = Instant::now();
+            for _ in 0..32 {
+                let func = Box::new(move |js: Arc<JS>| {
+                    js.new_str("Hello World".to_string()).unwrap();
+                    js.new_f32(0.999999);
+                    2usize
+                });
+                factory.call(None,
+                             Atom::from("call"),
+                             func,
+                             Atom::from("test factory call task"));
+                thread::sleep(Duration::from_millis(2000));
+            }
+            println!("!!!!!!time: {:?}", Instant::now() - now);
+        },
+    }
+    thread::sleep(Duration::from_millis(100000));
+}
+
+fn js_async_callback_register_push(js: Arc<JS>, args: Vec<JSType>) -> Option<CallResult> {
+    let callback = args[0].get_u32();
+    let timeout = args[1].get_u32();
+
+    let func = Box::new(move |vm: Arc<JS>| -> usize {
+        vm.new_u32(callback);
+        vm.new_u32(callback);
+        vm.new_u32(callback);
+        3
+    });
+    if let Some(handle) = push_callback(js.clone(), args[0].get_u32(), func, Some(timeout), Atom::from("register callback task")) {
+        js.new_i32(handle as i32);
+        Some(CallResult::Ok)
+    } else {
+        Some(CallResult::Err("set timeout failed".to_string()))
+    }
 }
 
 #[test]

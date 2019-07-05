@@ -120,7 +120,7 @@ impl VMChannel {
                             }
                             2
                         });
-                        push_callback(js.clone(), index, args, Atom::from("vm async call response task"));
+                        push_callback(js.clone(), index, args, None, Atom::from("vm async call response task"));
                     }
                 }
                 true

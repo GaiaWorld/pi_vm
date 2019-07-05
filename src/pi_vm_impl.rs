@@ -535,21 +535,27 @@ pub fn block_throw(js: Arc<JS>, reason: String, info: Atom) {
 }
 
 /*
-* 线程安全的向虚拟机推送异步回调函数，返回当前虚拟机异步消息队列长度，如果返回0，则表示推送失败
+* 线程安全的向虚拟机推送异步回调函数，延迟任务必须返回任务句柄，其它任务根据是否是动态任务确定是否返回任务句柄
 */
-pub fn push_callback(js: Arc<JS>, callback: u32, args: Box<FnBox(Arc<JS>) -> usize>, info: Atom) -> usize {
+pub fn push_callback(js: Arc<JS>, callback: u32, args: Box<FnBox(Arc<JS>) -> usize>, timeout: Option<u32>, info: Atom) -> Option<isize> {
     VM_PUSH_CALLBACK_COUNT.sum(1);
 
-    let count = JS::push(js.clone(), TaskType::Sync(true), callback, args, info);
-    unsafe {
-        let vm = js.get_vm();
-        let status = dukc_vm_status_switch(vm, JSStatus::WaitCallBack as i8, JSStatus::SingleTask as i8);
-        if status == JSStatus::WaitCallBack as i8 {
-            //当前虚拟机等待异步回调，因为其它任务已执行完成，任务结果已经从值栈中弹出，则只需立即执行异步回调函数
-            handle_async_callback(js, vm);
+    if timeout.is_some() {
+        //推送延迟异步任务
+        JS::push(js.clone(), TaskType::Sync(true), callback, args, timeout, info)
+    } else {
+        //推送异步任务
+        let handle = JS::push(js.clone(), TaskType::Sync(true), callback, args, timeout, info);
+        unsafe {
+            let vm = js.get_vm();
+            let status = dukc_vm_status_switch(vm, JSStatus::WaitCallBack as i8, JSStatus::SingleTask as i8);
+            if status == JSStatus::WaitCallBack as i8 {
+                //当前虚拟机等待异步回调，因为其它任务已执行完成，任务结果已经从值栈中弹出，则只需立即执行异步回调函数
+                handle_async_callback(js, vm);
+            }
         }
+        handle
     }
-    count
 }
 
 /*

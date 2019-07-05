@@ -346,7 +346,7 @@ fn js_async_callback_register_push(js: Arc<JS>, args: Vec<JSType>) -> Option<Cal
         vm.new_u32(callback);
         3
     });
-    push_callback(js.clone(), args[0].get_u32(), func, Atom::from("register callback task"));
+    push_callback(js.clone(), args[0].get_u32(), func, None, Atom::from("register callback task"));
     js.new_boolean(true);
     Some(CallResult::Ok)
 }
