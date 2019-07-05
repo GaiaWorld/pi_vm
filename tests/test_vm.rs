@@ -263,7 +263,7 @@ fn test_vm_factory() {
     TIMER.run();
     let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 8, 1024 * 1024, 30000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
-    set_max_alloced_limit(268435456);
+    set_max_alloced_limit(1073741824);
     set_vm_timeout(1000);
 
     load_lib_backtrace();
@@ -277,7 +277,7 @@ fn test_vm_factory() {
 
     //要测试虚拟机复用，需要将factory capacity设置为大于0，且produce生成的虚拟机数量应该大于0
     //如果需要测试虚拟机不复用，需要将factory capacity和produce都设置为0
-    let factory = VMFactory::new("test vm", 1, 29, 536870912, 536870912, Arc::new(NativeObjsAuth::new(None, None)));
+    let factory = VMFactory::new("test vm", 1, 27, 1073741824, 1073741824, Arc::new(NativeObjsAuth::new(None, None)));
     let factory = factory.append(Arc::new(code));
     match factory.produce(1) {
         Err(e) => println!("factory produce failed, e: {:?}", e),
@@ -313,7 +313,7 @@ fn test_vm_factory_sync_call() {
     TIMER.run();
     let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 8, 1024 * 1024, 30000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
-    set_max_alloced_limit(268435456);
+    set_max_alloced_limit(1073741824);
     set_vm_timeout(1000);
 
     //初始化同步调用的环境
@@ -329,7 +329,7 @@ fn test_vm_factory_sync_call() {
 
     //要测试虚拟机复用，需要将factory capacity设置为大于0，且produce生成的虚拟机数量应该大于0
     //如果需要测试虚拟机不复用，需要将factory capacity和produce都设置为0
-    let factory = VMFactory::new("test vm", 1, 29, 536870912, 536870912, Arc::new(NativeObjsAuth::new(None, None)));
+    let factory = VMFactory::new("test vm", 1, 27, 1073741824, 1073741824, Arc::new(NativeObjsAuth::new(None, None)));
     let factory = factory.append(Arc::new(code));
     match factory.produce(1) {
         Err(e) => println!("factory produce failed, e: {:?}", e),
@@ -365,7 +365,7 @@ fn test_vm_factory_block_call() {
     TIMER.run();
     let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 8, 1024 * 1024, 30000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
-    set_max_alloced_limit(268435456);
+    set_max_alloced_limit(1073741824);
     set_vm_timeout(1000);
 
     //初始化阻塞调用的环境
@@ -382,7 +382,7 @@ fn test_vm_factory_block_call() {
 
     //要测试虚拟机复用，需要将factory capacity设置为大于0，且produce生成的虚拟机数量应该大于0
     //如果需要测试虚拟机不复用，需要将factory capacity和produce都设置为0
-    let factory = VMFactory::new("test vm", 1, 29, 536870912, 536870912, Arc::new(NativeObjsAuth::new(None, None)));
+    let factory = VMFactory::new("test vm", 1, 27, 1073741824, 1073741824, Arc::new(NativeObjsAuth::new(None, None)));
     let factory = factory.append(Arc::new(code));
     match factory.produce(1) {
         Err(e) => println!("factory produce failed, e: {:?}", e),
@@ -427,7 +427,7 @@ fn test_vm_factory_async_callback() {
     TASK_POOL_TIMER.run();
     let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 8, 1024 * 1024, 30000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
-    set_max_alloced_limit(268435456);
+    set_max_alloced_limit(1073741824);
     set_vm_timeout(1000);
 
     //初始化阻塞调用的环境
@@ -445,7 +445,7 @@ fn test_vm_factory_async_callback() {
 
     //要测试虚拟机复用，需要将factory capacity设置为大于0，且produce生成的虚拟机数量应该大于0
     //如果需要测试虚拟机不复用，需要将factory capacity和produce都设置为0
-    let factory = VMFactory::new("test vm", 1, 29, 536870912, 536870912, Arc::new(NativeObjsAuth::new(None, None)));
+    let factory = VMFactory::new("test vm", 1, 27, 1073741824, 1073741824, Arc::new(NativeObjsAuth::new(None, None)));
     let factory = factory.append(Arc::new(code));
     match factory.produce(1) {
         Err(e) => println!("factory produce failed, e: {:?}", e),

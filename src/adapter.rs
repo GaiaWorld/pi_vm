@@ -2023,12 +2023,9 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
 
         //当前已分配内存已达最大堆限制，则开始虚拟机工厂的超时整理
         let timeout_count = Arc::new(AtomicUsize::new(0));
-        let mut caches = Vec::new();
         for factory in VM_FACTORY_REGISTERS.read().unwrap().values() {
             let now = now_utc();
             let timeout_count_copy = timeout_count.clone();
-            let cache = Arc::new(SegQueue::new());
-            let cache_copy = cache.clone();
             let factory_copy = factory.clone();
 
             factory.collect(Arc::new(move |vm: &mut Arc<JS>| {
@@ -2039,24 +2036,15 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
                     timeout_count_copy.fetch_add(1, Ordering::Relaxed);
                     true
                 } else {
-                    //虚拟机未超时，则将虚拟机引用加入整理缓存，并忽略
-                    cache_copy.push(vm.clone());
                     false
                 }
             }));
-
-            caches.push((factory.max_reused_count(), cache)); //保存当前虚拟机工厂的整理缓存
         }
 
         let mut last_heap_size = current_heap_size;
         current_heap_size = all_alloced_size();
         if !is_alloced_limit() {
-            //当前已分配内存未达最大堆限制，则将缓存的虚拟机引用释放，结束本次整理，并注册下次整理
-            for i in 0..caches.len() {
-                let (_, cache) = &caches[i];
-                while let Ok(vm) = cache.pop() {}
-            }
-
+            //当前已分配内存未达最大堆限制，则结束本次整理，并注册下次整理
             if collect_timeout > 0 {
                 register_global_vm_heap_collect_timer(collect_timeout);
             }
@@ -2066,15 +2054,18 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
             return;
         }
 
-        //当前已分配内存仍然已达最大堆限制，则开始虚拟机工厂的空闲虚拟机丢弃整理
-        let mut throw_count = 0;
-        for i in 0..caches.len() {
-            let (_, cache) = &caches[i];
-            while let Ok(vm) = cache.pop() {
-                //设置虚拟机上次运行时间为0，以保证虚拟机在下次全局整理中被丢弃，并释放缓存的虚拟机引用
-                vm.set_last_time(0);
-                throw_count += 1;
-            }
+        //当前已分配内存仍然已达最大堆限制，则立即丢弃虚拟机工厂的空闲虚拟机
+        let mut throw_count = Arc::new(AtomicUsize::new(0));;
+        for factory in VM_FACTORY_REGISTERS.read().unwrap().values() {
+            let throw_count_copy = throw_count.clone();
+            let factory_copy = factory.clone();
+
+            factory.collect(Arc::new(move |vm: &mut Arc<JS>| {
+                //丢弃当前虚拟机工厂内，所有空闲的虚拟机
+                factory_copy.throw(1);
+                throw_count_copy.fetch_add(1, Ordering::Relaxed);
+                true
+            }));
         }
 
         //丢弃整理完成，则结束本次整理，并注册下次整理
@@ -2085,7 +2076,7 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
         last_heap_size = current_heap_size;
         current_heap_size = all_alloced_size();
         println!("===> Vm Global Throw Collect Finish, count: {}, before: {}, after: {}, limit: {}, time: {:?}",
-                 throw_count, last_heap_size, current_heap_size, max_heap_limit, Instant::now() - start_time);
+                 throw_count.load(Ordering::Relaxed), last_heap_size, current_heap_size, max_heap_limit, Instant::now() - start_time);
     }));
 
     TIMER.set_timeout(runner, collect_timeout as u32);
