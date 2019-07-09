@@ -23,7 +23,7 @@ use rand::rngs::SmallRng;
 use crossbeam_queue::{PopError, SegQueue};
 
 use worker::task::TaskType;
-use worker::impls::{create_js_task_queue, js_task_size, lock_js_task_queue, unlock_js_task_queue, cast_js_task, cast_js_delay_task};
+use worker::impls::{create_js_task_queue, js_static_sync_task_size, js_dyn_sync_task_size, js_static_async_task_size, js_dyn_async_task_size, lock_js_task_queue, unlock_js_task_queue, cast_js_task, cast_js_delay_task};
 use apm::{allocator::{VM_ALLOCATED, get_max_alloced_limit, is_alloced_limit, vm_alloced_size, all_alloced_size}, counter::{GLOBAL_PREF_COLLECT, PrefCounter, PrefTimer}};
 use timer::{TIMER, FuncRuner};
 use atom::Atom;
@@ -2017,8 +2017,10 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
                 register_global_vm_heap_collect_timer(collect_timeout);
             }
 
-            println!("===> Vm Global Collect Ignore, current vm: {}, total: {}, limit: {}, js task: {}, time: {:?}",
-                     vm_alloced_size(), current_heap_size, max_heap_limit, js_task_size(), Instant::now() - start_time);
+            println!("===> Vm Global Collect Ignore, current vm: {}, total: {}, limit: {}, js static sync task: {}, js dyn sync task: {}, js static async task: {}, js dyn async task: {}, time: {:?}",
+                     vm_alloced_size(), current_heap_size, max_heap_limit,
+                     js_static_sync_task_size(), js_dyn_sync_task_size(), js_static_async_task_size(),
+                     js_dyn_async_task_size(), Instant::now() - start_time);
             return;
         }
 
@@ -2052,9 +2054,11 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
                 register_global_vm_heap_collect_timer(collect_timeout);
             }
 
-            println!("===> Vm Global Timeout Collect Finish, timeout count: {}, before: {}, after vm: {}, after total: {}, limit: {}, js task: {}, time: {:?}",
+            println!("===> Vm Global Collect Finish, timeout count: {}, throw count: 0, before: {}, after vm: {}, after total: {}, limit: {}, js static sync task: {}, js dyn sync task: {}, js static async task: {}, js dyn async task: {}, time: {:?}",
                      timeout_count.load(Ordering::Relaxed), last_heap_size, vm_alloced_size(),
-                     current_heap_size, max_heap_limit, js_task_size(), Instant::now() - start_time);
+                     current_heap_size, max_heap_limit, js_static_sync_task_size(),
+                     js_dyn_sync_task_size(), js_static_async_task_size(), js_dyn_async_task_size(),
+                     Instant::now() - start_time);
             return;
         }
 
@@ -2079,9 +2083,11 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
 
         last_heap_size = current_heap_size;
         current_heap_size = all_alloced_size();
-        println!("===> Vm Global Throw Collect Finish, timeout count: {}, throw count: {}, before: {}, after vm: {}, after total: {}, limit: {}, js task: {}, time: {:?}",
+        println!("===> Vm Global Collect Finish, timeout count: {}, throw count: {}, before: {}, after vm: {}, after total: {}, limit: {}, js static sync task: {}, js dyn sync task: {}, js static async task: {}, js dyn async task: {}, time: {:?}",
                  timeout_count.load(Ordering::Relaxed), throw_count.load(Ordering::Relaxed),
-                 last_heap_size, vm_alloced_size(), current_heap_size, max_heap_limit, js_task_size(), Instant::now() - start_time);
+                 last_heap_size, vm_alloced_size(), current_heap_size, max_heap_limit,
+                 js_static_sync_task_size(), js_dyn_sync_task_size(), js_static_async_task_size(),
+                 js_dyn_async_task_size(), Instant::now() - start_time);
     }));
 
     TIMER.set_timeout(runner, collect_timeout as u32);
