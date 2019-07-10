@@ -1,4 +1,3 @@
-use std::boxed::FnBox;
 use std::ffi::CString;
 use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
@@ -231,7 +230,7 @@ impl VMFactory {
     }
 
     //从虚拟机池中获取一个虚拟机，根据源创建同步任务队列，并调用指定的js全局函数
-    pub fn call(&self, src: Option<usize>, port: Atom, args: Box<FnBox(Arc<JS>) -> usize>, info: Atom) {
+    pub fn call(&self, src: Option<usize>, port: Atom, args: Box<FnOnce(Arc<JS>) -> usize>, info: Atom) {
         //弹出虚拟机，以保证同一时间只有一个线程访问同一个虚拟机
         match self.pool.pop() {
             None => {
@@ -347,7 +346,7 @@ impl VMFactory {
     }
 
     //异步运行指定虚拟机
-    fn async_run(&self, vm: Arc<JS>, src: Option<usize>, port: Atom, args: Box<FnBox(Arc<JS>) -> usize>, info: Atom) {
+    fn async_run(&self, vm: Arc<JS>, src: Option<usize>, port: Atom, args: Box<FnOnce(Arc<JS>) -> usize>, info: Atom) {
         let vm_copy = vm.clone();
         let func = Box::new(move |lock: Option<isize>| {
             if let Some(queue) = lock {
@@ -416,7 +415,7 @@ pub fn remove_queue(src: usize) -> Option<isize> {
 * 线程安全的在阻塞调用中设置全局变量，设置成功后执行下一个操作
 * 全局变量构建函数执行成功后，当前值栈必须存在且只允许存在一个值，失败则必须移除在值栈上的构建的所有值
 */
-pub fn block_set_global_var(js: Arc<JS>, name: String, var: Box<FnBox(Arc<JS>) -> Result<JSType, String>>, next: Box<FnBox(Result<Arc<JS>, BlockError>)>, info: Atom) {
+pub fn block_set_global_var(js: Arc<JS>, name: String, var: Box<FnOnce(Arc<JS>) -> Result<JSType, String>>, next: Box<FnOnce(Result<Arc<JS>, BlockError>)>, info: Atom) {
     let copy_js = js.clone();
     let copy_info = info.clone();
     let func = Box::new(move |_lock| {
@@ -465,7 +464,7 @@ pub fn block_set_global_var(js: Arc<JS>, name: String, var: Box<FnBox(Arc<JS>) -
 * 线程安全的回应阻塞调用
 * 返回值构建函数执行完成后，当前值栈必须存在且只允许存在一个值
 */
-pub fn block_reply(js: Arc<JS>, result: Box<FnBox(Arc<JS>)>, info: Atom) {
+pub fn block_reply(js: Arc<JS>, result: Box<FnOnce(Arc<JS>)>, info: Atom) {
     let copy_js = js.clone();
     let copy_info = info.clone();
     let func = Box::new(move |_lock| {
@@ -537,7 +536,7 @@ pub fn block_throw(js: Arc<JS>, reason: String, info: Atom) {
 /*
 * 线程安全的向虚拟机推送异步回调函数，延迟任务必须返回任务句柄，其它任务根据是否是动态任务确定是否返回任务句柄
 */
-pub fn push_callback(js: Arc<JS>, callback: u32, args: Box<FnBox(Arc<JS>) -> usize>, timeout: Option<u32>, info: Atom) -> Option<isize> {
+pub fn push_callback(js: Arc<JS>, callback: u32, args: Box<FnOnce(Arc<JS>) -> usize>, timeout: Option<u32>, info: Atom) -> Option<isize> {
     VM_PUSH_CALLBACK_COUNT.sum(1);
 
     if timeout.is_some() {

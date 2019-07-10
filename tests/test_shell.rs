@@ -1,5 +1,3 @@
-#![feature(fnbox)]
-
 extern crate atom;
 extern crate worker;
 extern crate pi_vm;
@@ -9,7 +7,6 @@ use std::io;
 use std::thread;
 use std::ffi::CStr;
 use std::sync::Arc;
-use std::boxed::FnBox;
 use std::sync::mpsc::channel;
 use std::io::{Read, Write, Result};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -83,7 +80,7 @@ fn test_shell() {
     let (resp_sender, resp_receiver) = channel();
 
     let req_sender_copy = req_sender.clone();
-    let resp = Arc::new(move |result: Result<Arc<Vec<u8>>>, req: Option<Box<FnBox(Arc<Vec<u8>>)>>| {
+    let resp = Arc::new(move |result: Result<Arc<Vec<u8>>>, req: Option<Box<FnOnce(Arc<Vec<u8>>)>>| {
         resp_sender.send(result);
         req_sender.send(req);
     });
@@ -101,7 +98,7 @@ fn test_shell() {
 
         println!("Shell v0.1");
 
-        let mut req: Option<Box<FnBox(Arc<Vec<u8>>)>> = None;
+        let mut req: Option<Box<FnOnce(Arc<Vec<u8>>)>> = None;
         loop {
             print!(">");
             io::stdout().flush();

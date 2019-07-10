@@ -1,5 +1,4 @@
 use std::thread;
-use std::boxed::FnBox;
 use std::cell::RefCell;
 use std::time::Duration;
 use std::sync::{Arc, RwLock};
@@ -252,7 +251,7 @@ impl ShellManager {
     //连接shell，连接成功，返回请求回调
     pub fn connect(&mut self,
                    id: usize,
-                   resp: Arc<Fn(Result<Arc<Vec<u8>>>, Option<Box<FnBox(Arc<Vec<u8>>)>>)>) -> Option<Box<FnBox(Arc<Vec<u8>>)>> {
+                   resp: Arc<Fn(Result<Arc<Vec<u8>>>, Option<Box<FnOnce(Arc<Vec<u8>>)>>)>) -> Option<Box<FnOnce(Arc<Vec<u8>>)>> {
 
         match self.shells.entry(id) {
             Entry::Vacant(_) => {
@@ -322,7 +321,7 @@ impl ShellManager {
 pub struct Shell {
     src: usize,                                                                     //shell源
     vm: Arc<JS>,                                                                    //shell虚拟机
-    resp: Option<Arc<Fn(Result<Arc<Vec<u8>>>, Option<Box<FnBox(Arc<Vec<u8>>)>>)>>,  //响应回调，参数包括执行结果和下次请求回调
+    resp: Option<Arc<Fn(Result<Arc<Vec<u8>>>, Option<Box<FnOnce(Arc<Vec<u8>>)>>)>>,  //响应回调，参数包括执行结果和下次请求回调
     is_accept: Arc<AtomicBool>,                                                     //是否接受对端请求
     complied: Arc<RefCell<HashMap<u64, String>>>,                                //已编译脚本缓存
 }
@@ -384,7 +383,7 @@ impl Shell {
     }
 
     //构建请求回调，每次向已连接的shell发送请求，都有唯一的一个请求回调，防止客户端的原因，导致虚拟机无法正常回收
-    fn new_request(&self) -> Box<FnBox(Arc<Vec<u8>>)> {
+    fn new_request(&self) -> Box<FnOnce(Arc<Vec<u8>>)> {
         let shell = self.clone();
         Box::new(move |bin: Arc<Vec<u8>>| {
             cast_shell_task(Arc::new(shell), bin);
@@ -411,7 +410,7 @@ fn cast_shell_task(shell: Arc<Shell>, bin: Arc<Vec<u8>>,) {
         if handle_command(shell.clone(), &script) {
             //指令已处理，构建下一次的请求回调，并响应本次请求
             let shell_copy = shell.clone();
-            let req: Option<Box<FnBox(Arc<Vec<u8>>)>> = Some(Box::new(move |bin: Arc<Vec<u8>>| {
+            let req: Option<Box<FnOnce(Arc<Vec<u8>>)>> = Some(Box::new(move |bin: Arc<Vec<u8>>| {
                 if !unlock_js_task_queue(shell_copy.vm.get_tasks()) {
                     panic!("!!!> Unlock js task queue failed, queue: {}", shell_copy.vm.get_tasks());
                 }
@@ -426,7 +425,7 @@ fn cast_shell_task(shell: Arc<Shell>, bin: Arc<Vec<u8>>,) {
             } else {
                 //构建下一次的请求回调，并响应本次请求
                 let shell_copy = shell.clone();
-                let req: Option<Box<FnBox(Arc<Vec<u8>>)>> = Some(Box::new(move |bin: Arc<Vec<u8>>| {
+                let req: Option<Box<FnOnce(Arc<Vec<u8>>)>> = Some(Box::new(move |bin: Arc<Vec<u8>>| {
                     if !unlock_js_task_queue(shell_copy.vm.get_tasks()) {
                         panic!("!!!> Unlock js task queue failed, queue: {}", shell_copy.vm.get_tasks());
                     }
@@ -453,7 +452,7 @@ fn wait_shell_reply(shell: Arc<Shell>) {
 
         //构建下一次的请求回调，并响应本次请求
         let shell_copy = shell.clone();
-        let req: Option<Box<FnBox(Arc<Vec<u8>>)>> = Some(Box::new(move |bin: Arc<Vec<u8>>| {
+        let req: Option<Box<FnOnce(Arc<Vec<u8>>)>> = Some(Box::new(move |bin: Arc<Vec<u8>>| {
             if !unlock_js_task_queue(shell_copy.vm.get_tasks()) {
                 panic!("!!!> Unlock js task queue failed, queue: {}", shell_copy.vm.get_tasks());
             }

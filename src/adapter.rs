@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use std::mem::transmute;
 use std::time::{Duration, SystemTime, Instant};
 use std::cell::RefCell;
-use std::boxed::FnBox;
 use std::sync::{Arc, RwLock};
 use std::ops::Drop;
 use std::thread;
@@ -466,7 +465,7 @@ impl JS {
 
     //向指定虚拟机的消息队列中推送消息
     pub fn push(js: Arc<JS>, task_type: TaskType, callback: u32,
-                args: Box<FnBox(Arc<JS>) -> usize>, timeout: Option<u32>, info: Atom) -> Option<isize> {
+                args: Box<FnOnce(Arc<JS>) -> usize>, timeout: Option<u32>, info: Atom) -> Option<isize> {
         let js_copy = js.clone();
         let func = Box::new(move |_lock| {
             let vm: *const c_void_ptr;

@@ -1,7 +1,6 @@
 #![crate_type = "rlib"]
 #![feature(asm)]
 #![feature(libc)]
-#![feature(fnbox)]
 #![feature(drain_filter)]
 #![feature(rustc_private)]
 #![feature(type_ascription)]
