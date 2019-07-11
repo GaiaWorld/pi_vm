@@ -2007,74 +2007,77 @@ pub fn set_vm_timeout(timeout: usize) -> usize {
 pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
     let vm_timeout = VM_TIMEOUT.load(Ordering::Relaxed);
     let runner = FuncRuner::new(Box::new(move || {
-        let start_time = Instant::now();
-        let mut current_heap_size = all_alloced_size();
-        let mut max_heap_limit = get_max_alloced_limit();
+        let func = Box::new(move |_lock| {
+            let start_time = Instant::now();
+            let mut current_heap_size = all_alloced_size();
+            let mut max_heap_limit = get_max_alloced_limit();
 
-        //开始虚拟机工厂的超时整理
-        let timeout_count = Arc::new(AtomicUsize::new(0));
-        for factory in VM_FACTORY_REGISTERS.read().unwrap().values() {
-            let now = now_utc();
-            let timeout_count_copy = timeout_count.clone();
-            let factory_copy = factory.clone();
+            //开始虚拟机工厂的超时整理
+            let timeout_count = Arc::new(AtomicUsize::new(0));
+            for factory in VM_FACTORY_REGISTERS.read().unwrap().values() {
+                let now = now_utc();
+                let timeout_count_copy = timeout_count.clone();
+                let factory_copy = factory.clone();
 
-            factory.collect(Arc::new(move |vm: &mut Arc<JS>| {
-                //整理当前虚拟机工厂内，所有空闲的虚拟机
-                if (factory_copy.size() > 1)
-                    && (vm_timeout > 0)
-                    && (now - vm.last_time()) >= vm_timeout {
-                    //虚拟机已超时且不是当前虚拟机工厂的唯一虚拟机，则丢弃
-                    factory_copy.throw(1);
-                    timeout_count_copy.fetch_add(1, Ordering::Relaxed);
-                    true
-                } else {
-                    false
+                factory.collect(Arc::new(move |vm: &mut Arc<JS>| {
+                    //整理当前虚拟机工厂内，所有空闲的虚拟机
+                    if (factory_copy.size() > 1)
+                        && (vm_timeout > 0)
+                        && (now - vm.last_time()) >= vm_timeout {
+                        //虚拟机已超时且不是当前虚拟机工厂的唯一虚拟机，则丢弃
+                        factory_copy.throw(1);
+                        timeout_count_copy.fetch_add(1, Ordering::Relaxed);
+                        true
+                    } else {
+                        false
+                    }
+                }));
+            }
+
+            let mut last_heap_size = current_heap_size;
+            current_heap_size = all_alloced_size();
+            if !is_alloced_limit() {
+                //当前已分配内存未达最大堆限制，则结束本次整理，并注册下次整理
+                if collect_timeout > 0 {
+                    register_global_vm_heap_collect_timer(collect_timeout);
                 }
-            }));
-        }
 
-        let mut last_heap_size = current_heap_size;
-        current_heap_size = all_alloced_size();
-        if !is_alloced_limit() {
-            //当前已分配内存未达最大堆限制，则结束本次整理，并注册下次整理
+                println!("===> Vm Global Collect Finish, timeout count: {}, throw count: 0, before: {}, after vm: {}, after total: {}, limit: {}, js static sync: {}, js dyn sync: {}, js static async: {}, js dyn async: {}, time: {:?}",
+                         timeout_count.load(Ordering::Relaxed), last_heap_size, vm_alloced_size(),
+                         current_heap_size, max_heap_limit, js_static_sync_task_size(),
+                         js_dyn_sync_task_size(), js_static_async_task_size(), js_dyn_async_task_size(),
+                         Instant::now() - start_time);
+                return;
+            }
+
+            //当前已分配内存仍然已达最大堆限制，则立即丢弃虚拟机工厂的空闲虚拟机
+            let mut throw_count = Arc::new(AtomicUsize::new(0));;
+            for factory in VM_FACTORY_REGISTERS.read().unwrap().values() {
+                let throw_count_copy = throw_count.clone();
+                let factory_copy = factory.clone();
+
+                factory.collect(Arc::new(move |vm: &mut Arc<JS>| {
+                    //丢弃当前虚拟机工厂内，所有空闲的虚拟机
+                    factory_copy.throw(1);
+                    throw_count_copy.fetch_add(1, Ordering::Relaxed);
+                    true
+                }));
+            }
+
+            //丢弃整理完成，则结束本次整理，并注册下次整理
             if collect_timeout > 0 {
                 register_global_vm_heap_collect_timer(collect_timeout);
             }
 
-            println!("===> Vm Global Collect Finish, timeout count: {}, throw count: 0, before: {}, after vm: {}, after total: {}, limit: {}, js static sync: {}, js dyn sync: {}, js static async: {}, js dyn async: {}, time: {:?}",
-                     timeout_count.load(Ordering::Relaxed), last_heap_size, vm_alloced_size(),
-                     current_heap_size, max_heap_limit, js_static_sync_task_size(),
-                     js_dyn_sync_task_size(), js_static_async_task_size(), js_dyn_async_task_size(),
-                     Instant::now() - start_time);
-            return;
-        }
-
-        //当前已分配内存仍然已达最大堆限制，则立即丢弃虚拟机工厂的空闲虚拟机
-        let mut throw_count = Arc::new(AtomicUsize::new(0));;
-        for factory in VM_FACTORY_REGISTERS.read().unwrap().values() {
-            let throw_count_copy = throw_count.clone();
-            let factory_copy = factory.clone();
-
-            factory.collect(Arc::new(move |vm: &mut Arc<JS>| {
-                //丢弃当前虚拟机工厂内，所有空闲的虚拟机
-                factory_copy.throw(1);
-                throw_count_copy.fetch_add(1, Ordering::Relaxed);
-                true
-            }));
-        }
-
-        //丢弃整理完成，则结束本次整理，并注册下次整理
-        if collect_timeout > 0 {
-            register_global_vm_heap_collect_timer(collect_timeout);
-        }
-
-        last_heap_size = current_heap_size;
-        current_heap_size = all_alloced_size();
-        println!("===> Vm Global Collect Finish, timeout count: {}, throw count: {}, before: {}, after vm: {}, after total: {}, limit: {}, js static sync: {}, js dyn sync: {}, js static async: {}, js dyn async: {}, time: {:?}",
-                 timeout_count.load(Ordering::Relaxed), throw_count.load(Ordering::Relaxed),
-                 last_heap_size, vm_alloced_size(), current_heap_size, max_heap_limit,
-                 js_static_sync_task_size(), js_dyn_sync_task_size(), js_static_async_task_size(),
-                 js_dyn_async_task_size(), Instant::now() - start_time);
+            last_heap_size = current_heap_size;
+            current_heap_size = all_alloced_size();
+            println!("===> Vm Global Collect Finish, timeout count: {}, throw count: {}, before: {}, after vm: {}, after total: {}, limit: {}, js static sync: {}, js dyn sync: {}, js static async: {}, js dyn async: {}, time: {:?}",
+                     timeout_count.load(Ordering::Relaxed), throw_count.load(Ordering::Relaxed),
+                     last_heap_size, vm_alloced_size(), current_heap_size, max_heap_limit,
+                     js_static_sync_task_size(), js_dyn_sync_task_size(), js_static_async_task_size(),
+                     js_dyn_async_task_size(), Instant::now() - start_time);
+        });
+        cast_js_task(TaskType::Async(false), 100, None, func, Atom::from("vm global collect task"));
     }));
 
     TIMER.set_timeout(runner, collect_timeout as u32);
