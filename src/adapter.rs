@@ -2010,20 +2010,8 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
         let start_time = Instant::now();
         let mut current_heap_size = all_alloced_size();
         let mut max_heap_limit = get_max_alloced_limit();
-        if !is_alloced_limit() {
-            //当前已分配内存未达最大堆限制，则忽略本次整理，并注册下次整理
-            if collect_timeout > 0 {
-                register_global_vm_heap_collect_timer(collect_timeout);
-            }
 
-            println!("===> Vm Global Collect Ignore, current vm: {}, total: {}, limit: {}, js static sync: {}, js dyn sync: {}, js static async: {}, js dyn async: {}, time: {:?}",
-                     vm_alloced_size(), current_heap_size, max_heap_limit,
-                     js_static_sync_task_size(), js_dyn_sync_task_size(), js_static_async_task_size(),
-                     js_dyn_async_task_size(), Instant::now() - start_time);
-            return;
-        }
-
-        //当前已分配内存已达最大堆限制，则开始虚拟机工厂的超时整理
+        //开始虚拟机工厂的超时整理
         let timeout_count = Arc::new(AtomicUsize::new(0));
         for factory in VM_FACTORY_REGISTERS.read().unwrap().values() {
             let now = now_utc();
