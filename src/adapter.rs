@@ -23,7 +23,7 @@ use crossbeam_queue::{PopError, SegQueue};
 
 use worker::task::TaskType;
 use worker::impls::{create_js_task_queue, js_static_sync_task_size, js_dyn_sync_task_size, js_static_async_task_size, js_dyn_async_task_size, lock_js_task_queue, unlock_js_task_queue, cast_js_task, cast_js_delay_task};
-use apm::{allocator::{FREE_SYSTEM_MEMORY_MAX_LIMIT, VM_ALLOCATED, get_max_alloced_limit, is_alloced_limit, vm_alloced_size, all_alloced_size, free_sys_mem}, counter::{GLOBAL_PREF_COLLECT, PrefCounter, PrefTimer}};
+use apm::{common::SysStat, allocator::{FREE_SYSTEM_MEMORY_MAX_LIMIT, VM_ALLOCATED, get_max_alloced_limit, is_alloced_limit, vm_alloced_size, all_alloced_size, free_sys_mem}, counter::{GLOBAL_PREF_COLLECT, PrefCounter, PrefTimer}};
 use timer::{TIMER, FuncRuner};
 use atom::Atom;
 use lfstack::LFStack;
@@ -31,6 +31,11 @@ use lfstack::LFStack;
 use native_object_impl::*;
 use bonmgr::{NativeObjs, NObject, NativeObjsAuth};
 use pi_vm_impl::VMFactory;
+
+/*
+* 多余的空闲内存上限，单位B，默认512MB
+*/
+pub const FREE_SYSTEM_MEMORY_MAX_LIMIT: u64 = 536870912;
 
 /*
 * 虚拟机消息队列默认优先级
@@ -2039,7 +2044,7 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
             current_heap_size = all_alloced_size();
             if !is_alloced_limit() {
                 //当前已分配内存未达最大堆限制，则结束本次整理，并注册下次整理
-                free_sys_mem(FREE_SYSTEM_MEMORY_MAX_LIMIT);
+                free_sys_mem(current_heap_size, FREE_SYSTEM_MEMORY_MAX_LIMIT);
 
                 if collect_timeout > 0 {
                     register_global_vm_heap_collect_timer(collect_timeout);
@@ -2067,15 +2072,15 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
                 }));
             }
 
-            free_sys_mem(FREE_SYSTEM_MEMORY_MAX_LIMIT);
+            last_heap_size = current_heap_size;
+            current_heap_size = all_alloced_size();
+            free_sys_mem(current_heap_size, FREE_SYSTEM_MEMORY_MAX_LIMIT);
 
             //丢弃整理完成，则结束本次整理，并注册下次整理
             if collect_timeout > 0 {
                 register_global_vm_heap_collect_timer(collect_timeout);
             }
 
-            last_heap_size = current_heap_size;
-            current_heap_size = all_alloced_size();
             println!("===> Vm Global Collect Finish, timeout count: {}, throw count: {}, before: {}, after vm: {}, after total: {}, limit: {}, js static sync: {}, js dyn sync: {}, js static async: {}, js dyn async: {}, time: {:?}",
                      timeout_count.load(Ordering::Relaxed), throw_count.load(Ordering::Relaxed),
                      last_heap_size, vm_alloced_size(), current_heap_size, max_heap_limit,
@@ -2086,4 +2091,49 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
     }));
 
     TIMER.set_timeout(runner, collect_timeout as u32);
+}
+
+//线程安全的回收多余的空闲系统内存
+#[cfg(any(windows))]
+fn free_sys_mem(_: usize, _: u64) -> bool {
+    true
+}
+
+//线程安全的回收多余的空闲系统内存
+#[cfg(any(unix))]
+fn free_sys_mem(current: usize, limit: u64) -> bool {
+    let start_time = Instant::now();
+    let sys = SysStat::new().special_platform().unwrap();
+    let pid = sys.process_current_pid();
+    if let Some((_, _, res, _, _, _)) = sys.process_memory(pid) {
+        if let Some(sub) = res.checked_sub(current as u64) {
+            if sub >= limit {
+                //多余的空闲内存已达限制，则回收多余的空闲内存
+                unsafe {
+                    if dukc_manual_free() == 0 {
+                        println!("===> Collect System Memory Ok, Free Failed, current: {}, before real: {}, after real: {}, limit: {}, time: {:?}", current, res, after_res, limit, Instant::now() - start_time);
+                        false
+                    } else {
+                        let after_res = if let Some((_, _, after, _, _, _)) = sys.process_memory(pid) {
+                            after
+                        } else {
+                            0
+                        };
+                        println!("===> Collect System Memory Ok, Free Ok, current: {}, before real: {}, after real: {}, limit: {}, time: {:?}", current, res, after_res, limit, Instant::now() - start_time);
+                        true
+                    }
+                }
+            } else {
+                //多余的空闲内存未达限制，则忽略
+                false
+            }
+        } else {
+            //内存占用异常，则回收失败
+            println!("!!!> Collect System Memory Failed, current: {}, real: {}, limit: {}", current, res, limit);
+            false
+        }
+    } else {
+        //获取不到当前进程内存占用，则回收失败
+        false
+    }
 }
