@@ -2015,7 +2015,7 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
     let runner = FuncRuner::new(Box::new(move || {
         let func = Box::new(move |_lock| {
             let start_time = Instant::now();
-            let mut current_heap_size = all_alloced_size();
+            let last_heap_size = all_alloced_size();
             let mut max_heap_limit = get_max_alloced_limit();
 
             //开始虚拟机工厂的超时整理
@@ -2040,11 +2040,9 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
                 }));
             }
 
-            let mut last_heap_size = current_heap_size;
-            current_heap_size = all_alloced_size();
             if !is_alloced_limit() {
                 //当前已分配内存未达最大堆限制，则结束本次整理，并注册下次整理
-                free_sys_mem(current_heap_size, FREE_SYSTEM_MEMORY_MAX_LIMIT);
+                free_sys_mem(all_alloced_size(), FREE_SYSTEM_MEMORY_MAX_LIMIT);
 
                 if collect_timeout > 0 {
                     register_global_vm_heap_collect_timer(collect_timeout);
@@ -2052,7 +2050,7 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
 
                 println!("===> Vm Global Collect Finish, timeout count: {}, throw count: 0, before: {}, after vm: {}, after total: {}, limit: {}, js static sync: {}, js dyn sync: {}, js static async: {}, js dyn async: {}, time: {:?}",
                          timeout_count.load(Ordering::Relaxed), last_heap_size, vm_alloced_size(),
-                         current_heap_size, max_heap_limit, js_static_sync_task_size(),
+                         all_alloced_size(), max_heap_limit, js_static_sync_task_size(),
                          js_dyn_sync_task_size(), js_static_async_task_size(), js_dyn_async_task_size(),
                          Instant::now() - start_time);
                 return;
@@ -2072,9 +2070,7 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
                 }));
             }
 
-            last_heap_size = current_heap_size;
-            current_heap_size = all_alloced_size();
-            free_sys_mem(current_heap_size, FREE_SYSTEM_MEMORY_MAX_LIMIT);
+            free_sys_mem(all_alloced_size(), FREE_SYSTEM_MEMORY_MAX_LIMIT);
 
             //丢弃整理完成，则结束本次整理，并注册下次整理
             if collect_timeout > 0 {
@@ -2083,7 +2079,7 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
 
             println!("===> Vm Global Collect Finish, timeout count: {}, throw count: {}, before: {}, after vm: {}, after total: {}, limit: {}, js static sync: {}, js dyn sync: {}, js static async: {}, js dyn async: {}, time: {:?}",
                      timeout_count.load(Ordering::Relaxed), throw_count.load(Ordering::Relaxed),
-                     last_heap_size, vm_alloced_size(), current_heap_size, max_heap_limit,
+                     last_heap_size, vm_alloced_size(), all_alloced_size(), max_heap_limit,
                      js_static_sync_task_size(), js_dyn_sync_task_size(), js_static_async_task_size(),
                      js_dyn_async_task_size(), Instant::now() - start_time);
         });
