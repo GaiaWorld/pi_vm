@@ -23,7 +23,7 @@ use crossbeam_queue::{PopError, SegQueue};
 
 use worker::task::TaskType;
 use worker::impls::{create_js_task_queue, js_static_sync_task_size, js_dyn_sync_task_size, js_static_async_task_size, js_dyn_async_task_size, lock_js_task_queue, unlock_js_task_queue, cast_js_task, cast_js_delay_task};
-use apm::{allocator::{VM_ALLOCATED, get_max_alloced_limit, is_alloced_limit, vm_alloced_size, all_alloced_size}, counter::{GLOBAL_PREF_COLLECT, PrefCounter, PrefTimer}};
+use apm::{allocator::{FREE_SYSTEM_MEMORY_MAX_LIMIT, VM_ALLOCATED, get_max_alloced_limit, is_alloced_limit, vm_alloced_size, all_alloced_size, free_sys_mem}, counter::{GLOBAL_PREF_COLLECT, PrefCounter, PrefTimer}};
 use timer::{TIMER, FuncRuner};
 use atom::Atom;
 use lfstack::LFStack;
@@ -64,6 +64,7 @@ lazy_static! {
 
 #[link(name = "dukc")]
 extern "C" {
+    fn dukc_manual_free() -> c_int;
     fn dukc_register_native_object_function_call(func: extern fn(*const c_void_ptr, uint32_t, uint32_t, *const c_void_ptr, *const c_void_ptr) -> c_int);
     fn dukc_register_native_object_free(func: extern fn(*const c_void_ptr, uint32_t));
     fn dukc_heap_create() -> *const c_void_ptr;
@@ -2038,6 +2039,8 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
             current_heap_size = all_alloced_size();
             if !is_alloced_limit() {
                 //当前已分配内存未达最大堆限制，则结束本次整理，并注册下次整理
+                free_sys_mem(FREE_SYSTEM_MEMORY_MAX_LIMIT);
+
                 if collect_timeout > 0 {
                     register_global_vm_heap_collect_timer(collect_timeout);
                 }
@@ -2063,6 +2066,8 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
                     true
                 }));
             }
+
+            free_sys_mem(FREE_SYSTEM_MEMORY_MAX_LIMIT);
 
             //丢弃整理完成，则结束本次整理，并注册下次整理
             if collect_timeout > 0 {
