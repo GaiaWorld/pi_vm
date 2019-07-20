@@ -226,6 +226,8 @@ impl VMFactory {
                                        (&self.name).to_string()))
                 },
                 Some(vm) => {
+                    let r = vm.free_global(); //预生成的虚拟机，将强制GC
+                    println!("===> Vm Factory Produce Ok, gc: {},  vm: {:?}", r, vm);
                     self.pool.push(vm);
                 }
             }
