@@ -13,6 +13,7 @@ use lfstack::LFStack;
 use adapter::{VM_FACTORY_REGISTERS, JSStatus, JS, JSType, pause, js_reply_callback, handle_async_callback, try_js_destroy, dukc_vm_status_check, dukc_vm_status_switch, dukc_new_error, dukc_wakeup, dukc_continue, now_utc};
 use channel_map::VMChannelMap;
 use bonmgr::NativeObjsAuth;
+use std::sync::atomic::Ordering::SeqCst;
 
 /*
 * 虚拟机任务默认优先级
@@ -92,6 +93,8 @@ pub struct VMFactory {
     max_heap_size:      usize,                  //虚拟机最大堆大小，当达到限制后释放可回收的内存
     codes:              Arc<Vec<Arc<Vec<u8>>>>, //字节码列表
     pool:               Arc<LFStack<Arc<JS>>>,  //虚拟机池
+    scheduling_count:   Arc<AtomicUsize>,       //虚拟机工厂调度次数，调度包括任务队列等待和虚拟机执行
+    ran_count:          Arc<AtomicUsize>,       //虚拟机运行完成次数
     auth:               Arc<NativeObjsAuth>,    //虚拟机工厂本地对象授权
 }
 
@@ -121,6 +124,8 @@ impl VMFactory {
             max_heap_size,
             codes: Arc::new(Vec::new()),
             pool: Arc::new(LFStack::new()),
+            scheduling_count: Arc::new(AtomicUsize::new(0)),
+            ran_count: Arc::new(AtomicUsize::new(0)),
             auth: auth.clone(),
         }
     }
@@ -136,7 +141,12 @@ impl VMFactory {
         self
     }
 
-    //获取当前虚拟机池的容量
+    //获取虚拟机工厂名
+    pub fn name(&self) -> String {
+        (*self.name).to_string()
+    }
+
+    //获取虚拟机池的容量
     pub fn capacity(&self) -> usize {
         self.capacity
     }
@@ -164,6 +174,31 @@ impl VMFactory {
     //获取虚拟机最大堆限制
     pub fn max_heap_size(&self) -> usize {
         self.max_heap_size
+    }
+
+    //获取虚拟机工厂调度次数
+    pub fn scheduling_count(&self) -> usize {
+        self.scheduling_count.load(Ordering::Relaxed)
+    }
+
+    //重置虚拟机工厂调度次数，返回上次调度次数
+    pub fn reset_scheduling_count(&self) -> usize {
+        self.scheduling_count.swap(0, Ordering::SeqCst)
+    }
+
+    //获取虚拟机运行完成次数
+    pub fn ran_count(&self) -> usize {
+        self.ran_count.load(Ordering::Relaxed)
+    }
+
+    //增加虚拟机运行完成次数
+    pub fn add_ran_count(&self) {
+        self.ran_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    //重置虚拟机运行完成次数，返回上次运行完成次数
+    pub fn reset_ran_count(&self) -> usize {
+        self.ran_count.swap(0, Ordering::SeqCst)
     }
 
     //生成指定数量的虚拟机，返回生成前虚拟机池中虚拟机数量
@@ -237,6 +272,7 @@ impl VMFactory {
                 //没有空闲虚拟机，则立即构建新的虚拟机
                 match self.new_vm(self.auth.clone()) {
                     None => {
+                        self.scheduling_count.fetch_add(1, Ordering::Relaxed); //增加虚拟机工厂调用次数
                         panic!("Vm Factory Call Error, new vm failed, factory: {:?}",
                                (&self.name).to_string());
                     },
@@ -251,6 +287,8 @@ impl VMFactory {
                 self.async_run(vm, src, port, args, info);
             },
         }
+
+        self.scheduling_count.fetch_add(1, Ordering::Relaxed); //增加虚拟机工厂调度次数
     }
 
     //整理虚拟机工厂的虚拟机池

@@ -277,7 +277,6 @@ fn collect_vm(js: Arc<JS>) {
                     //需要丢弃当前虚拟机
                     factory.throw(1);
                     println!("===> Vm Throw Ok, vm: {:?}", js);
-                    return;
                 },
                 state => {
                     //需要继续整理当前虚拟机，并复用
@@ -308,6 +307,8 @@ fn collect_vm(js: Arc<JS>) {
                 }
             }
         }
+
+        factory.add_ran_count(); //增加虚拟机完成次数
     }
 }
 
@@ -539,11 +540,9 @@ impl JS {
         self.last_time.swap(time * 1000, Ordering::SeqCst)
     }
 
-    //更新虚拟机上次运行时间，并返回上次与本次运行间隔时长，注意不是本次运行时长
-    pub fn update_last_time(&self) -> isize {
-        let now = now_utc();
-        let last = self.last_time.swap(now, Ordering::SeqCst);
-        now as isize - last as isize
+    //更新虚拟机上次运行时间，并返回上次运行时间
+    pub fn update_last_time(&self) -> usize {
+        self.last_time.swap(now_utc(), Ordering::SeqCst)
     }
 
     //初始化虚拟机字符输出
@@ -2025,12 +2024,29 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
                 let timeout_count_copy = timeout_count.clone();
                 let factory_copy = factory.clone();
 
+                //确定当前虚拟机工厂的最少虚拟机数
+                let scheduling_count = factory.reset_scheduling_count(); //获取当前虚拟机工厂一个整理周期内的调度次数，并重置调度次数
+                //获取当前虚拟工厂一个整理周期内的完成次数，并重置完成次数
+                let ran_count = match factory.reset_ran_count() {
+                    0 => 1,
+                    c => c,
+                };
+                let min_vm_count = match (scheduling_count as f64 / ran_count as f64).ceil() as usize {
+                    0 => 1, //至少需要1个虚拟机
+                    c => {
+                        match factory.capacity() {
+                            cap if cap > c => c,
+                            cap => cap, //当前虚拟机最大容量小于等于最小虚拟机数，则返回最大容量
+                        }
+                    },
+                };
+
                 factory.collect(Arc::new(move |vm: &mut Arc<JS>| {
                     //整理当前虚拟机工厂内，所有空闲的虚拟机
-                    if (factory_copy.size() > 1)
+                    if (factory_copy.size() > min_vm_count)
                         && (vm_timeout > 0)
                         && (now - vm.last_time()) >= vm_timeout {
-                        //虚拟机已超时且不是当前虚拟机工厂的唯一虚拟机，则丢弃
+                        //虚拟机已超时，且当前虚拟机工厂虚拟机数量大于最少虚拟机数量，则丢弃
                         factory_copy.throw(1);
                         timeout_count_copy.fetch_add(1, Ordering::Relaxed);
                         true
@@ -2056,7 +2072,7 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
                 return;
             }
 
-            //当前已分配内存仍然已达最大堆限制，则立即丢弃虚拟机工厂的空闲虚拟机
+            //当前已分配内存已达最大堆限制，则立即丢弃虚拟机工厂的空闲虚拟机
             let mut throw_count = Arc::new(AtomicUsize::new(0));;
             for factory in VM_FACTORY_REGISTERS.read().unwrap().values() {
                 let throw_count_copy = throw_count.clone();
