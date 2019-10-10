@@ -7,7 +7,8 @@ use worker::task::TaskType;
 use worker::impls::{create_js_task_queue, unlock_js_task_queue, cast_js_task, remove_js_task_queue};
 use handler::Handler;
 use atom::Atom;
-use apm::{allocator::{get_max_alloced_limit, is_alloced_limit, all_alloced_size}, counter::{GLOBAL_PREF_COLLECT, PrefCounter, PrefTimer}};
+use apm::allocator::{get_max_alloced_limit, is_alloced_limit, all_alloced_size};
+use apm::counter::{GLOBAL_PREF_COLLECT, PrefCounter, PrefTimer};
 use lfstack::LFStack;
 
 use adapter::{VM_FACTORY_REGISTERS, JSStatus, JS, JSType, pause, js_reply_callback, handle_async_callback, try_js_destroy, dukc_vm_status_check, dukc_vm_status_switch, dukc_new_error, dukc_wakeup, dukc_continue, now_utc};
@@ -308,7 +309,7 @@ impl VMFactory {
             //容量有限，且当前虚拟机数量未达上限，则原子增加当前虚拟机数量
             loop {
                 match self.size.compare_and_swap(curr_size, curr_size + 1, Ordering::SeqCst) {
-                    curr_size => {
+                    new_curr_size if new_curr_size == curr_size => {
                         //原子增加当前虚拟机数量成功，则继续构建虚拟机
                         break;
                     },

@@ -23,7 +23,9 @@ use crossbeam_queue::{PopError, SegQueue};
 
 use worker::task::TaskType;
 use worker::impls::{create_js_task_queue, js_static_sync_task_size, js_dyn_sync_task_size, js_static_async_task_size, js_dyn_async_task_size, lock_js_task_queue, unlock_js_task_queue, cast_js_task, cast_js_delay_task};
-use apm::{common::SysStat, allocator::{VM_ALLOCATED, get_max_alloced_limit, is_alloced_limit, vm_alloced_size, all_alloced_size}, counter::{GLOBAL_PREF_COLLECT, PrefCounter, PrefTimer}};
+use apm::common::SysStat;
+use apm::allocator::{VM_ALLOCATED, get_max_alloced_limit, is_alloced_limit, vm_alloced_size, all_alloced_size};
+use apm::counter::{GLOBAL_PREF_COLLECT, PrefCounter, PrefTimer};
 use timer::{TIMER, FuncRuner};
 use atom::Atom;
 use lfstack::LFStack;
