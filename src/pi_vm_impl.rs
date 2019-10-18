@@ -3,13 +3,15 @@ use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, AtomicIsize, Ordering};
 
+use crossbeam_channel::{Sender, Receiver, unbounded};
+
 use worker::task::TaskType;
 use worker::impls::{create_js_task_queue, unlock_js_task_queue, cast_js_task, remove_js_task_queue};
 use handler::Handler;
 use atom::Atom;
 use apm::allocator::{get_max_alloced_limit, is_alloced_limit, all_alloced_size};
 use apm::counter::{GLOBAL_PREF_COLLECT, PrefCounter, PrefTimer};
-use lfstack::LFStack;
+use lfstack::{CollectResult, LFStack};
 
 use adapter::{VM_FACTORY_REGISTERS, JSStatus, JS, JSType, pause, js_reply_callback, handle_async_callback, try_js_destroy, dukc_vm_status_check, dukc_vm_status_switch, dukc_new_error, dukc_wakeup, dukc_continue, now_utc};
 use channel_map::VMChannelMap;
@@ -97,6 +99,8 @@ pub struct VMFactory {
     scheduling_count:   Arc<AtomicUsize>,       //虚拟机工厂调度次数，调度包括任务队列等待和虚拟机执行
     ran_count:          Arc<AtomicUsize>,       //虚拟机运行完成次数
     auth:               Arc<NativeObjsAuth>,    //虚拟机工厂本地对象授权
+    vm_buf_sent:        Sender<Arc<JS>>,        //虚拟机临时缓冲发送器
+    vm_buf_recv:        Receiver<Arc<JS>>,      //虚拟机临时缓冲接收器
 }
 
 unsafe impl Send for VMFactory {}
@@ -115,6 +119,7 @@ impl VMFactory {
             size = 1;
         }
 
+        let (sender, receiver) = unbounded();
         VMFactory {
             name: Atom::from(name),
             capacity,
@@ -128,6 +133,8 @@ impl VMFactory {
             scheduling_count: Arc::new(AtomicUsize::new(0)),
             ran_count: Arc::new(AtomicUsize::new(0)),
             auth: auth.clone(),
+            vm_buf_sent: sender,
+            vm_buf_recv: receiver,
         }
     }
 
@@ -158,8 +165,13 @@ impl VMFactory {
     }
 
     //获取当前虚拟机池中空闲虚拟机数量
-    pub fn free_size(&self) -> usize {
+    pub fn free_pool_size(&self) -> usize {
         self.pool.size()
+    }
+
+    //获取当前虚拟机临时缓冲区中空闲虚拟机数量
+    pub fn free_buf_size(&self) -> usize {
+        self.vm_buf_recv.len()
     }
 
     //获取虚拟机最大执行次数
@@ -228,8 +240,8 @@ impl VMFactory {
                 },
                 Some(vm) => {
                     let r = vm.free_global(); //预生成的虚拟机，将强制GC
-                    println!("===> Vm Factory Produce Ok, gc: {},  vm: {:?}", r, vm);
-                    self.pool.push(vm);
+                    info!("===> Vm Factory Produce Ok, gc: {},  vm: {:?}", r, vm);
+                    self.pool.push(vm); //阻塞的推入虚拟机
                 }
             }
         }
@@ -239,7 +251,10 @@ impl VMFactory {
 
     //复用指定虚拟机
     pub fn reuse(&self, vm: Arc<JS>) {
-        self.pool.push(vm);
+        if let Err(_) = self.pool.try_push(vm.clone()) {
+            //虚拟机池已阻塞，则将空闲虚拟机加入虚拟机临时缓冲区
+            self.vm_buf_sent.send(vm);
+        }
     }
 
     //丢弃指定数量的虚拟机，返回最近虚拟机池中虚拟机数量
@@ -270,33 +285,44 @@ impl VMFactory {
     //从虚拟机池中获取一个虚拟机，根据源创建同步任务队列，并调用指定的js全局函数
     pub fn call(&self, src: Option<usize>, port: Atom, args: Box<FnOnce(Arc<JS>) -> usize>, info: Atom) {
         //弹出虚拟机，以保证同一时间只有一个线程访问同一个虚拟机
-        match self.pool.pop() {
-            None => {
-                //没有空闲虚拟机，则立即构建新的虚拟机
-                match self.new_vm(self.auth.clone()) {
-                    None => {
-                        self.scheduling_count.fetch_add(1, Ordering::Relaxed); //增加虚拟机工厂调用次数
-                        panic!("Vm Factory Call Error, new vm failed, factory: {:?}",
-                               (&self.name).to_string());
-                    },
-                    Some(vm) => {
-                        //构建完成，则运行
-                        self.async_run(vm, src, port, args, info);
-                    }
-                }
-            },
-            Some(vm) => {
+        match self.pool.try_pop() {
+            Ok(vm) => {
                 //有空闲虚拟机，则运行
                 self.async_run(vm, src, port, args, info);
             },
+            _ => {
+                //当前虚拟机池没有空闲虚拟机，或当前虚拟机池已阻塞
+                if let Ok(vm) = self.vm_buf_recv.try_recv() {
+                    //虚拟机临时缓冲区，有空闲虚拟机，则运行
+                    self.async_run(vm, src, port, args, info);
+                } else {
+                    //虚拟机临时缓冲区，没有空闲虚拟机，则立即构建新的虚拟机
+                    match self.new_vm(self.auth.clone()) {
+                        None => {
+                            self.scheduling_count.fetch_add(1, Ordering::Relaxed); //增加虚拟机工厂调用次数
+                            panic!("Vm Factory Call Error, new vm failed, factory: {:?}",
+                                   (&self.name).to_string());
+                        },
+                        Some(vm) => {
+                            //构建完成，则运行
+                            self.async_run(vm, src, port, args, info);
+                        },
+                    }
+                }
+            }
         }
 
         self.scheduling_count.fetch_add(1, Ordering::Relaxed); //增加虚拟机工厂调度次数
     }
 
     //整理虚拟机工厂的虚拟机池
-    pub fn collect(&self, handler: Arc<Fn(&mut Arc<JS>) -> bool>) {
-        self.pool.collect(handler);
+    pub fn collect(&self, handler: Arc<Fn(&mut Arc<JS>) -> CollectResult>) {
+        self.pool.collect_from_bottom(handler); //从栈底开始整理
+    }
+
+    //清空整理时被移除的栈帧
+    pub fn clear_collected(&self) {
+        self.pool.clear();
     }
 
     //构建一个虚拟机，加载所有字节码，并提供虚拟机本地对象授权
@@ -315,7 +341,7 @@ impl VMFactory {
                     },
                     new_curr_size if new_curr_size >= capacity => {
                         //原子增加当前虚拟机数量失败，且虚拟机数量已达上限，则退出
-                        println!("!!!> Vm Factory Create Vm Error, factory full, factory: {:?}, capacity: {:?}, size: {:?}", (&self.name).to_string(), self.capacity(), self.size());
+                        warn!("!!!> Vm Factory Create Vm Error, factory full, factory: {:?}, capacity: {:?}, size: {:?}", (&self.name).to_string(), self.capacity(), self.size());
                         return None;
                     },
                     new_curr_size => {
@@ -327,7 +353,7 @@ impl VMFactory {
             }
         } else if (capacity != 0) && (curr_size >= capacity) {
             //容量有限，且当前虚拟机数量已达上限，则忽略
-            println!("!!!> Vm Factory Create Vm Error, factory full, factory: {:?}, capacity: {:?}, size: {:?}", (&self.name).to_string(), self.capacity(), self.size());
+            warn!("!!!> Vm Factory Create Vm Error, factory full, factory: {:?}, capacity: {:?}, size: {:?}", (&self.name).to_string(), self.capacity(), self.size());
             return None
         }
 
@@ -359,13 +385,13 @@ impl VMFactory {
                 //如果是可以复用的虚拟机，则需要创建全局对象模板，并替换当前全局对象
                 if self.capacity() > 0 {
                     if !vm.new_global_template() {
-                        println!("!!!> Vm Factory Create Vm Error, new global template failed, factory: {:?}",
+                        warn!("!!!> Vm Factory Create Vm Error, new global template failed, factory: {:?}",
                                  (&self.name).to_string());
                         return None;
                     }
 
                     if !vm.alloc_global() {
-                        println!("!!!> Vm Factory Create Vm Error, alloc global failed, factory: {:?}",
+                        warn!("!!!> Vm Factory Create Vm Error, alloc global failed, factory: {:?}",
                                  (&self.name).to_string());
                         return None;
                     }
@@ -375,7 +401,7 @@ impl VMFactory {
 
                 vm.update_last_heap_size(); //更新初始化后虚拟机的堆大小和内存占用
 
-                println!("===> Vm Factory Create Vm Ok, factory: {:?}, vm: {:?}",
+                info!("===> Vm Factory Create Vm Ok, factory: {:?}, vm: {:?}",
                          (&self.name).to_string(), vm);
 
                 VM_LOAD_TIME.timing(start);
@@ -497,7 +523,7 @@ pub fn block_set_global_var(js: Arc<JS>, name: String, var: Box<FnOnce(Arc<JS>) 
     js.add_queue_len(); //增加虚拟机消息队列长度
     //解锁虚拟机的消息队列
     if !unlock_js_task_queue(queue) {
-        println!("!!!> Block Set Global Var Error, unlock js task queue failed");
+        warn!("!!!> Block Set Global Var Error, unlock js task queue failed");
     }
 }
 
@@ -534,7 +560,7 @@ pub fn block_reply(js: Arc<JS>, result: Box<FnOnce(Arc<JS>)>, info: Atom) {
     js.add_queue_len(); //增加虚拟机消息队列长度
     //解锁虚拟机的消息队列
     if !unlock_js_task_queue(queue) {
-        println!("!!!> Block Reply Error, unlock js task queue failed");
+        warn!("!!!> Block Reply Error, unlock js task queue failed");
     }
 }
 
@@ -570,7 +596,7 @@ pub fn block_throw(js: Arc<JS>, reason: String, info: Atom) {
     js.add_queue_len(); //增加虚拟机消息队列长度
     //解锁虚拟机的消息队列
     if !unlock_js_task_queue(queue) {
-        println!("!!!> Block Throw Error, unlock js task queue failed");
+        warn!("!!!> Block Throw Error, unlock js task queue failed");
     }
 }
 

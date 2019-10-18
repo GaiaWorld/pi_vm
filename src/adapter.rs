@@ -4,11 +4,11 @@ use std::sync::atomic::{Ordering, AtomicUsize, AtomicIsize, AtomicBool};
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::string::FromUtf8Error;
 use std::ffi::{CStr, CString};
-use std::collections::HashMap;
+use std::collections::{VecDeque, HashMap};
 use std::mem::transmute;
 use std::time::{Duration, SystemTime, Instant};
 use std::cell::RefCell;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::ops::Drop;
 use std::thread;
 
@@ -19,8 +19,6 @@ use rand::prelude::*;
 use rand::{Rng, SeedableRng};
 use rand::rngs::SmallRng;
 
-use crossbeam_queue::{PopError, SegQueue};
-
 use worker::task::TaskType;
 use worker::impls::{create_js_task_queue, js_static_sync_task_size, js_dyn_sync_task_size, js_static_async_task_size, js_dyn_async_task_size, lock_js_task_queue, unlock_js_task_queue, cast_js_task, cast_js_delay_task};
 use apm::common::SysStat;
@@ -28,7 +26,7 @@ use apm::allocator::{VM_ALLOCATED, get_max_alloced_limit, is_alloced_limit, vm_a
 use apm::counter::{GLOBAL_PREF_COLLECT, PrefCounter, PrefTimer};
 use timer::{TIMER, FuncRuner};
 use atom::Atom;
-use lfstack::LFStack;
+use lfstack::{CollectResult, LFStack};
 
 use native_object_impl::*;
 use bonmgr::{NativeObjs, NObject, NativeObjsAuth};
@@ -54,6 +52,8 @@ lazy_static! {
     static ref VM_TIMEOUT: AtomicUsize = AtomicUsize::new(300000000);
     //虚拟机工厂注册表
     pub static ref VM_FACTORY_REGISTERS: Arc<RwLock<HashMap<String, VMFactory>>> = Arc::new(RwLock::new(HashMap::new()));
+    //虚拟机整理队列
+    pub static ref VM_COLLECT_QUEUE: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
 }
 
 lazy_static! {
@@ -170,7 +170,7 @@ pub extern "C" fn js_reply_callback(handler: *const c_void_ptr, status: c_int, e
         if status != 0 {
             VM_INIT_PANIC_COUNT.sum(1);
 
-            println!("!!!> JS Init Error, status: {}, err: {}",
+            warn!("!!!> JS Init Error, status: {}, err: {}",
                      status, unsafe { CStr::from_ptr(err).to_string_lossy().into_owned() });
         }
         return;
@@ -187,7 +187,7 @@ pub extern "C" fn js_reply_callback(handler: *const c_void_ptr, status: c_int, e
             //有异常，则重置虚拟机线程全局变量，保证虚拟机可以继续运行
             VM_RUN_PANIC_COUNT.sum(1);
 
-            println!("!!!> JS Run Error, vm: {:?}, err: {}",
+            warn!("!!!> JS Run Error, vm: {:?}, err: {}",
                      js, CStr::from_ptr(err).to_string_lossy().into_owned());
         }
 
@@ -232,7 +232,7 @@ pub unsafe fn handle_async_callback(js: Arc<JS>, vm: *const c_void_ptr) {
         //消息队列不为空、有已注册的异步回调函数、且消息队列被锁，则释放锁，以保证开始执行消息队列中的异步任务或异步回调任务
         let queue = js.get_queue();
         if !unlock_js_task_queue(queue) {
-            println!("!!!> Handle Callback Error, unlock js task queue failed, queue: {:?}", queue);
+            warn!("!!!> Handle Callback Error, unlock js task queue failed, queue: {:?}", queue);
         }
 
         VM_POP_CALLBACK_COUNT.sum(1);
@@ -247,7 +247,7 @@ pub unsafe fn handle_async_callback(js: Arc<JS>, vm: *const c_void_ptr) {
         //解锁当前虚拟机锁住的同步任务队列, 保证当前虚拟机回收或其它虚拟机执行下一个任务
         let tasks = js.get_tasks();
         if !unlock_js_task_queue(tasks) {
-            println!("!!!> Handle Callback Error, unlock js task queue failed, tasks: {:?}", tasks);
+            warn!("!!!> Handle Callback Error, unlock js task queue failed, tasks: {:?}", tasks);
         }
     }
 
@@ -271,6 +271,12 @@ pub fn now_utc() -> usize {
 
 //整理虚拟机，处理虚拟机丢弃和复用
 fn collect_vm(js: Arc<JS>) {
+    if js.collected.load(Ordering::Relaxed) {
+        //丢弃已被整理的虚拟机
+        info!("===> Vm Throw Ok by Collected, vm: {:?}", js);
+        return;
+    }
+
     if let Some((lock, factory)) = js.collection.clone() {
         if lock.load(Ordering::SeqCst) {
             //回收器已解锁，则检查是否需要复用
@@ -278,7 +284,7 @@ fn collect_vm(js: Arc<JS>) {
                 0 => {
                     //需要丢弃当前虚拟机
                     factory.throw(1);
-                    println!("===> Vm Throw Ok, vm: {:?}", js);
+                    info!("===> Vm Throw Ok, vm: {:?}", js);
                 },
                 state => {
                     //需要继续整理当前虚拟机，并复用
@@ -290,9 +296,9 @@ fn collect_vm(js: Arc<JS>) {
                             if state == 1 {
                                 //需要释放当前虚拟机可回收内存
                                 if js.free_global() {
-                                    println!("===> Vm Free Ok, vm: {:?}", js);
+                                    info!("===> Vm Free Ok, vm: {:?}", js);
                                 } else {
-                                    println!("!!!> Vm Collection Error, vm: {:?}, e: free global failed", js);
+                                    warn!("!!!> Vm Collection Error, vm: {:?}, e: free global failed", js);
                                 }
                             }
 
@@ -300,11 +306,11 @@ fn collect_vm(js: Arc<JS>) {
                             js.reused_count.fetch_add(1, Ordering::Relaxed); //增加虚拟机复用次数
                             factory.reuse(js); //复用当前虚拟机
                         } else {
-                            println!("!!!> Vm Collection Error, vm: {:?}, e: alloc global failed", copy);
+                            warn!("!!!> Vm Collection Error, vm: {:?}, e: alloc global failed", copy);
                         }
                     } else {
                         //复用预处理失败，则立即丢弃当前虚拟机
-                        println!("!!!> Vm Collection Error, vm: {:?}, e: clear global failed", copy);
+                        warn!("!!!> Vm Collection Error, vm: {:?}, e: clear global failed", copy);
                     }
                 }
             }
@@ -379,6 +385,7 @@ pub struct JS {
     rng:                Arc<RefCell<SmallRng>>,                     //虚拟机随机数生成器
     collection:         Option<(Arc<AtomicBool>, Arc<VMFactory>)>,  //虚拟机回收器
     last_time:          Arc<AtomicUsize>,                           //虚拟机最近运行时间
+    collected:          Arc<AtomicBool>,                            //虚拟机是否已被全局堆整理，被全局堆整理的虚拟机，运行后强制丢弃
 }
 
 /*
@@ -392,7 +399,7 @@ pub unsafe fn try_js_destroy(js: &JS) {
     let old_status = dukc_vm_status_switch(js.vm as *const c_void_ptr, JSStatus::NoTask as i8, JSStatus::Destroy as i8);
     if old_status == JSStatus::NoTask as i8 {
         //当前js虚拟机无任务，则可以destroy
-        println!("===> Vm Destroy Ok, vm: {:?}", js);
+        info!("===> Vm Destroy Ok, vm: {:?}", js);
         VM_ALLOCATED.fetch_sub(js.last_heap_size.load(Ordering::Relaxed), Ordering::Relaxed); //减少虚拟机占用内存
         dukc_vm_destroy(js.vm as *const c_void_ptr);
     }
@@ -457,6 +464,7 @@ impl JS {
                 rng: Arc::new(RefCell::new(SmallRng::from_entropy())),
                 collection,
                 last_time: Arc::new(AtomicUsize::new(now_utc())),
+                collected: Arc::new(AtomicBool::new(false)),
             });
             unsafe {
                 let handler = Arc::into_raw(arc.clone()) as *const c_void_ptr;
@@ -2012,50 +2020,86 @@ pub fn set_vm_timeout(timeout: usize) -> usize {
 * 线程安全的注册全局虚拟机堆整理定时器
 */
 pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
+    //初始化虚拟机整理队列
+    let vm_coolect_queue_len = VM_COLLECT_QUEUE.lock().unwrap().len();
+    if vm_coolect_queue_len == 0 {
+        let mut vm_collect_queue = VM_COLLECT_QUEUE.lock().unwrap();
+        for name in VM_FACTORY_REGISTERS.read().unwrap().keys() {
+            vm_collect_queue.push_back(name.clone());
+        }
+        warn!("!!!> Init Vm Collect Queue Ok, len: {}", vm_coolect_queue_len);
+    }
+
     let vm_timeout = VM_TIMEOUT.load(Ordering::Relaxed);
     let runner = FuncRuner::new(Box::new(move || {
         let func = Box::new(move |_lock| {
             let start_time = Instant::now();
+            let mut factory_collect_time = Duration::from_millis(0);
             let last_heap_size = all_alloced_size();
             let mut max_heap_limit = get_max_alloced_limit();
 
             //开始虚拟机工厂的超时整理
+            let mut collected_factory_name = String::new();
+            let mut factory_pool_free_vm_count = 0;
+            let mut factory_buf_free_vm_count = 0;
             let timeout_count = Arc::new(AtomicUsize::new(0));
-            for factory in VM_FACTORY_REGISTERS.read().unwrap().values() {
-                let now = now_utc();
-                let timeout_count_copy = timeout_count.clone();
-                let factory_copy = factory.clone();
+            {
+                let mut vm_collect_queue = VM_COLLECT_QUEUE.lock().unwrap();
+                if let Some(factory_name) = vm_collect_queue.pop_front() {
+                    if let Some(factory) = VM_FACTORY_REGISTERS.read().unwrap().get(&factory_name) {
+                        let now = now_utc();
+                        let timeout_count_copy = timeout_count.clone();
+                        let factory_copy = factory.clone();
 
-                //确定当前虚拟机工厂的最少虚拟机数
-                let scheduling_count = factory.reset_scheduling_count(); //获取当前虚拟机工厂一个整理周期内的调度次数，并重置调度次数
-                //获取当前虚拟工厂一个整理周期内的完成次数，并重置完成次数
-                let ran_count = match factory.reset_ran_count() {
-                    0 => 1,
-                    c => c,
-                };
-                let min_vm_count = match (scheduling_count as f64 / ran_count as f64).ceil() as usize {
-                    0 => 1, //至少需要1个虚拟机
-                    c => {
-                        match factory.capacity() {
-                            cap if cap > c => c,
-                            cap => cap, //当前虚拟机最大容量小于等于最小虚拟机数，则返回最大容量
+                        //确定当前虚拟机工厂的最少虚拟机数
+                        let scheduling_count = factory.reset_scheduling_count(); //获取当前虚拟机工厂一个整理周期内的调度次数，并重置调度次数
+                        //获取当前虚拟工厂一个整理周期内的完成次数，并重置完成次数
+                        let ran_count = match factory.reset_ran_count() {
+                            0 => 1,
+                            c => c,
+                        };
+                        let min_vm_count = match (scheduling_count as f64 / ran_count as f64).ceil() as usize {
+                            0 => 1, //至少需要1个虚拟机
+                            c => {
+                                match factory.capacity() {
+                                    cap if cap > c => c,
+                                    cap => cap, //当前虚拟机最大容量小于等于最小虚拟机数，则返回最大容量
+                                }
+                            },
+                        };
+
+                        let start_factory_collect_time = Instant::now();
+
+                        factory.collect(Arc::new(move |vm: &mut Arc<JS>| {
+                            //整理当前虚拟机工厂内，尾部的一个超时虚拟机
+                            if (factory_copy.size() > min_vm_count)
+                                && (vm_timeout > 0)
+                                && (now - vm.last_time()) >= vm_timeout {
+                                //虚拟机已超时，且当前虚拟机工厂虚拟机数量大于最少虚拟机数量，则将超时虚拟机放入被整理队列
+                                factory_copy.throw(1);
+                                timeout_count_copy.fetch_add(1, Ordering::Relaxed);
+                                vm.collected.store(true, Ordering::Relaxed); //设置超时虚拟机为被整理，被整理的虚拟机，运行后强制丢弃
+                                CollectResult::Break(true) //移除当前尾部的超时虚拟机，并立即中止整理
+                            } else {
+                                CollectResult::Break(false) //当前尾部没有超时虚拟机，说明虚拟机工厂内没有超时虚拟机，则立即中止整理
+                            }
+                        }));
+
+                        factory_collect_time = Instant::now() - start_factory_collect_time;
+
+                        if timeout_count.load(Ordering::Relaxed) > 0 {
+                            //非阻塞的清空超时的虚拟机
+                            factory.clear_collected();
                         }
-                    },
-                };
 
-                factory.collect(Arc::new(move |vm: &mut Arc<JS>| {
-                    //整理当前虚拟机工厂内，所有空闲的虚拟机
-                    if (factory_copy.size() > min_vm_count)
-                        && (vm_timeout > 0)
-                        && (now - vm.last_time()) >= vm_timeout {
-                        //虚拟机已超时，且当前虚拟机工厂虚拟机数量大于最少虚拟机数量，则丢弃
-                        factory_copy.throw(1);
-                        timeout_count_copy.fetch_add(1, Ordering::Relaxed);
-                        true
-                    } else {
-                        false
+                        factory_pool_free_vm_count = factory.free_pool_size();
+                        factory_buf_free_vm_count = factory.free_buf_size();
                     }
-                }));
+
+                    //将已整理的虚拟机工厂加入虚拟机工厂整理队列尾部
+                    collected_factory_name = factory_name.clone();
+                    vm_collect_queue.push_back(factory_name);
+                }
             }
 
             if !is_alloced_limit() {
@@ -2066,11 +2110,13 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
                     register_global_vm_heap_collect_timer(collect_timeout);
                 }
 
-                println!("===> Vm Global Collect Finish, timeout count: {}, throw count: 0, before: {}, after vm: {}, after total: {}, limit: {}, js static sync: {}, js dyn sync: {}, js static async: {}, js dyn async: {}, time: {:?}",
-                         timeout_count.load(Ordering::Relaxed), last_heap_size, vm_alloced_size(),
-                         all_alloced_size(), max_heap_limit, js_static_sync_task_size(),
-                         js_dyn_sync_task_size(), js_static_async_task_size(), js_dyn_async_task_size(),
-                         Instant::now() - start_time);
+                let tc = timeout_count.load(Ordering::Relaxed);
+                if tc > 0 || factory_buf_free_vm_count > 0 {
+                    info!("===> Vm Global Collect Finish, factory: {:?}, pool free vm count: {}, buf free vm count: {}, timeout count: {}, throw count: 0, before: {}, after vm: {}, after total: {}, limit: {}, factory collect time: {:?}, time: {:?}", collected_factory_name, factory_pool_free_vm_count, factory_buf_free_vm_count,
+                             timeout_count.load(Ordering::Relaxed), last_heap_size, vm_alloced_size(),
+                             all_alloced_size(), max_heap_limit, factory_collect_time,
+                             Instant::now() - start_time);
+                }
                 return;
             }
 
@@ -2084,8 +2130,11 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
                     //丢弃当前虚拟机工厂内，所有空闲的虚拟机
                     factory_copy.throw(1);
                     throw_count_copy.fetch_add(1, Ordering::Relaxed);
-                    true
+                    CollectResult::Continue(true) //移除当前空闲的虚拟机，并继续整理
                 }));
+
+                //非阻塞的清空，空闲的虚拟机
+                factory.clear_collected();
             }
 
             free_sys_mem(all_alloced_size(), FREE_SYSTEM_MEMORY_MAX_LIMIT);
@@ -2095,7 +2144,7 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
                 register_global_vm_heap_collect_timer(collect_timeout);
             }
 
-            println!("===> Vm Global Collect Finish, timeout count: {}, throw count: {}, before: {}, after vm: {}, after total: {}, limit: {}, js static sync: {}, js dyn sync: {}, js static async: {}, js dyn async: {}, time: {:?}",
+            info!("===> Vm Global Collect Finish, timeout count: {}, throw count: {}, before: {}, after vm: {}, after total: {}, limit: {}, js static sync: {}, js dyn sync: {}, js static async: {}, js dyn async: {}, time: {:?}",
                      timeout_count.load(Ordering::Relaxed), throw_count.load(Ordering::Relaxed),
                      last_heap_size, vm_alloced_size(), all_alloced_size(), max_heap_limit,
                      js_static_sync_task_size(), js_dyn_sync_task_size(), js_static_async_task_size(),
@@ -2125,7 +2174,7 @@ fn free_sys_mem(current: usize, limit: u64) -> bool {
                 //多余的空闲内存已达限制，则回收多余的空闲内存
                 unsafe {
                     if dukc_manual_free() == 0 {
-                        println!("===> Collect System Memory Ok, current: {}, real: {}, limit: {}, time: {:?}", current, res, limit, Instant::now() - start_time);
+                        info!("===> Collect System Memory Ok, current: {}, real: {}, limit: {}, time: {:?}", current, res, limit, Instant::now() - start_time);
                         false
                     } else {
                         let after_res = if let Some((_, _, after, _, _, _)) = sys.process_memory(pid) {
@@ -2133,7 +2182,7 @@ fn free_sys_mem(current: usize, limit: u64) -> bool {
                         } else {
                             0
                         };
-                        println!("===> Collect System Memory Ok, current: {}, before real: {}, after real: {}, limit: {}, time: {:?}", current, res, after_res, limit, Instant::now() - start_time);
+                        info!("===> Collect System Memory Ok, current: {}, before real: {}, after real: {}, limit: {}, time: {:?}", current, res, after_res, limit, Instant::now() - start_time);
                         true
                     }
                 }
@@ -2143,7 +2192,7 @@ fn free_sys_mem(current: usize, limit: u64) -> bool {
             }
         } else {
             //内存占用异常，则回收失败
-            println!("!!!> Collect System Memory Failed, current: {}, real: {}, limit: {}", current, res, limit);
+            warn!("!!!> Collect System Memory Failed, current: {}, real: {}, limit: {}", current, res, limit);
             false
         }
     } else {

@@ -17,7 +17,10 @@ extern crate lazy_static;
 #[cfg(not(unix))]
 extern crate kernel32;
 
-extern crate crossbeam_queue;
+extern crate crossbeam_channel;
+
+#[macro_use]
+extern crate log;
 
 extern crate flame;
 #[macro_use]
