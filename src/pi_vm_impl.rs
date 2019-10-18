@@ -97,7 +97,6 @@ pub struct VMFactory {
     codes:              Arc<Vec<Arc<Vec<u8>>>>, //字节码列表
     pool:               Arc<LFStack<Arc<JS>>>,  //虚拟机池
     scheduling_count:   Arc<AtomicUsize>,       //虚拟机工厂调度次数，调度包括任务队列等待和虚拟机执行
-    ran_count:          Arc<AtomicUsize>,       //虚拟机运行完成次数
     auth:               Arc<NativeObjsAuth>,    //虚拟机工厂本地对象授权
     vm_buf_sent:        Sender<Arc<JS>>,        //虚拟机临时缓冲发送器
     vm_buf_recv:        Receiver<Arc<JS>>,      //虚拟机临时缓冲接收器
@@ -131,7 +130,6 @@ impl VMFactory {
             codes: Arc::new(Vec::new()),
             pool: Arc::new(LFStack::new()),
             scheduling_count: Arc::new(AtomicUsize::new(0)),
-            ran_count: Arc::new(AtomicUsize::new(0)),
             auth: auth.clone(),
             vm_buf_sent: sender,
             vm_buf_recv: receiver,
@@ -197,21 +195,6 @@ impl VMFactory {
     //重置虚拟机工厂调度次数，返回上次调度次数
     pub fn reset_scheduling_count(&self) -> usize {
         self.scheduling_count.swap(0, Ordering::SeqCst)
-    }
-
-    //获取虚拟机运行完成次数
-    pub fn ran_count(&self) -> usize {
-        self.ran_count.load(Ordering::Relaxed)
-    }
-
-    //增加虚拟机运行完成次数
-    pub fn add_ran_count(&self) {
-        self.ran_count.fetch_add(1, Ordering::Relaxed);
-    }
-
-    //重置虚拟机运行完成次数，返回上次运行完成次数
-    pub fn reset_ran_count(&self) -> usize {
-        self.ran_count.swap(0, Ordering::SeqCst)
     }
 
     //生成指定数量的虚拟机，返回生成前虚拟机池中虚拟机数量

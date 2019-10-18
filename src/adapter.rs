@@ -271,9 +271,17 @@ pub fn now_utc() -> usize {
 
 //整理虚拟机，处理虚拟机丢弃和复用
 fn collect_vm(js: Arc<JS>) {
-    if js.collected.load(Ordering::Relaxed) {
-        //丢弃已被整理的虚拟机
-        info!("===> Vm Throw Ok by Collected, vm: {:?}", js);
+    if js.wait_throw.load(Ordering::Relaxed) {
+        //丢弃标记为等待丢弃的虚拟机
+        if let Some((lock, factory)) = js.collection.clone() {
+            if lock.load(Ordering::SeqCst) {
+                factory.throw(1);
+                info!("===> Vm Throw Ok, vm: {:?}", js);
+                return;
+            }
+        }
+
+        info!("!!!> Vm Throw Failed, vm: {:?}", js);
         return;
     }
 
@@ -282,7 +290,7 @@ fn collect_vm(js: Arc<JS>) {
             //回收器已解锁，则检查是否需要复用
             match js.check_reuse() {
                 0 => {
-                    //需要丢弃当前虚拟机
+                    //需要立即丢弃当前虚拟机
                     factory.throw(1);
                     info!("===> Vm Throw Ok, vm: {:?}", js);
                 },
@@ -296,14 +304,20 @@ fn collect_vm(js: Arc<JS>) {
                             if state == 1 {
                                 //需要释放当前虚拟机可回收内存
                                 if js.free_global() {
-                                    info!("===> Vm Free Ok, vm: {:?}", js);
+                                    let max_heap_size = factory.max_heap_size();
+                                    if (max_heap_size > 0) && js.heap_size() >= max_heap_size {
+                                        //释放后，仍然大于虚拟机堆限制，则标记为等待丢弃，等待下次执行后丢弃
+                                        js.wait_throw.store(true, Ordering::Relaxed);
+                                    } else {
+                                        //释放后，小于虚拟机堆限制
+                                        info!("===> Vm Free Ok, vm: {:?}", js);
+                                    }
                                 } else {
                                     warn!("!!!> Vm Collection Error, vm: {:?}, e: free global failed", js);
                                 }
                             }
 
                             js.queue.size.store(0, Ordering::Relaxed); //重置虚拟机当前消息队列
-                            js.reused_count.fetch_add(1, Ordering::Relaxed); //增加虚拟机复用次数
                             factory.reuse(js); //复用当前虚拟机
                         } else {
                             warn!("!!!> Vm Collection Error, vm: {:?}, e: alloc global failed", copy);
@@ -315,8 +329,6 @@ fn collect_vm(js: Arc<JS>) {
                 }
             }
         }
-
-        factory.add_ran_count(); //增加虚拟机完成次数
     }
 }
 
@@ -380,12 +392,11 @@ pub struct JS {
     ret:                Arc<RefCell<Option<String>>>,               //虚拟机执行栈返回结果缓存
     id:                 usize,                                      //虚拟机id
     name:               Atom,                                       //虚拟机名
-    reused_count:       Arc<AtomicUsize>,                           //虚拟机当前复用次数
     last_heap_size:     Arc<AtomicIsize>,                           //虚拟机最近堆大小
     rng:                Arc<RefCell<SmallRng>>,                     //虚拟机随机数生成器
     collection:         Option<(Arc<AtomicBool>, Arc<VMFactory>)>,  //虚拟机回收器
     last_time:          Arc<AtomicUsize>,                           //虚拟机最近运行时间
-    collected:          Arc<AtomicBool>,                            //虚拟机是否已被全局堆整理，被全局堆整理的虚拟机，运行后强制丢弃
+    wait_throw:         Arc<AtomicBool>,                            //虚拟机等待被丢弃，下次运行后丢弃
 }
 
 /*
@@ -413,10 +424,9 @@ impl Drop for JS {
 
 impl Debug for JS {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
-        write!(f, "JS[id = {}, name = {:?}, vm = {}, tasks = {}, queue = {}, finish = {}, count = {}, last size = {}, current size = {}]",
+        write!(f, "JS[id = {}, name = {:?}, vm = {}, tasks = {}, queue = {}, finish = {}, last size = {}, current size = {}]",
                self.id, (&self.name).to_string(), self.vm,
                self.get_tasks(), self.get_queue_len(), self.is_ran(),
-               self.reused_count.load(Ordering::Relaxed),
                self.last_heap_size.load(Ordering::Relaxed),
                self.heap_size())
     }
@@ -459,12 +469,11 @@ impl JS {
                 ret: Arc::new(RefCell::new(None)),
                 id: vm_id,
                 name,
-                reused_count: Arc::new(AtomicUsize::new(0)),
                 last_heap_size: Arc::new(AtomicIsize::new(0)),
                 rng: Arc::new(RefCell::new(SmallRng::from_entropy())),
                 collection,
                 last_time: Arc::new(AtomicUsize::new(now_utc())),
-                collected: Arc::new(AtomicBool::new(false)),
+                wait_throw: Arc::new(AtomicBool::new(false)),
             });
             unsafe {
                 let handler = Arc::into_raw(arc.clone()) as *const c_void_ptr;
@@ -519,11 +528,6 @@ impl JS {
     //获取虚拟机堆大小
     pub fn heap_size(&self) -> usize {
         unsafe { dukc_vm_size(self.vm as *const c_void_ptr) }
-    }
-
-    //获取虚拟机复用次数
-    pub fn reused_count(&self) -> usize {
-        self.reused_count.load(Ordering::Relaxed)
     }
 
     //更新虚拟机上次堆大小，并更新所有虚拟机占用内存大小
@@ -1219,15 +1223,8 @@ impl JS {
 
             let max_heap_size = factory.max_heap_size();
             if (max_heap_size > 0) && self.heap_size() >= max_heap_size {
-                //已达虚拟机最大堆限制
-                let max_reused_count = factory.max_reused_count();
-                if (max_reused_count > 0) && self.reused_count() >= max_reused_count {
-                    //已达虚拟机最大执行次数限制，则丢弃
-                    0
-                } else {
-                    //未达虚拟机最大执行次数限制，则释放
-                    1
-                }
+                //已达虚拟机最大堆限制，则释放
+                1
             } else {
                 //未达虚拟机最大堆限制，则忽略
                 2
@@ -2051,34 +2048,16 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
                         let timeout_count_copy = timeout_count.clone();
                         let factory_copy = factory.clone();
 
-                        //确定当前虚拟机工厂的最少虚拟机数
-                        let scheduling_count = factory.reset_scheduling_count(); //获取当前虚拟机工厂一个整理周期内的调度次数，并重置调度次数
-                        //获取当前虚拟工厂一个整理周期内的完成次数，并重置完成次数
-                        let ran_count = match factory.reset_ran_count() {
-                            0 => 1,
-                            c => c,
-                        };
-                        let min_vm_count = match (scheduling_count as f64 / ran_count as f64).ceil() as usize {
-                            0 => 1, //至少需要1个虚拟机
-                            c => {
-                                match factory.capacity() {
-                                    cap if cap > c => c,
-                                    cap => cap, //当前虚拟机最大容量小于等于最小虚拟机数，则返回最大容量
-                                }
-                            },
-                        };
-
                         let start_factory_collect_time = Instant::now();
 
                         factory.collect(Arc::new(move |vm: &mut Arc<JS>| {
                             //整理当前虚拟机工厂内，尾部的一个超时虚拟机
-                            if (factory_copy.size() > min_vm_count)
+                            if (factory_copy.size() > 1)
                                 && (vm_timeout > 0)
                                 && (now - vm.last_time()) >= vm_timeout {
                                 //虚拟机已超时，且当前虚拟机工厂虚拟机数量大于最少虚拟机数量，则将超时虚拟机放入被整理队列
                                 factory_copy.throw(1);
                                 timeout_count_copy.fetch_add(1, Ordering::Relaxed);
-                                vm.collected.store(true, Ordering::Relaxed); //设置超时虚拟机为被整理，被整理的虚拟机，运行后强制丢弃
                                 CollectResult::Break(true) //移除当前尾部的超时虚拟机，并立即中止整理
                             } else {
                                 CollectResult::Break(false) //当前尾部没有超时虚拟机，说明虚拟机工厂内没有超时虚拟机，则立即中止整理
