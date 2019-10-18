@@ -305,8 +305,8 @@ fn collect_vm(js: Arc<JS>) {
                                 //需要释放当前虚拟机可回收内存
                                 if js.free_global() {
                                     let max_heap_size = factory.max_heap_size();
-                                    if (max_heap_size > 0) && js.heap_size() >= max_heap_size {
-                                        //释放后，仍然大于虚拟机堆限制，则标记为等待丢弃，等待下次执行后丢弃
+                                    if (max_heap_size > 0) && (js.heap_size() >= ((max_heap_size as f64 * 0.75).ceil() as usize)) {
+                                        //释放后，仍然大于虚拟机堆限制的75%，则标记为等待丢弃，等待下次执行后丢弃
                                         js.wait_throw.store(true, Ordering::Relaxed);
                                     } else {
                                         //释放后，小于虚拟机堆限制
