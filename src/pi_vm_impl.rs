@@ -87,19 +87,22 @@ impl VMFactoryLoader {
 */
 #[derive(Clone)]
 pub struct VMFactory {
-    name:               Atom,                   //虚拟机工厂名
-    capacity:           usize,                  //虚拟机容量
-    size:               Arc<AtomicUsize>,       //虚拟机工厂当前虚拟机数量
-    alloc_id:           Arc<AtomicUsize>,       //虚拟机分配id
-    max_reused_count:   usize,                  //虚拟机最大执行次数，当达到虚拟机最大堆限制后才会检查
-    heap_size:          usize,                  //虚拟机堆大小
-    max_heap_size:      usize,                  //虚拟机最大堆大小，当达到限制后释放可回收的内存
-    codes:              Arc<Vec<Arc<Vec<u8>>>>, //字节码列表
-    pool:               Arc<LFStack<Arc<JS>>>,  //虚拟机池
-    scheduling_count:   Arc<AtomicUsize>,       //虚拟机工厂调度次数，调度包括任务队列等待和虚拟机执行
-    auth:               Arc<NativeObjsAuth>,    //虚拟机工厂本地对象授权
-    vm_buf_sent:        Sender<Arc<JS>>,        //虚拟机临时缓冲发送器
-    vm_buf_recv:        Receiver<Arc<JS>>,      //虚拟机临时缓冲接收器
+    name:               Atom,                                                                   //虚拟机工厂名
+    capacity:           usize,                                                                  //虚拟机容量
+    size:               Arc<AtomicUsize>,                                                       //虚拟机工厂当前虚拟机数量
+    alloc_id:           Arc<AtomicUsize>,                                                       //虚拟机分配id
+    max_reused_count:   usize,                                                                  //虚拟机最大执行次数，当达到虚拟机最大堆限制后才会检查
+    heap_size:          usize,                                                                  //虚拟机堆大小
+    max_heap_size:      usize,                                                                  //虚拟机最大堆大小，当达到限制后释放可回收的内存
+    codes:              Arc<Vec<Arc<Vec<u8>>>>,                                                 //字节码列表
+    pool:               Arc<LFStack<Arc<JS>>>,                                                  //虚拟机池
+    scheduling_count:   Arc<AtomicUsize>,                                                       //虚拟机工厂调度次数，调度包括任务队列等待和虚拟机执行
+    auth:               Arc<NativeObjsAuth>,                                                    //虚拟机工厂本地对象授权
+    vm_buf_sent:        Sender<Arc<JS>>,                                                        //虚拟机临时缓冲发送器
+    vm_buf_recv:        Receiver<Arc<JS>>,                                                      //虚拟机临时缓冲接收器
+    queue_sent:         Sender<(Option<usize>, Atom, Box<FnOnce(Arc<JS>) -> usize>, Atom)>,     //虚拟机工厂等待调度的任务队列发送器
+    queue_recv:         Receiver<(Option<usize>, Atom, Box<FnOnce(Arc<JS>) -> usize>, Atom)>,   //虚拟机工厂等待调度的任务队列接收器
+    refuse_count:       Arc<AtomicUsize>,                                                       //虚拟机工厂拒绝任务次数
 }
 
 unsafe impl Send for VMFactory {}
@@ -118,7 +121,8 @@ impl VMFactory {
             size = 1;
         }
 
-        let (sender, receiver) = unbounded();
+        let (vm_buf_sent, vm_buf_recv) = unbounded();
+        let (queue_sent, queue_recv) = unbounded();
         VMFactory {
             name: Atom::from(name),
             capacity,
@@ -131,8 +135,11 @@ impl VMFactory {
             pool: Arc::new(LFStack::new()),
             scheduling_count: Arc::new(AtomicUsize::new(0)),
             auth: auth.clone(),
-            vm_buf_sent: sender,
-            vm_buf_recv: receiver,
+            vm_buf_sent,
+            vm_buf_recv,
+            queue_sent,
+            queue_recv,
+            refuse_count: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -197,6 +204,16 @@ impl VMFactory {
         self.scheduling_count.swap(0, Ordering::SeqCst)
     }
 
+    //获取虚拟机工厂，任务调度队列的长度
+    pub fn queue_len(&self) -> usize {
+        self.queue_recv.len()
+    }
+
+    //获取虚拟机工厂，任务拒绝的次数
+    pub fn refuse_count(&self) -> usize {
+        self.refuse_count.load(Ordering::Relaxed)
+    }
+
     //生成指定数量的虚拟机，返回生成前虚拟机池中虚拟机数量
     pub fn produce(&self, count: usize) -> Result<usize, String> {
         let factory_name = (&self.name).to_string();
@@ -234,9 +251,15 @@ impl VMFactory {
 
     //复用指定虚拟机
     pub fn reuse(&self, vm: Arc<JS>) {
-        if let Err(_) = self.pool.try_push(vm.clone()) {
-            //虚拟机池已阻塞，则将空闲虚拟机加入虚拟机临时缓冲区
-            self.vm_buf_sent.send(vm);
+        if let Ok((src, port, args, info)) = self.queue_recv.try_recv() {
+            //当前虚拟机工厂的任务调度队列中有待运行的任务，则立即使用当前虚拟机，异步运行此任务
+            self.async_run(vm, src, port, args, info);
+        } else {
+            //当前虚拟机工厂的任务调度队列中没有待运行的任务，则将当前虚拟机还给当前虚拟机工厂
+            if let Err(_) = self.pool.try_push(vm.clone()) {
+                //虚拟机池已阻塞，则将空闲虚拟机加入虚拟机临时缓冲区
+                self.vm_buf_sent.send(vm);
+            }
         }
     }
 
@@ -279,17 +302,24 @@ impl VMFactory {
                     //虚拟机临时缓冲区，有空闲虚拟机，则运行
                     self.async_run(vm, src, port, args, info);
                 } else {
-                    //虚拟机临时缓冲区，没有空闲虚拟机，则立即构建新的虚拟机
-                    match self.new_vm(self.auth.clone()) {
-                        None => {
-                            self.scheduling_count.fetch_add(1, Ordering::Relaxed); //增加虚拟机工厂调用次数
-                            panic!("Vm Factory Call Error, new vm failed, factory: {:?}",
-                                   (&self.name).to_string());
-                        },
-                        Some(vm) => {
-                            //构建完成，则运行
-                            self.async_run(vm, src, port, args, info);
-                        },
+                    //虚拟机临时缓冲区，没有空闲虚拟机
+                    if is_alloced_limit() {
+                        //当前进程内存已达到最大堆限制，则拒绝任务立即执行，并将任务加入当前虚拟机的任务调度队列中，记录当前拒绝的次数
+                        self.queue_sent.send((src, port, args, info));
+                        self.refuse_count.fetch_add(1, Ordering::Relaxed);
+                    } else {
+                        //当前进程内存未达到最大堆限制，则立即构建新的虚拟机
+                        match self.new_vm(self.auth.clone()) {
+                            None => {
+                                self.scheduling_count.fetch_add(1, Ordering::Relaxed); //增加虚拟机工厂调用次数
+                                panic!("Vm Factory Call Error, new vm failed, factory: {:?}",
+                                       (&self.name).to_string());
+                            },
+                            Some(vm) => {
+                                //构建完成，则运行
+                                self.async_run(vm, src, port, args, info);
+                            },
+                        }
                     }
                 }
             }
