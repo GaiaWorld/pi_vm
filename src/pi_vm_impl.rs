@@ -88,7 +88,8 @@ impl VMFactoryLoader {
 #[derive(Clone)]
 pub struct VMFactory {
     name:               Atom,                                                                   //虚拟机工厂名
-    capacity:           usize,                                                                  //虚拟机容量
+    is_reused:          bool,                                                                   //虚拟机工厂的虚拟机是否可以复用
+    limit_capacity:     Arc<AtomicUsize>,                                                       //虚拟机限制容量，可以在限流时用于控制虚拟机工厂最大虚拟机数量，并通过限流整理进行动态调度
     size:               Arc<AtomicUsize>,                                                       //虚拟机工厂当前虚拟机数量
     alloc_id:           Arc<AtomicUsize>,                                                       //虚拟机分配id
     max_reused_count:   usize,                                                                  //虚拟机最大执行次数，当达到虚拟机最大堆限制后才会检查
@@ -116,16 +117,18 @@ impl VMFactory {
                heap_size: usize,
                max_heap_size: usize,
                auth: Arc<NativeObjsAuth>) -> Self {
-        let capacity = size;
+        let mut is_reused = true; //默认可复用
         if size == 0 {
-            size = 1;
+            //设置为不可复用
+            is_reused = false;
         }
 
         let (vm_buf_sent, vm_buf_recv) = unbounded();
         let (queue_sent, queue_recv) = unbounded();
         VMFactory {
             name: Atom::from(name),
-            capacity,
+            is_reused,
+            limit_capacity: Arc::new(AtomicUsize::new(0)),
             size: Arc::new(AtomicUsize::new(0)),
             alloc_id: Arc::new(AtomicUsize::new(0)),
             max_reused_count,
@@ -159,9 +162,27 @@ impl VMFactory {
         (*self.name).to_string()
     }
 
-    //获取虚拟机池的容量
-    pub fn capacity(&self) -> usize {
-        self.capacity
+    //获取虚拟机池的限制容量
+    pub fn limit_capacity(&self) -> usize {
+        self.limit_capacity.load(Ordering::Relaxed)
+    }
+
+    //初始化虚拟机池的限制容量，限制容量初始化为当前虚拟机工厂的虚拟机数量
+    pub fn init_limit_capacity(&self) {
+        if self.limit_capacity.load(Ordering::Relaxed) == 0 {
+            //当前未初始化，则初始化
+            self.limit_capacity.store(self.size(), Ordering::SeqCst);
+        }
+    }
+
+    //增加虚拟机池的限制容量，每次增加1
+    pub fn add_limit_capacity(&self) {
+        self.limit_capacity.fetch_add(1, Ordering::SeqCst);
+    }
+
+    //减少虚拟机池的限制容量，每次减少1
+    pub fn sub_limit_capacity(&self) {
+        self.limit_capacity.fetch_sub(1, Ordering::SeqCst);
     }
 
     //获取当前虚拟机池中虚拟机数量
@@ -214,7 +235,12 @@ impl VMFactory {
         self.refuse_count.load(Ordering::Relaxed)
     }
 
-    //生成指定数量的虚拟机，返回生成前虚拟机池中虚拟机数量
+    //重置虚拟机工厂，任务拒绝的次数
+    pub fn reset_refuse_count(&self) {
+        self.refuse_count.store(0, Ordering::SeqCst);
+    }
+
+    //生成指定数量的虚拟机，不会检查是否达到虚拟机工厂限制容量上限，由外部调用者在需要时检查，返回生成前虚拟机池中虚拟机数量
     pub fn produce(&self, count: usize) -> Result<usize, String> {
         let factory_name = (&self.name).to_string();
         if !VM_FACTORY_REGISTERS.read().unwrap().contains_key(&factory_name) {
@@ -224,12 +250,6 @@ impl VMFactory {
 
         if count == 0 {
             return Ok(count);
-        }
-
-        if (self.size() + count) > self.capacity() {
-            //超过最大容量，则忽略
-            return Err(format!("vm factory full, factory: {:?}, capacity: {:?}, size: {:?}, count: {:?}",
-                               (&self.name).to_string(), self.capacity(), self.size(), count));
         }
 
         for _ in 0..count {
@@ -243,6 +263,23 @@ impl VMFactory {
                     info!("===> Vm Factory Produce Ok, gc: {},  vm: {:?}", r, vm);
                     self.pool.push(vm); //阻塞的推入虚拟机
                 }
+            }
+        }
+
+        return Ok(self.size());
+    }
+
+    //生成指定数量的虚拟机，只在整理时使用，不会检查是否达到虚拟机工厂限制容量上限，由外部调用者在需要时检查，返回生成前虚拟机池中虚拟机数量
+    pub fn collect_produce(&self) -> Result<usize, String> {
+        match self.new_vm(self.auth.clone()) {
+            None => {
+                return Err(format!("vm factory, new vm failed, factory: {:?}",
+                                   (&self.name).to_string()))
+            },
+            Some(vm) => {
+                let r = vm.free_global(); //预生成的虚拟机，将强制GC
+                info!("===> Vm Factory Produce Ok, gc: {},  vm: {:?}", r, vm);
+                self.pool.push(vm); //阻塞的推入虚拟机
             }
         }
 
@@ -338,39 +375,26 @@ impl VMFactory {
         self.pool.clear();
     }
 
-    //构建一个虚拟机，加载所有字节码，并提供虚拟机本地对象授权
+    //构建一个虚拟机，加载所有字节码，并提供虚拟机本地对象授权，不会检查是否达到虚拟机工厂限制容量上限
     fn new_vm(&self, auth: Arc<NativeObjsAuth>) -> Option<Arc<JS>> {
         let start = VM_NEW_TIME.start();
 
-        let capacity = self.capacity();
-        let mut curr_size = self.size.load(Ordering::SeqCst);
-        if (capacity != 0) && (curr_size < capacity) {
-            //容量有限，且当前虚拟机数量未达上限，则原子增加当前虚拟机数量
-            loop {
-                match self.size.compare_and_swap(curr_size, curr_size + 1, Ordering::SeqCst) {
-                    new_curr_size if new_curr_size == curr_size => {
-                        //原子增加当前虚拟机数量成功，则继续构建虚拟机
-                        break;
-                    },
-                    new_curr_size if new_curr_size >= capacity => {
-                        //原子增加当前虚拟机数量失败，且虚拟机数量已达上限，则退出
-                        warn!("!!!> Vm Factory Create Vm Error, factory full, factory: {:?}, capacity: {:?}, size: {:?}", (&self.name).to_string(), self.capacity(), self.size());
-                        return None;
-                    },
-                    new_curr_size => {
-                        //原子增加当前虚拟机数量失败，但虚拟机数量未达上限，则从新的当前虚拟机数量开始重试
-                        curr_size = new_curr_size;
-                        pause();
-                    }
+        let mut curr_size = self.size();
+        loop {
+            match self.size.compare_and_swap(curr_size, curr_size + 1, Ordering::SeqCst) {
+                new_curr_size if new_curr_size == curr_size => {
+                    //原子增加当前虚拟机数量成功，则继续构建虚拟机
+                    break;
+                },
+                new_curr_size  => {
+                    //原子增加当前虚拟机数量失败，则从新的当前虚拟机数量开始重试
+                    curr_size = new_curr_size;
+                    pause();
                 }
             }
-        } else if (capacity != 0) && (curr_size >= capacity) {
-            //容量有限，且当前虚拟机数量已达上限，则忽略
-            warn!("!!!> Vm Factory Create Vm Error, factory full, factory: {:?}, capacity: {:?}, size: {:?}", (&self.name).to_string(), self.capacity(), self.size());
-            return None
         }
 
-        let result = if self.capacity() == 0 {
+        let result = if !self.is_reused {
             //构建一个无法复用的虚拟机
             JS::new(self.alloc_id.fetch_add(1, Ordering::Relaxed), self.name.clone(), auth.clone(), None)
         } else {
@@ -396,7 +420,7 @@ impl VMFactory {
                 }
 
                 //如果是可以复用的虚拟机，则需要创建全局对象模板，并替换当前全局对象
-                if self.capacity() > 0 {
+                if self.is_reused {
                     if !vm.new_global_template() {
                         warn!("!!!> Vm Factory Create Vm Error, new global template failed, factory: {:?}",
                                  (&self.name).to_string());
