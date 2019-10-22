@@ -2168,7 +2168,7 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
                             //有高负载虚拟机工厂，则开始动态调度虚拟机工厂的限制容量
                             low_load_factory.sub_limit_capacity(); //减少低负载虚拟机工厂的限制容量1
                             high_load_factory.add_limit_capacity(); //增加高负载虚拟机工厂的限制容量1
-                            high_load_factory.collect_produce(); //并立即为高负载虚拟机工厂生成1个空闲虚拟机，注意此操作会获取虚拟机工厂注册表的写锁
+                            high_load_factory.collect_produce(); //并立即为高负载虚拟机工厂生成1个空闲虚拟机
                             info!("===> Factory Global Collect, low load factory: [{:?}, {:?}, {:?}], high load factory: [{:?}, {:?}, {:?}]", low_load_factory.name(), low_load_factory.limit_capacity(), low_load_factory.size(), high_load_factory.name(), high_load_factory.limit_capacity(), high_load_factory.size());
                         }
                     }

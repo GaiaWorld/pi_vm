@@ -278,7 +278,7 @@ impl VMFactory {
             },
             Some(vm) => {
                 let r = vm.free_global(); //预生成的虚拟机，将强制GC
-                info!("===> Vm Factory Produce Ok, gc: {},  vm: {:?}", r, vm);
+                info!("===> Vm Factory Produce Ok by Collect, gc: {},  vm: {:?}", r, vm);
                 self.pool.push(vm); //阻塞的推入虚拟机
             }
         }
