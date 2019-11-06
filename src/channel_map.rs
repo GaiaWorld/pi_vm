@@ -4,10 +4,9 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::cell::RefCell;
 
-use pi_lib::atom::Atom;
-use pi_lib::handler::{Env, GenType, Handler, Args};
-use pi_lib::gray::GrayVersion;
-use pi_base::task::TaskType;
+use atom::Atom;
+use handler::{Env, GenType, Handler, Args};
+use gray::GrayVersion;
 
 use adapter::{JS, JSType};
 use pi_vm_impl::{block_reply, push_callback};
@@ -24,10 +23,10 @@ pub enum VMChannelPeer {
 * 虚拟机通道
 */
 pub struct VMChannel {
-    src: VMChannelPeer,             //源
-    dst: VMChannelPeer,             //目标
-    attrs: RefCell<HashMap<Atom, GenType>>,  //属性表
-    gray: Option<usize>,
+    src: VMChannelPeer,                         //源
+    dst: VMChannelPeer,                         //目标
+    attrs: RefCell<HashMap<Atom, GenType>>,     //属性表
+    gray: Option<usize>,                        //灰度
 }
 
 impl GrayVersion for VMChannel {
@@ -38,8 +37,8 @@ impl GrayVersion for VMChannel {
     fn set_gray(&mut self, gray: Option<usize>) {
         self.gray = gray
     }
-    
-    fn get_id(&self) -> usize{
+
+    fn get_id(&self) -> usize {
         0
     }
 }
@@ -95,18 +94,18 @@ impl VMChannel {
                         //同步阻塞返回
                         let result = Box::new(move |vm: Arc<JS>| {
                             let array = vm.new_array();
-                            let buffer = vm.new_uint8_array(result.len() as u32);
+                            let mut buffer = vm.new_uint8_array(result.len() as u32);
                             buffer.from_bytes(result.as_slice());
-                            vm.set_index(&array, 0, &buffer);
+                            vm.set_index(&array, 0, &mut buffer);
                             let mut value: JSType;
-                            let sub_array = vm.new_array();
+                            let mut sub_array = vm.new_array();
                             for i in 0..native_objs.len() {
                                 value = vm.new_native_object(native_objs[i]);
-                                vm.set_index(&sub_array, i as u32, &value);
+                                vm.set_index(&sub_array, i as u32, &mut value);
                             }
-                            vm.set_index(&array, 1, &sub_array);
+                            vm.set_index(&array, 1, &mut sub_array);
                         });
-                        block_reply(js.clone(), result, TaskType::Sync, 1000000000, Atom::from("vm async block call response task"));
+                        block_reply(js.clone(), result, Atom::from("vm async block call response task"));
                     },
                     Some(index) => {
                         //异步回调
@@ -117,11 +116,11 @@ impl VMChannel {
                             let array = vm.new_array();
                             for i in 0..native_objs.len() {
                                 value = vm.new_native_object(native_objs[i]);
-                                vm.set_index(&array, i as u32, &value);
+                                vm.set_index(&array, i as u32, &mut value);
                             }
                             2
                         });
-                        push_callback(js.clone(), index, args, Atom::from("vm async call response task"));
+                        push_callback(js.clone(), index, args, None, Atom::from("vm async call response task"));
                     }
                 }
                 true

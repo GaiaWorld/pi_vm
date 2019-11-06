@@ -3,15 +3,26 @@ use std::ffi::CString;
 
 use libc::{c_void, uint32_t, c_int};
 
+use atom::Atom;
+use apm::counter::{GLOBAL_PREF_COLLECT, PrefCounter, PrefTimer};
+use worker::task::TaskType;
+
 use bonmgr::{CallResult, bon_call};
 use adapter::{JSStatus, JS, JSType, dukc_vm_status_switch, dukc_throw, dukc_switch_context};
+
+lazy_static! {
+    //虚拟机同步调用数量
+    static ref VM_SYNC_CALL_COUNT: PrefCounter = GLOBAL_PREF_COLLECT.new_static_counter(Atom::from("vm_sync_call_count"), 0).unwrap();
+    //虚拟机同步阻塞调用数量
+    static ref VM_BLOCK_CALL_COUNT: PrefCounter = GLOBAL_PREF_COLLECT.new_static_counter(Atom::from("vm_block_call_count"), 0).unwrap();
+}
 
 //调用NativeObject函数
 #[no_mangle]
 pub extern "C" fn native_object_function_call(
     handler: *const c_void, 
     hash: uint32_t, 
-    args_size: uint32_t, 
+    args_size: uint32_t,
     args_type: *const c_void,
     args: *const c_void) -> c_int {
         let js = unsafe { JS::from_raw(handler) };
@@ -20,20 +31,26 @@ pub extern "C" fn native_object_function_call(
         let vec = args_to_vec(vm, args_size, args_type as *const u8, args as *const u32);
         match bon_call(js.clone(), hash, vec) {
             Some(CallResult::Ok) => {
+                VM_SYNC_CALL_COUNT.sum(1);
+
                 unsafe { dukc_switch_context(vm); }
                 Arc::into_raw(js);
                 return 1
             },
             Some(CallResult::Err(reason)) => {
+                VM_SYNC_CALL_COUNT.sum(1);
+
                 unsafe {
                     dukc_switch_context(vm); //必须先切换上下文，再抛出异常
-                    dukc_throw(vm, CString::new(reason).unwrap().as_ptr()); 
+                    dukc_throw(vm, CString::new(reason).unwrap().as_ptr());
                 }
                 Arc::into_raw(js);
                 return 0;
             }
             None => {
                 //没有立即返回，则表示会阻塞，并异步返回
+                VM_BLOCK_CALL_COUNT.sum(1);
+
                 unsafe {
                     dukc_switch_context(vm);
                     Arc::into_raw(js);
@@ -46,6 +63,30 @@ pub extern "C" fn native_object_function_call(
                 }
             },
         }
+    //测试同步返回和异步回调
+//        if hash < 0xffffffff {
+//            js.new_u32(hash);
+//        } else {
+//            js.new_str("Hello".to_string()).get_value() as *const c_void;
+//        }
+//        unsafe { dukc_switch_context(vm); }
+//        Arc::into_raw(js);
+//        return 1;
+    //测试同步阻塞返回和异步回调
+//        if hash < 0xffffffff {
+//            use atom::Atom;
+//            let args = Box::new(move |tmp: Arc<JS>| {
+//                tmp.new_u32(hash);
+//                1
+//            });
+//            JS::push(js.clone(), TaskType::Sync(true), hash, args, Atom::from("callback by async call"));
+//        }
+//        unsafe {
+//            dukc_switch_context(vm);
+//            dukc_vm_status_switch(vm, JSStatus::SingleTask as i8, JSStatus::WaitBlock as i8);
+//        }
+//        Arc::into_raw(js);
+//        return 0;
 }
 
 //转换参数

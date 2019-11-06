@@ -3,7 +3,7 @@ use std::cell::RefCell;
 
 use std::collections::HashMap;
 use adapter::{JSType, JS};
-use pi_lib::atom::Atom;
+use atom::Atom;
 
 lazy_static! {
 	pub static ref BON_MGR: Arc<BonMgr> = Arc::new(BonMgr::new());
@@ -37,12 +37,13 @@ impl NativeObjs{
 
 impl Drop for NativeObjs{
     fn drop(&mut self){
-        println!("drop nativeobj!");
+//        println!("drop nativeobj!");
         let map = self.0.borrow();
         let struct_metas = BON_MGR.struct_metas.lock().unwrap();
         for (ptr, nobj) in map.iter(){
-            let meta = struct_metas.get(&nobj.meta_hash).unwrap();
-            (meta.drop_fn)(*ptr);
+            if let Some(meta) = struct_metas.get(&nobj.meta_hash) {
+				(meta.drop_fn)(*ptr);
+			}
         }
     }
 }
@@ -73,6 +74,7 @@ pub struct StructMeta {
 // 	pub members: Vec<StructMeta>
 }
 
+#[derive(Clone)]
 pub enum FnMeta {
 	CallArg(fn(Arc<JS>, Vec<JSType>) -> Option<CallResult>),
     Call(fn(Arc<JS>) -> Option<CallResult>),
@@ -133,19 +135,21 @@ impl BonMgr{
 
 	//有参数的调用
 	pub fn call(&self, js: Arc<JS>, fun_hash: u32, args: Option<Vec<JSType>>) -> Option<CallResult> {
-        let fun_ref = self.fun_metas.lock().unwrap();
-		let func = match fun_ref.get(&fun_hash){
-			Some(v) => v,
-			None => {
-				panic!("FnMeta is not finded, hash:{}", fun_hash);
-			}
-		};
+        let func = {
+            let fun_ref = self.fun_metas.lock().unwrap();
+            match fun_ref.get(&fun_hash){
+                Some(v) => v.clone(),
+                None => {
+                    panic!("FnMeta is not finded, hash:{}", fun_hash);
+                }
+            }
+        };
 
 		match func{
-            &FnMeta::CallArg(ref f) => {
+            FnMeta::CallArg(f) => {
 				f(js, args.unwrap())
 			},
-            &FnMeta::Call(ref f) => {
+            FnMeta::Call(f) => {
 				f(js)
 			},
 		}
