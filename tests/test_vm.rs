@@ -12,6 +12,7 @@ extern crate apm;
 
 use std::mem;
 use std::thread;
+use std::ffi::CString;
 use std::sync::atomic::AtomicUsize;
 use std::time::{Instant, Duration};
 use std::sync::{Arc, Mutex, Condvar};
@@ -486,6 +487,59 @@ fn js_async_callback_register_push(js: Arc<JS>, args: Vec<JSType>) -> Option<Cal
     } else {
         Some(CallResult::Err("set timeout failed".to_string()))
     }
+}
+
+//测试虚拟机同步阻塞加载模块
+#[test]
+fn test_vm_block_load_mod() {
+    TIMER.run();
+    TASK_POOL_TIMER.run();
+    let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 8, 1024 * 1024, 30000, JS_WORKER_WALKER.clone()));
+    worker_pool.run(JS_TASK_POOL.clone());
+    set_max_alloced_limit(1073741824);
+    set_vm_timeout(30000);
+
+    //初始化阻塞调用的环境
+    register_native_object();
+    register_native_function(0x1, js_test_vm_block_load_mod);
+
+    let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
+    assert!(opts.is_some());
+    let js = opts.unwrap();
+    let opts = js.compile("test_vm_load_mod.js".to_string(), "console.log(\"loading module...\"); var wait_load = NativeObject.call(0x1, [\"./test/mod\"]); var loaded = wait_load({}); console.log(\"load module ok, loaded:\", loaded); var mod0_test0 = loaded.test0(); console.log(\"bind module function ok, function:\", mod0_test0); x = 10000000000; y = 999999999; function test_call() { console.log(\"!!!!!!local:\", mod0_test0()); };".to_string());
+    assert!(opts.is_some());
+    let code = opts.unwrap();
+
+    let factory = VMFactory::new("test vm", 3, 27, 1073741824, 1073741824, Arc::new(NativeObjsAuth::new(None, None)));
+    let factory = factory.append(Arc::new(code));
+    match factory.produce(1) {
+        Err(e) => println!("factory produce failed, e: {:?}", e),
+        Ok(len) => {
+            println!("!!!!!!factory vm len: {:?}", len);
+            let func = Box::new(move |js: Arc<JS>| {
+                0usize
+            });
+            factory.call(None,
+                         Atom::from("test_call"),
+                         func,
+                         Atom::from("test load module task"));
+        },
+    }
+    thread::sleep(Duration::from_millis(100000));
+}
+
+fn js_test_vm_block_load_mod(js: Arc<JS>, _args: Vec<JSType>) -> Option<CallResult> {
+    let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
+    let opts = opts.unwrap().compile("test_mod_0.js".to_string(), "(function(exports) { mod0_num = 0xffffffff; var x = 1000; exports.test0 = function() { console.log(\"!!!!!!mod0.test0 called, mod0 x:\", x); }; return exports; })".to_string());
+    let codes = opts.unwrap();
+
+    unsafe {
+        if !js.load_module("test_mod_0", codes.as_slice()) {
+            //加载失败，则返回undefined
+            js.new_undefined();
+        }
+    }
+    Some(CallResult::Ok)
 }
 
 #[test]
