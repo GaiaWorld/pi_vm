@@ -417,6 +417,9 @@ pub unsafe fn try_js_destroy(js: &JS) {
     }
 }
 
+unsafe impl Send for JS {}
+unsafe impl Sync for JS {}
+
 impl Drop for JS {
     fn drop(&mut self) {
         unsafe { try_js_destroy(self); }
