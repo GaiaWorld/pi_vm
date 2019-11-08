@@ -91,7 +91,7 @@ extern "C" {
     pub fn dukc_vm_status_check(vm: *const c_void_ptr, value: int8_t) -> uint8_t;
     pub fn dukc_vm_status_switch(vm: *const c_void_ptr, old_status: int8_t, new_status: int8_t) -> int8_t;
     pub fn dukc_vm_status_sub(vm: *const c_void_ptr, value: int8_t) -> int8_t;
-    fn dukc_load_module(vm: *const c_void_ptr, name: *const c_char, size: uint32_t, bytes: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_char)) -> uint32_t;
+    fn dukc_load_module(vm: *const c_void_ptr, size: uint32_t, bytes: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_char)) -> uint32_t;
     fn dukc_new_null(vm: *const c_void_ptr) -> uint32_t;
     fn dukc_new_undefined(vm: *const c_void_ptr) -> uint32_t;
     fn dukc_new_boolean(vm: *const c_void_ptr, b: uint8_t) -> uint32_t;
@@ -767,12 +767,12 @@ impl JS {
     }
 
     //加载指定路径的模块
-    pub fn load_module(&self, path: &str, module: &[u8]) -> bool {
+    pub fn load_module(&self, module: &[u8]) -> bool {
         let size = module.len() as u32;
         let bytes = module.as_ptr() as *const c_void_ptr;
         unsafe {
             //加载失败才会回调，所以无需增加当前虚拟机消息队列长度
-            if dukc_load_module(self.vm as *const c_void_ptr, CString::new(path.to_string()).unwrap().as_ptr(), size, bytes, js_reply_callback) == 0 {
+            if dukc_load_module(self.vm as *const c_void_ptr, size, bytes, js_reply_callback) == 0 {
                 return false;
             }
 
