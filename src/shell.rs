@@ -114,7 +114,7 @@ struct ShellGlobalEnv(HashMap<String, ShellEnvValue>);
 pub struct ShellManager {
     id: usize,                                          //shell分配id
     factory: Option<VMFactory>,                         //shell虚拟机工厂
-    shells: HashMap<usize, (ShellStatus, Shell)>,    //shell表
+    shells: HashMap<usize, (ShellStatus, Shell)>,       //shell表
     env: ShellGlobalEnv,                                //shell全局环境
 }
 

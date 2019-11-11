@@ -533,11 +533,9 @@ fn js_test_vm_sync_load_mod(js: Arc<JS>, _args: Vec<JSType>) -> Option<CallResul
     let opts = opts.unwrap().compile("test_mod_0.js".to_string(), "(function(exports) { mod0_num = 0xffffffff; var x = 1000; exports.test0 = function() { console.log(\"!!!!!!mod0.test0 called, mod0 x:\", x); }; return exports; })".to_string());
     let codes = opts.unwrap();
 
-    unsafe {
-        if !js.load_module(codes.as_slice()) {
-            //加载失败，则返回undefined
-            js.new_undefined();
-        }
+    if !js.load_module(codes.as_slice()) {
+        //加载失败，则返回undefined
+        js.new_undefined();
     }
     Some(CallResult::Ok)
 }
@@ -596,11 +594,9 @@ fn js_test_vm_async_load_mod(js: Arc<JS>, args: Vec<JSType>) -> Option<CallResul
 
         let func = Box::new(move |vm: Arc<JS>| -> usize {
             vm.new_str(path);
-            unsafe {
-                if !vm.load_module(codes.as_slice()) {
-                    //加载失败，则返回undefined
-                    vm.new_undefined();
-                }
+            if !vm.load_module(codes.as_slice()) {
+                //加载失败，则返回undefined
+                vm.new_undefined();
             }
             2
         });
