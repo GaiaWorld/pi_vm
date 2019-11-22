@@ -20,6 +20,12 @@ use std::sync::{Arc, Mutex, Condvar};
 #[macro_use]
 extern crate lazy_static;
 
+#[macro_use]
+extern crate log;
+
+#[macro_use]
+extern crate env_logger;
+
 extern crate rand;
 
 use rand::prelude::*;
@@ -261,6 +267,9 @@ fn base_test() {
 //测试从虚拟机工厂进行虚拟机js执行
 #[test]
 fn test_vm_factory() {
+    env_logger::builder()
+        .format_timestamp_millis()
+        .init();
     TIMER.run();
     let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 8, 1024 * 1024, 30000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
@@ -311,6 +320,9 @@ fn register_native_function(id: u32, fun: fn(Arc<JS>, Vec<JSType>) -> Option<Cal
 //测试从虚拟机工厂进行虚拟机同步调用
 #[test]
 fn test_vm_factory_sync_call() {
+    env_logger::builder()
+        .format_timestamp_millis()
+        .init();
     TIMER.run();
     let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 8, 1024 * 1024, 30000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
@@ -363,6 +375,9 @@ fn js_test_vm_factory_sync_call(js: Arc<JS>, _args: Vec<JSType>) -> Option<CallR
 //测试从虚拟机工厂进行虚拟机阻塞调用
 #[test]
 fn test_vm_factory_block_call() {
+    env_logger::builder()
+        .format_timestamp_millis()
+        .init();
     TIMER.run();
     let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 8, 1024 * 1024, 30000, JS_WORKER_WALKER.clone()));
     worker_pool.run(JS_TASK_POOL.clone());
@@ -424,6 +439,9 @@ fn js_test_vm_factory_block_throw(js: Arc<JS>, _args: Vec<JSType>) -> Option<Cal
 //测试从虚拟机工厂进行虚拟机异步回调
 #[test]
 fn test_vm_factory_async_callback() {
+    env_logger::builder()
+        .format_timestamp_millis()
+        .init();
     TIMER.run();
     TASK_POOL_TIMER.run();
     let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 8, 1024 * 1024, 30000, JS_WORKER_WALKER.clone()));
@@ -492,6 +510,9 @@ fn js_async_callback_register_push(js: Arc<JS>, args: Vec<JSType>) -> Option<Cal
 //测试虚拟机同步加载模块
 #[test]
 fn test_vm_sync_load_mod() {
+    env_logger::builder()
+        .format_timestamp_millis()
+        .init();
     TIMER.run();
     TASK_POOL_TIMER.run();
     let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 8, 1024 * 1024, 30000, JS_WORKER_WALKER.clone()));
@@ -506,7 +527,7 @@ fn test_vm_sync_load_mod() {
     let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
-    let opts = js.compile("test_vm_load_mod.js".to_string(), "console.log(\"loading module...\"); var wait_load = NativeObject.call(0x1, [\"./test/mod\"]); var loaded = wait_load({}); console.log(\"load module ok, loaded:\", loaded); var mod0_test0 = loaded.test0(); console.log(\"bind module function ok, function:\", mod0_test0); x = 10000000000; y = 999999999; function test_call() { console.log(\"!!!!!!local:\", mod0_test0()); };".to_string());
+    let opts = js.compile("test_vm_load_mod.js".to_string(), "console.log(\"loading module...\"); var wait_load = NativeObject.call(0x1, [\"./test/mod\"]); var loaded = wait_load({}); console.log(\"load module ok, loaded:\", loaded); var mod0_test0 = loaded.test0(); console.log(\"bind module function ok, function:\", mod0_test0); x = 10000000000; y = 999999999; function test_call() { console.log(\"!!!!!!local:\", mod0_test0); };".to_string());
     assert!(opts.is_some());
     let code = opts.unwrap();
 
@@ -543,6 +564,9 @@ fn js_test_vm_sync_load_mod(js: Arc<JS>, _args: Vec<JSType>) -> Option<CallResul
 //测试虚拟机异步加载模块
 #[test]
 fn test_vm_async_load_mod() {
+    env_logger::builder()
+        .format_timestamp_millis()
+        .init();
     TIMER.run();
     TASK_POOL_TIMER.run();
     let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 8, 1024 * 1024, 30000, JS_WORKER_WALKER.clone()));
@@ -557,7 +581,7 @@ fn test_vm_async_load_mod() {
     let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
-    let opts = js.compile("test_vm_load_mod.js".to_string(), "function onload(path, wait_load) { var loaded = wait_load({}); console.log(\"load module ok,\", path, \", \", loaded); var mod0_test0 = loaded.test0(); console.log(\"bind module function ok, function:\", mod0_test0); x = 10000000000; y = 999999999; function test_call() { console.log(\"!!!!!!local:\", mod0_test0()); }; }; var index = callbacks.register(onload); NativeObject.call(0x1, [index, \"./test/mod\"]); ".to_string());
+    let opts = js.compile("test_vm_load_mod.js".to_string(), "function onload(path, wait_load) { var loaded = wait_load({}); console.log(\"load module ok,\", path, \", \", loaded); var mod0_test0 = loaded.test0(); console.log(\"bind module function ok, function:\", mod0_test0); x = 10000000000; y = 999999999; function test_call() { console.log(\"!!!!!!local:\", mod0_test0); }; }; var index = callbacks.register(onload); NativeObject.call(0x1, [index, \"./test/mod\"]); ".to_string());
     assert!(opts.is_some());
     let code = opts.unwrap();
 

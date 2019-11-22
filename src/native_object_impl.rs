@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::ffi::CString;
 
-use libc::{c_void, uint32_t, c_int};
+use libc::{c_void as c_void_ptr, c_int};
 
 use atom::Atom;
 use apm::counter::{GLOBAL_PREF_COLLECT, PrefCounter, PrefTimer};
@@ -20,11 +20,11 @@ lazy_static! {
 //调用NativeObject函数
 #[no_mangle]
 pub extern "C" fn native_object_function_call(
-    handler: *const c_void, 
-    hash: uint32_t, 
-    args_size: uint32_t,
-    args_type: *const c_void,
-    args: *const c_void) -> c_int {
+    handler: *const c_void_ptr,
+    hash: u32, 
+    args_size: u32,
+    args_type: *const c_void_ptr,
+    args: *const c_void_ptr) -> c_int {
         let js = unsafe { JS::from_raw(handler) };
         let vm = unsafe { js.get_vm() };
         unsafe { dukc_switch_context(vm); }
@@ -63,34 +63,10 @@ pub extern "C" fn native_object_function_call(
                 }
             },
         }
-    //测试同步返回和异步回调
-//        if hash < 0xffffffff {
-//            js.new_u32(hash);
-//        } else {
-//            js.new_str("Hello".to_string()).get_value() as *const c_void;
-//        }
-//        unsafe { dukc_switch_context(vm); }
-//        Arc::into_raw(js);
-//        return 1;
-    //测试同步阻塞返回和异步回调
-//        if hash < 0xffffffff {
-//            use atom::Atom;
-//            let args = Box::new(move |tmp: Arc<JS>| {
-//                tmp.new_u32(hash);
-//                1
-//            });
-//            JS::push(js.clone(), TaskType::Sync(true), hash, args, Atom::from("callback by async call"));
-//        }
-//        unsafe {
-//            dukc_switch_context(vm);
-//            dukc_vm_status_switch(vm, JSStatus::SingleTask as i8, JSStatus::WaitBlock as i8);
-//        }
-//        Arc::into_raw(js);
-//        return 0;
 }
 
 //转换参数
-fn args_to_vec(vm: *const c_void, args_size: u32, args_type: *const u8, args: *const u32) -> Option<Vec<JSType>> {
+fn args_to_vec(vm: *const c_void_ptr, args_size: u32, args_type: *const u8, args: *const u32) -> Option<Vec<JSType>> {
     if args_size == 0 {
         return None;
     }
@@ -102,7 +78,7 @@ fn args_to_vec(vm: *const c_void, args_size: u32, args_type: *const u8, args: *c
         unsafe {
             type_id = args_type.wrapping_offset(offset as isize).read();
             arg = args.wrapping_offset(offset as isize).read();
-            vec.insert(offset as usize, JSType::new(type_id, false, vm, arg as *const c_void));
+            vec.insert(offset as usize, JSType::new(type_id, false, vm, arg as *const c_void_ptr));
         }
     }
     Some(vec)
@@ -110,7 +86,7 @@ fn args_to_vec(vm: *const c_void, args_size: u32, args_type: *const u8, args: *c
 
 //释放指定虚拟机对应的NativeObject实例
 #[no_mangle]
-pub extern "C" fn native_object_function_free(ptr: *const c_void, size: uint32_t) {
+pub extern "C" fn native_object_function_free(ptr: *const c_void_ptr, size: u32) {
     let mut vec = Vec::with_capacity(size as usize);
     let instances = ptr as *const u64;
     for offset in 0..size {

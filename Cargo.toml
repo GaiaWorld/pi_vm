@@ -22,3 +22,6 @@ util = { path = "../pi_lib/util" }
 task_pool = { path = "../pi_lib/task_pool" }
 apm = { path = "../pi_lib/apm" }
 lfstack = { path = "../pi_lib/lfstack" }
+
+[dev-dependencies]
+env_logger = "0.7"

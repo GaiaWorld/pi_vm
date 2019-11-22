@@ -1,4 +1,4 @@
-use libc::{c_void as c_void_ptr, c_char, int8_t, uint8_t, c_int, uint32_t, int32_t, uint64_t, size_t, c_double, memcpy};
+use libc::{c_void as c_void_ptr, c_uchar, c_char, c_int, size_t, c_double, memcpy};
 use std::slice::{from_raw_parts_mut, from_raw_parts};
 use std::sync::atomic::{Ordering, AtomicUsize, AtomicIsize, AtomicBool};
 use std::fmt::{Debug, Formatter, Result as FmtResult};
@@ -72,70 +72,70 @@ lazy_static! {
 #[link(name = "dukc")]
 extern "C" {
     fn dukc_manual_free() -> c_int;
-    fn dukc_register_native_object_function_call(func: extern fn(*const c_void_ptr, uint32_t, uint32_t, *const c_void_ptr, *const c_void_ptr) -> c_int);
-    fn dukc_register_native_object_free(func: extern fn(*const c_void_ptr, uint32_t));
+    fn dukc_register_native_object_function_call(func: extern fn(*const c_void_ptr, u32, u32, *const c_void_ptr, *const c_void_ptr) -> c_int);
+    fn dukc_register_native_object_free(func: extern fn(*const c_void_ptr, u32));
     fn dukc_heap_create() -> *const c_void_ptr;
-    fn dukc_heap_init(vm: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_char)) -> uint32_t;
+    fn dukc_heap_init(vm: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_uchar)) -> u32;
     fn dukc_init_char_output(vm: *const c_void_ptr, func: extern fn(*const c_char));
     // fn dukc_vm_create(heap: *const c_void_ptr) -> *const c_void_ptr;
     fn dukc_vm_size(vm: *const c_void_ptr) -> size_t;
-    fn dukc_compile_script(vm: *const c_void_ptr, file: *const c_char, code: *const c_char, size: *mut uint32_t, reply: extern fn(*const c_void_ptr, c_int, *const c_char)) -> *const c_void_ptr;
-    fn dukc_load_code(vm: *const c_void_ptr, size: uint32_t, bytes: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_char)) -> uint32_t;
+    fn dukc_compile_script(vm: *const c_void_ptr, file: *const c_char, code: *const c_char, size: *mut u32, reply: extern fn(*const c_void_ptr, c_int, *const c_uchar)) -> *const c_void_ptr;
+    fn dukc_load_code(vm: *const c_void_ptr, size: u32, bytes: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_uchar)) -> u32;
     fn dukc_bind_vm(vm: *const c_void_ptr, handler: *const c_void_ptr);
-    // fn dukc_vm_clone(size: uint32_t, bytes: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_char)) -> *const c_void_ptr;
-    fn dukc_vm_run(vm: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_char));
-    fn dukc_vm_global_template(vm: *const c_void_ptr) -> uint32_t;
-    fn dukc_vm_global_swap(vm: *const c_void_ptr) -> uint32_t;
-    fn dukc_vm_global_clear(vm: *const c_void_ptr) -> uint32_t;
-    fn dukc_vm_global_free(vm: *const c_void_ptr) -> uint32_t;
-    pub fn dukc_vm_status_check(vm: *const c_void_ptr, value: int8_t) -> uint8_t;
-    pub fn dukc_vm_status_switch(vm: *const c_void_ptr, old_status: int8_t, new_status: int8_t) -> int8_t;
-    pub fn dukc_vm_status_sub(vm: *const c_void_ptr, value: int8_t) -> int8_t;
-    fn dukc_load_module(vm: *const c_void_ptr, size: uint32_t, bytes: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_char)) -> uint32_t;
-    fn dukc_new_null(vm: *const c_void_ptr) -> uint32_t;
-    fn dukc_new_undefined(vm: *const c_void_ptr) -> uint32_t;
-    fn dukc_new_boolean(vm: *const c_void_ptr, b: uint8_t) -> uint32_t;
-    fn dukc_new_number(vm: *const c_void_ptr, num: c_double) -> uint32_t;
-    fn dukc_new_string(vm: *const c_void_ptr, str: *const c_char) -> uint32_t;
-    fn dukc_new_object(vm: *const c_void_ptr) -> uint32_t;
-    fn dukc_get_type(vm: *const c_void_ptr, name: *const c_char) -> uint32_t;
-    fn dukc_new_type(vm: *const c_void_ptr, len: uint8_t) -> int32_t;
-    fn dukc_set_object_field(vm: *const c_void_ptr, object: uint32_t, key: *const c_char, value: uint32_t) -> uint32_t;
-    fn dukc_new_array(vm: *const c_void_ptr) -> uint32_t;
-    fn dukc_set_array_index(vm: *const c_void_ptr, array: uint32_t, index: uint32_t, value: uint32_t) -> uint32_t;
-    fn dukc_new_array_buffer(vm: *const c_void_ptr, length: uint32_t) -> uint32_t;
-    fn dukc_new_uint8_array(vm: *const c_void_ptr, length: uint32_t) -> uint32_t;
-    fn dukc_new_native_object(vm: *const c_void_ptr, ptr: uint64_t) -> uint32_t;
-    pub fn dukc_new_error(vm: *const c_void_ptr, reason: *const c_char) -> uint32_t;
-    pub fn dukc_remove_value(vm: *const c_void_ptr, value: uint32_t);
-    fn dukc_get_value_type(vm: *const c_void_ptr, value: uint32_t) -> uint8_t;
-    fn dukc_get_boolean(vm: *const c_void_ptr, value: uint32_t) -> uint8_t;
-    fn dukc_get_number(vm: *const c_void_ptr, value: uint32_t) -> c_double;
-    fn dukc_get_string(vm: *const c_void_ptr, value: uint32_t) -> *const c_char;
-    fn dukc_get_object_field(vm: *const c_void_ptr, object: uint32_t, key: *const c_char) -> uint32_t;
-    fn dukc_get_array_length(vm: *const c_void_ptr, array: uint32_t) -> uint32_t;
-    fn dukc_get_array_index(vm: *const c_void_ptr, array: uint32_t, index: uint32_t) -> uint32_t;
-    fn dukc_get_buffer_length(vm: *const c_void_ptr, value: uint32_t) -> uint32_t;
-    fn dukc_get_buffer(vm: *const c_void_ptr, value: uint32_t) -> *const c_void_ptr;
-    fn dukc_get_native_object_instance(vm: *const c_void_ptr, value: uint32_t) -> uint64_t;
-    fn dukc_get_js_function(vm: *const c_void_ptr, func: *const c_char) -> uint32_t;
-    pub fn dukc_link_js_function(vm: *const c_void_ptr, func: *const c_char) -> uint32_t;
-    fn dukc_check_js_function(vm: *const c_void_ptr, func: *const c_char) -> uint32_t;
-    pub fn dukc_get_callback(vm: *const c_void_ptr, index: uint32_t) -> uint32_t ;
-    pub fn dukc_call(vm: *const c_void_ptr, len: uint8_t, reply: extern fn(*const c_void_ptr, c_int, *const c_char));
+    // fn dukc_vm_clone(size: u32, bytes: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_char)) -> *const c_void_ptr;
+    fn dukc_vm_run(vm: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_uchar));
+    fn dukc_vm_global_template(vm: *const c_void_ptr) -> u32;
+    fn dukc_vm_global_swap(vm: *const c_void_ptr) -> u32;
+    fn dukc_vm_global_clear(vm: *const c_void_ptr) -> u32;
+    fn dukc_vm_global_free(vm: *const c_void_ptr) -> u32;
+    pub fn dukc_vm_status_check(vm: *const c_void_ptr, value: i8) -> u8;
+    pub fn dukc_vm_status_switch(vm: *const c_void_ptr, old_status: i8, new_status: i8) -> i8;
+    pub fn dukc_vm_status_sub(vm: *const c_void_ptr, value: i8) -> i8;
+    fn dukc_load_module(vm: *const c_void_ptr, size: u32, bytes: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_uchar)) -> u32;
+    fn dukc_new_null(vm: *const c_void_ptr) -> u32;
+    fn dukc_new_undefined(vm: *const c_void_ptr) -> u32;
+    fn dukc_new_boolean(vm: *const c_void_ptr, b: u8) -> u32;
+    fn dukc_new_number(vm: *const c_void_ptr, num: c_double) -> u32;
+    fn dukc_new_string(vm: *const c_void_ptr, str: *const c_char) -> u32;
+    fn dukc_new_object(vm: *const c_void_ptr) -> u32;
+    fn dukc_get_type(vm: *const c_void_ptr, name: *const c_char) -> u32;
+    fn dukc_new_type(vm: *const c_void_ptr, len: u8) -> i32;
+    fn dukc_set_object_field(vm: *const c_void_ptr, object: u32, key: *const c_char, value: u32) -> u32;
+    fn dukc_new_array(vm: *const c_void_ptr) -> u32;
+    fn dukc_set_array_index(vm: *const c_void_ptr, array: u32, index: u32, value: u32) -> u32;
+    fn dukc_new_array_buffer(vm: *const c_void_ptr, length: u32) -> u32;
+    fn dukc_new_uint8_array(vm: *const c_void_ptr, length: u32) -> u32;
+    fn dukc_new_native_object(vm: *const c_void_ptr, ptr: u64) -> u32;
+    pub fn dukc_new_error(vm: *const c_void_ptr, reason: *const c_char) -> u32;
+    pub fn dukc_remove_value(vm: *const c_void_ptr, value: u32);
+    fn dukc_get_value_type(vm: *const c_void_ptr, value: u32) -> u8;
+    fn dukc_get_boolean(vm: *const c_void_ptr, value: u32) -> u8;
+    fn dukc_get_number(vm: *const c_void_ptr, value: u32) -> c_double;
+    fn dukc_get_string(vm: *const c_void_ptr, value: u32) -> *const c_char;
+    fn dukc_get_object_field(vm: *const c_void_ptr, object: u32, key: *const c_char) -> u32;
+    fn dukc_get_array_length(vm: *const c_void_ptr, array: u32) -> u32;
+    fn dukc_get_array_index(vm: *const c_void_ptr, array: u32, index: u32) -> u32;
+    fn dukc_get_buffer_length(vm: *const c_void_ptr, value: u32) -> u32;
+    fn dukc_get_buffer(vm: *const c_void_ptr, value: u32) -> *const c_void_ptr;
+    fn dukc_get_native_object_instance(vm: *const c_void_ptr, value: u32) -> u64;
+    fn dukc_get_js_function(vm: *const c_void_ptr, func: *const c_char) -> u32;
+    pub fn dukc_link_js_function(vm: *const c_void_ptr, func: *const c_char) -> u32;
+    fn dukc_check_js_function(vm: *const c_void_ptr, func: *const c_char) -> u32;
+    pub fn dukc_get_callback(vm: *const c_void_ptr, index: u32) -> u32 ;
+    pub fn dukc_call(vm: *const c_void_ptr, len: u8, reply: extern fn(*const c_void_ptr, c_int, *const c_uchar));
     pub fn dukc_throw(vm: *const c_void_ptr, reason: *const c_char);
-    pub fn dukc_wakeup(vm: *const c_void_ptr, error: c_int) -> uint32_t;
-    pub fn dukc_continue(vm: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_char));
+    pub fn dukc_wakeup(vm: *const c_void_ptr, error: c_int) -> u32;
+    pub fn dukc_continue(vm: *const c_void_ptr, reply: extern fn(*const c_void_ptr, c_int, *const c_uchar));
     pub fn dukc_switch_context(vm: *const c_void_ptr);
-    pub fn dukc_callback_count(vm: *const c_void_ptr) -> uint32_t;
-    pub fn dukc_remove_callback(vm: *const c_void_ptr, index: uint32_t) -> uint32_t;
-    fn dukc_set_global_var(vm: *const c_void_ptr, key: *const c_char) -> uint32_t;
-    fn dukc_invoke(vm: *const c_void_ptr, len: uint8_t) -> int32_t;
-    fn dukc_eval(vm: *const c_void_ptr, script: *const c_char) -> int32_t;
-    pub fn dukc_top(vm: *const c_void_ptr) -> int32_t;
-    pub fn dukc_to_string(vm: *const c_void_ptr, offset: int32_t) -> *const c_char;
+    pub fn dukc_callback_count(vm: *const c_void_ptr) -> u32;
+    pub fn dukc_remove_callback(vm: *const c_void_ptr, index: u32) -> u32;
+    fn dukc_set_global_var(vm: *const c_void_ptr, key: *const c_char) -> u32;
+    fn dukc_invoke(vm: *const c_void_ptr, len: u8) -> i32;
+    fn dukc_eval(vm: *const c_void_ptr, script: *const c_char) -> i32;
+    pub fn dukc_top(vm: *const c_void_ptr) -> i32;
+    pub fn dukc_to_string(vm: *const c_void_ptr, offset: i32) -> *const c_char;
     fn dukc_dump_stack(vm: *const c_void_ptr) -> *const c_char;
-    fn dukc_stack_frame(vm: *const c_void_ptr, index: uint32_t) -> *const c_char;
+    fn dukc_stack_frame(vm: *const c_void_ptr, index: u32) -> *const c_char;
     pub fn dukc_pop(vm: *const c_void_ptr);
     fn dukc_vm_destroy(vm: *const c_void_ptr);
 }
@@ -165,14 +165,14 @@ pub fn pause() {
 *  否则还有其它异步任务，则回收权利交由其它异步任务
 */
 #[no_mangle]
-pub extern "C" fn js_reply_callback(handler: *const c_void_ptr, status: c_int, err: *const c_char) {
+pub extern "C" fn js_reply_callback(handler: *const c_void_ptr, status: c_int, err: *const c_uchar) {
     if handler.is_null() {
         //处理初始化异常
         if status != 0 {
             VM_INIT_PANIC_COUNT.sum(1);
 
             warn!("!!!> JS Init Error, status: {}, err: {}",
-                     status, unsafe { CStr::from_ptr(err).to_string_lossy().into_owned() });
+                     status, unsafe { CStr::from_ptr(err as *const c_char).to_string_lossy().into_owned() });
         }
         return;
     }
@@ -189,7 +189,7 @@ pub extern "C" fn js_reply_callback(handler: *const c_void_ptr, status: c_int, e
             VM_RUN_PANIC_COUNT.sum(1);
 
             warn!("!!!> JS Run Error, vm: {:?}, err: {}",
-                     js, CStr::from_ptr(err).to_string_lossy().into_owned());
+                     js, CStr::from_ptr(err as *const c_char).to_string_lossy().into_owned());
         }
 
         js.update_last_heap_size(); //在js当前任务执行完成后，更新虚拟机堆大小和内存占用
