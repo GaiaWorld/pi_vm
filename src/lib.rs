@@ -32,7 +32,9 @@ extern crate worker;
 extern crate timer;
 extern crate handler;
 extern crate gray;
+extern crate hash;
 extern crate lfstack;
+extern crate parking_lot;
 
 pub mod adapter;
 pub mod native_object_impl;
@@ -40,3 +42,6 @@ pub mod pi_vm_impl;
 pub mod bonmgr;
 pub mod channel_map;
 pub mod shell;
+pub mod proc;
+pub mod proc_pool;
+pub mod duk_proc;
