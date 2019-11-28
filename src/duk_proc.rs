@@ -98,6 +98,10 @@ impl Process<(Arc<NativeObjsAuth>, Arc<Vec<Vec<u8>>>), Box<FnOnce(Arc<JS>) -> us
         self.status.load(Ordering::SeqCst).into()
     }
 
+    fn queue_len(&self) -> usize {
+        self.vm.get_queue_len()
+    }
+
     fn call(&mut self, module: String, function: String, args: Box<FnOnce(Arc<JS>) -> usize>) -> Result<Self::Output, Self::Error> {
         let init_status = ProcStatus::Init.into();
         let running_status = ProcStatus::Running.into();
@@ -205,6 +209,14 @@ impl ProcessFactory for DukProcessFactory {
         Err(Error::new(ErrorKind::Other, format!("duk process startup failed, pid: {:?}, module: {:?}, function: {:?}, reason: process not exists", pid, module, function)))
     }
 
+    fn queue_len(&self, pid: u64) -> Option<usize> {
+        if let Some(process) = self.pool.write().get_mut(&(pid as usize)) {
+            return Some(process.queue_len());
+        }
+
+        None
+    }
+
     fn set_receiver(&self, pid: u64, receiver: GenType) -> Result<(), Self::Error> {
         if let GenType::U32(callback) = receiver {
             if let Some(process) = self.pool.write().get_mut(&(pid as usize)) {
@@ -218,7 +230,6 @@ impl ProcessFactory for DukProcessFactory {
         }
     }
 
-    //向指定进程发送消息
     fn send(&self, src: u64, dst: u64, mut msg: GenType) -> Result<(), Self::Error> {
         if let Some(process) = self.pool.read().get(&(dst as usize)) {
             if let GenType::Array(array) = &mut msg {

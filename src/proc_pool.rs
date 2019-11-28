@@ -105,7 +105,7 @@ pub fn name_to_pid(name: &String) -> Option<u64> {
 }
 
 /*
-* 线程安全的查询指定进程的运行状态
+* 线程安全的获取指定进程的运行状态
 */
 pub fn get_status(pid: u64) -> Option<ProcStatus> {
     if pid == 0 {
@@ -115,6 +115,22 @@ pub fn get_status(pid: u64) -> Option<ProcStatus> {
 
     if let Some((status, _)) = GLOBAL_PROCESS_POOL.processes.read().get(&pid) {
         return Some(status.load(Ordering::SeqCst).into())
+    }
+
+    None
+}
+
+/*
+* 线程安全的获取指定进程的消息队列长度
+*/
+pub fn queue_len(pid: u64) -> Option<usize> {
+    if pid == 0 {
+        //无效的进程
+        return None;
+    }
+
+    if let Some((_, factory)) = GLOBAL_PROCESS_POOL.processes.read().get(&pid) {
+        return factory.queue_len(pid);
     }
 
     None

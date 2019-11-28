@@ -124,6 +124,9 @@ pub trait Process<Options: 'static, Args: 'static, Payload: 'static>: 'static {
     //获取当前进程的运行状态
     fn status(&self) -> ProcStatus;
 
+    //获取当前进程的消息队列长度
+    fn queue_len(&self) -> usize;
+
     //启动进程，并调用指定脚本，执行完成则返回执行结果
     fn call(&mut self, module: String, function: String, args: Args) -> Result<Self::Output, Self::Error>;
 
@@ -150,6 +153,9 @@ pub trait ProcessFactory: 'static {
                function: String,
                args: Args<GenType, GenType, GenType, GenType, GenType, GenType, GenType, GenType>)
         -> Result<(), Self::Error>;
+
+    //获取指定进程的消息队列长度
+    fn queue_len(&self, pid: u64) -> Option<usize>;
 
     //设置指定进程的异步消息接收器
     fn set_receiver(&self, pid: u64, receiver: GenType) -> Result<(), Self::Error>;
