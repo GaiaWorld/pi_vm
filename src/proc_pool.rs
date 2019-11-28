@@ -69,6 +69,11 @@ pub fn spawn_process(name: Option<String>,
             return Err(e);
         }
 
+        if let Err(e) = factory.startup(pid, module, function, args) {
+            //启动进程错误，则立即返回错误原因
+            return Err(e);
+        }
+
         return Ok(pid);
     }
 
@@ -116,19 +121,31 @@ pub fn get_status(pid: u64) -> Option<ProcStatus> {
 }
 
 /*
+* 线程安全的设置指定进程的异步消息接收器
+*/
+pub fn set_receiver(pid: u64, receiver: GenType) -> Result<(), Error> {
+    if let Some((_, factory)) = GLOBAL_PROCESS_POOL.processes.read().get(&pid) {
+        factory.set_receiver(pid, receiver)
+    } else {
+        //进程对应的工厂不存在
+        Err(Error::new(ErrorKind::Other, format!("set receiver failed, pid: {:?}, process factory not exist", pid)))
+    }
+}
+
+/*
 * 线程安全的指定进程发送异步消息，src为0表示未知进程, dst必须大于0
 */
 pub fn pid_send(src: u64, dst: u64, msg: GenType) -> Result<(), Error> {
     if dst == 0 {
         //无效的目标进程
-        return Err(Error::new(ErrorKind::Other, format!("process send failed, reason: invalid dst, src: {:?}, dst: {:?}", src, dst)));
+        return Err(Error::new(ErrorKind::Other, format!("pid send failed, reason: invalid dst, src: {:?}, dst: {:?}", src, dst)));
     }
 
     if let Some((_, factory)) = GLOBAL_PROCESS_POOL.processes.read().get(&dst) {
         factory.send(src, dst, msg)
     } else {
         //进程对应的工厂不存在
-        Err(Error::new(ErrorKind::Other, format!("process send failed, src: {:?}, dst: {:?}, process factory not exist", src, dst)))
+        Err(Error::new(ErrorKind::Other, format!("pid send failed, src: {:?}, dst: {:?}, process factory not exist", src, dst)))
     }
 }
 
@@ -138,13 +155,13 @@ pub fn pid_send(src: u64, dst: u64, msg: GenType) -> Result<(), Error> {
 pub fn name_send(src: u64, dst: String, msg: GenType) -> Result<(), Error> {
     if dst == "" {
         //无效的目标进程
-        return Err(Error::new(ErrorKind::Other, format!("process send failed, reason: invalid dst, src: {:?}, dst: {:?}", src, dst)));
+        return Err(Error::new(ErrorKind::Other, format!("name send failed, reason: invalid dst, src: {:?}, dst: {:?}", src, dst)));
     }
 
     if let Some((pid, factory)) = GLOBAL_PROCESS_POOL.names.read().get(&dst) {
         factory.send(src, *pid, msg)
     } else {
         //进程对应的工厂不存在
-        Err(Error::new(ErrorKind::Other, format!("process send failed, src: {:?}, dst: {:?}, process factory not exist", src, dst)))
+        Err(Error::new(ErrorKind::Other, format!("name send failed, src: {:?}, dst: {:?}, process factory not exist", src, dst)))
     }
 }

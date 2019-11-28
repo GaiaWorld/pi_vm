@@ -645,10 +645,10 @@ pub fn push_callback(js: Arc<JS>, callback: u32, args: Box<FnOnce(Arc<JS>) -> us
 
     if timeout.is_some() {
         //推送延迟异步任务
-        JS::push(js.clone(), TaskType::Sync(true), callback, args, timeout, info)
+        JS::callback(js.clone(), TaskType::Sync(true), callback, args, timeout, info)
     } else {
         //推送异步任务
-        let handle = JS::push(js.clone(), TaskType::Sync(true), callback, args, timeout, info);
+        let handle = JS::callback(js.clone(), TaskType::Sync(true), callback, args, timeout, info);
         unsafe {
             let vm = js.get_vm();
             let status = dukc_vm_status_switch(vm, JSStatus::WaitCallBack as i8, JSStatus::SingleTask as i8);
@@ -659,6 +659,22 @@ pub fn push_callback(js: Arc<JS>, callback: u32, args: Box<FnOnce(Arc<JS>) -> us
         }
         handle
     }
+}
+
+/*
+* 线程安全的向虚拟机推送异步消息
+*/
+pub fn push_msg(js: Arc<JS>, callback: u32, args: Box<FnOnce(Arc<JS>) -> usize>, info: Atom) -> Option<isize> {
+    let handle = JS::push(js.clone(), TaskType::Sync(true), callback, args, info);
+    unsafe {
+        let vm = js.get_vm();
+        let status = dukc_vm_status_switch(vm, JSStatus::WaitCallBack as i8, JSStatus::SingleTask as i8);
+        if status == JSStatus::WaitCallBack as i8 {
+            //当前虚拟机等待异步回调，因为其它任务已执行完成，任务结果已经从值栈中弹出，则只需立即执行异步回调函数
+            handle_async_callback(js, vm);
+        }
+    }
+    handle
 }
 
 /*

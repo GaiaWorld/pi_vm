@@ -10,7 +10,7 @@ use handler::{Args, GenType};
 use hash::XHashMap;
 
 use adapter::{pause, JS};
-use pi_vm_impl::push_callback;
+use pi_vm_impl::push_msg;
 use bonmgr::NativeObjsAuth;
 use proc::{ProcStatus, ProcInfo, Process, ProcessFactory};
 use proc_pool::register_process;
@@ -57,6 +57,15 @@ impl Process<(Arc<NativeObjsAuth>, Arc<Vec<Vec<u8>>>), Box<FnOnce(Arc<JS>) -> us
                     continue;
                 }
                 return Err(Error::new(ErrorKind::InvalidData, format!("init duktape vm failed, pid: {:?}, name: {:?}, reason: load code failed", pid, name)));
+            }
+
+            //初始化进程环境
+            let val = vm.new_u32(pid as u32);
+            vm.set_global_var("_$pid".to_string(), val);
+            if let Some(n) = &name {
+                if let Ok(val) = vm.new_str((&n).to_string()) {
+                    vm.set_global_var("_$pname".to_string(), val);
+                }
             }
 
             return Ok(DukProcess {
@@ -113,10 +122,12 @@ impl Process<(Arc<NativeObjsAuth>, Arc<Vec<Vec<u8>>>), Box<FnOnce(Arc<JS>) -> us
             running_status => {
                 //当前进程正在运行
                 let args = Box::new(move |vm: Arc<JS>| {
-                    //TODO...
-                    0
+                    //TODO 测试代码...
+                    vm.new_u32(info.source() as u32);
+                    vm.new_str(unsafe { String::from_utf8_unchecked(info.payload().0.to_vec()) });
+                    2
                 });
-                push_callback(self.vm.clone(), self.receiver, args, None, Atom::from(format!("DukProcess Info Task, pid: {:?}, name: {:?}", self.pid, self.name)));
+                push_msg(self.vm.clone(), self.receiver, args, Atom::from(format!("DukProcess Info Task, pid: {:?}, name: {:?}", self.pid, self.name)));
                 Ok(())
             },
             status => {
@@ -194,6 +205,19 @@ impl ProcessFactory for DukProcessFactory {
         Err(Error::new(ErrorKind::Other, format!("duk process startup failed, pid: {:?}, module: {:?}, function: {:?}, reason: process not exists", pid, module, function)))
     }
 
+    fn set_receiver(&self, pid: u64, receiver: GenType) -> Result<(), Self::Error> {
+        if let GenType::U32(callback) = receiver {
+            if let Some(process) = self.pool.write().get_mut(&(pid as usize)) {
+                process.set_receiver(callback);
+                Ok(())
+            } else {
+                Err(Error::new(ErrorKind::Other, format!("duk process set receiver failed, pid: {:?}, reason: process not exists", pid)))
+            }
+        } else {
+            Err(Error::new(ErrorKind::Other, format!("duk process set receiver failed, pid: {:?}, reason: invalid receiver", pid)))
+        }
+    }
+
     //向指定进程发送消息
     fn send(&self, src: u64, dst: u64, mut msg: GenType) -> Result<(), Self::Error> {
         if let Some(process) = self.pool.read().get(&(dst as usize)) {
@@ -227,10 +251,13 @@ impl ProcessFactory for DukProcessFactory {
 }
 
 impl DukProcessFactory {
-    //设置指定进程，接收异步消息的回调入口
-    pub fn set_receiver(&self, pid: u64, receiver: u32) {
-        if let Some(process) = self.pool.write().get_mut(&(pid as usize)) {
-            process.set_receiver(receiver);
+    //构建基于Duktape运行时的进程工厂
+    pub fn new(name: Atom, auth: Arc<NativeObjsAuth>, codes: Arc<Vec<Vec<u8>>>) -> Self {
+        DukProcessFactory {
+            name,
+            auth,
+            codes,
+            pool: Arc::new(RwLock::new(XHashMap::default())),
         }
     }
 }

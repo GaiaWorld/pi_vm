@@ -86,6 +86,21 @@ impl<Payload: 'static> ProcInfo<Payload> {
             payload,
         }
     }
+
+    //获取消息源
+    pub fn source(&self) -> u64 {
+        self.src
+    }
+
+    //获取消息目标
+    pub fn dest(&self) -> u64 {
+        self.dst
+    }
+
+    //获取消息负载
+    pub fn payload(&self) -> &Payload {
+        &self.payload
+    }
 }
 
 /*
@@ -135,6 +150,9 @@ pub trait ProcessFactory: 'static {
                function: String,
                args: Args<GenType, GenType, GenType, GenType, GenType, GenType, GenType, GenType>)
         -> Result<(), Self::Error>;
+
+    //设置指定进程的异步消息接收器
+    fn set_receiver(&self, pid: u64, receiver: GenType) -> Result<(), Self::Error>;
 
     //向指定进程发送消息
     fn send(&self, src: u64, dst: u64, msg: GenType) -> Result<(), Self::Error>;

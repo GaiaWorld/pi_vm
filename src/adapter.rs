@@ -493,8 +493,8 @@ impl JS {
         Arc::from_raw(ptr as *const JS)
     }
 
-    //向指定虚拟机的消息队列中推送消息
-    pub fn push(js: Arc<JS>, task_type: TaskType, callback: u32,
+    //回调指定虚拟机的指定回调函数，回调成功，则移除回调函数
+    pub fn callback(js: Arc<JS>, task_type: TaskType, callback: u32,
                 args: Box<FnOnce(Arc<JS>) -> usize>, timeout: Option<u32>, info: Atom) -> Option<isize> {
         let js_copy = js.clone();
         let func = Box::new(move |_lock| {
@@ -522,6 +522,30 @@ impl JS {
             //向指定虚拟机的消息队列推送异步回调任务
             cast_js_task(task_type, 0, Some(js.get_queue()), func, info)
         }
+    }
+
+    //向指定虚拟机的消息队列中推送消息，由指定的回调函数处理，处理后不移除回调函数
+    pub fn push(js: Arc<JS>, task_type: TaskType, callback: u32, args: Box<FnOnce(Arc<JS>) -> usize>, info: Atom) -> Option<isize> {
+        let js_copy = js.clone();
+        let func = Box::new(move |_lock| {
+            let vm: *const c_void_ptr;
+            //不需要改变虚拟机状态，以保证当前虚拟机可以线程安全的执行回调函数
+            unsafe {
+                vm = js_copy.get_vm();
+                if dukc_get_callback(vm, callback) == 0 {
+                    //当前回调函数不存在，则立即退出当前同步任务，以获取下一个异步消息
+                    return;
+                }
+            }
+
+            //将回调函数的参数压栈，并执行回调函数
+            let args_len = (args)(js_copy.clone());
+            unsafe { dukc_call(vm, args_len as u8, js_reply_callback); }
+        });
+        js.queue.size.fetch_add(1, Ordering::SeqCst) + 1; //增加消息队列长度，并返回
+
+        //向指定虚拟机的消息队列推送异步回调任务
+        cast_js_task(task_type, 0, Some(js.get_queue()), func, info)
     }
 
     //获取内部虚拟机

@@ -43,8 +43,11 @@ use worker::impls::{TASK_POOL_TIMER, JS_WORKER_WALKER, JS_TASK_POOL, create_js_t
 use pi_vm::pi_vm_impl::{VMFactory, block_reply, block_throw, push_callback, register_async_request};
 use pi_vm::adapter::{load_lib_backtrace, register_native_object, dukc_remove_value, dukc_top, JS, JSType, set_vm_timeout};
 use pi_vm::channel_map::VMChannel;
-use pi_vm::bonmgr::{CallResult, NativeObjsAuth, FnMeta, BON_MGR};
+use pi_vm::proc::{Process, ProcInfo, ProcessFactory};
 use apm::allocator::set_max_alloced_limit;
+use pi_vm::bonmgr::{CallResult, NativeObjsAuth, FnMeta, BON_MGR};
+use pi_vm::proc_pool::{set_factory, spawn_process, name_to_pid, set_receiver, pid_send, name_send};
+use pi_vm::duk_proc::{DukProcess, DukProcessFactory};
 
 // // #[test]
 // fn njsc_test() {
@@ -626,6 +629,103 @@ fn js_test_vm_async_load_mod(js: Arc<JS>, args: Vec<JSType>) -> Option<CallResul
         });
         push_callback(js_copy.clone(), callback, func, None, Atom::from("register async load module callback task"));
     });
+
+    js.new_undefined();
+    Some(CallResult::Ok)
+}
+
+#[test]
+fn test_process() {
+    env_logger::builder()
+        .format_timestamp_millis()
+        .init();
+    TIMER.run();
+    TASK_POOL_TIMER.run();
+    let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 8, 1024 * 1024, 30000, JS_WORKER_WALKER.clone()));
+    worker_pool.run(JS_TASK_POOL.clone());
+    set_max_alloced_limit(1073741824);
+    set_vm_timeout(30000);
+
+    //初始化进程的环境
+    let auth = Arc::new(NativeObjsAuth::new(None, None));
+    let opts = JS::new(1, Atom::from("test vm"), auth.clone(), None);
+    assert!(opts.is_some());
+    let js = opts.unwrap();
+    let opts = js.compile("test_process_base.js".to_string(), "onmessage = function(src, msg) { console.log(\"receive ok, src:\", src + \", msg:\", msg); }; handler = {}; handler.start = function() { var index = callbacks.register(onmessage); var r = NativeObject.call(0x10, [_$pid, index]); console.log(\"start process ok, r:\", r); };".to_string());
+    assert!(opts.is_some());
+    let code = opts.unwrap();
+
+    let duk_facotry_name = Atom::from("duk_proc_factory");
+    let duk_factory = DukProcessFactory::new(duk_facotry_name.clone(), auth.clone(), Arc::new(vec![code]));
+    set_factory(duk_facotry_name.clone(), Arc::new(duk_factory));
+
+    //初始化同步调用的环境
+    register_native_object();
+    register_native_function(0x1, js_test_process_spawn);
+    register_native_function(0x10, js_test_process_register_receiver);
+    register_native_function(0x100, js_test_process_send);
+
+    let opts = JS::new(1, Atom::from("test vm"), auth, None);
+    assert!(opts.is_some());
+    let js = opts.unwrap();
+    let opts = js.compile("test_process.js".to_string(), "var pid = NativeObject.call(0x1, [\"duk_proc_factory\", \"test_process\", \"handler\", \"start\", []]); console.log(\"spawn process, pid:\", pid); function test_call() { for(var i = 0; i < 10; i++) { var r = NativeObject.call(0x100, [pid, \"Hello Process\"]); console.log(\"send msg to process, r:\", r); } }".to_string());
+    assert!(opts.is_some());
+    let code = opts.unwrap();
+
+    let factory = VMFactory::new("test vm", 3, 27, 1073741824, 1073741824, Arc::new(NativeObjsAuth::new(None, None)));
+    let factory = factory.append(Arc::new(code));
+    match factory.produce(1) {
+        Err(e) => println!("factory produce failed, e: {:?}", e),
+        Ok(len) => {
+            let func = Box::new(move |js: Arc<JS>| {
+                0usize
+            });
+            factory.call(None,
+                         Atom::from("test_call"),
+                         func,
+                         Atom::from("test sync load module task"));
+        },
+    }
+    thread::sleep(Duration::from_millis(100000));
+}
+
+fn js_test_process_spawn(js: Arc<JS>, args: Vec<JSType>) -> Option<CallResult> {
+    let factory_name = args[0].get_str();
+    let process_name = args[1].get_str();
+    let module = args[2].get_str();
+    let function = args[3].get_str();
+
+    match spawn_process(Some(process_name), Atom::from(factory_name), module, function, Args::NilArgs) {
+        Err(e) => {
+            Some(CallResult::Err(e.to_string()))
+        },
+        Ok(pid) => {
+            js.new_u32(pid as u32);
+            Some(CallResult::Ok)
+        },
+    }
+}
+
+fn js_test_process_register_receiver(js: Arc<JS>, args: Vec<JSType>) -> Option<CallResult> {
+    let pid = args[0].get_u32() as u64;
+    let callback = args[1].get_u32();
+
+    if let Err(e) = set_receiver(pid, GenType::U32(callback)) {
+        return Some(CallResult::Err(e.to_string()));
+    }
+
+    js.new_undefined();
+    Some(CallResult::Ok)
+}
+
+fn js_test_process_send(js: Arc<JS>, args: Vec<JSType>) -> Option<CallResult> {
+    let pid = args[0].get_u32() as u64;
+    let msg = args[1].get_str();
+
+    let args = GenType::Array(vec![GenType::ArcBin(Arc::new(msg.into_bytes())), GenType::Array(vec![])]);
+    if let Err(e) = pid_send(0, pid, args) {
+        return Some(CallResult::Err(e.to_string()));
+    }
 
     js.new_undefined();
     Some(CallResult::Ok)
