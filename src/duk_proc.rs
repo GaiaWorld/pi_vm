@@ -194,17 +194,9 @@ impl DukProcess {
         match self.status.load(Ordering::SeqCst) {
             running_status => {
                 //当前进程正在运行
-                let pid = self.pid;
-                let name = self.name.clone();
                 let args = Box::new(move |vm: Arc<JS>| {
-                    vm.new_u32(pid as u32);
-                    if let Some(name) = name {
-                        vm.new_str((&name).to_string());
-                    } else {
-                        vm.new_undefined();
-                    }
                     vm.new_str(error);
-                    3
+                    1
                 });
                 push_msg(self.vm.clone(), self.catcher, args, Atom::from(format!("DukProcess Throw Task, pid: {:?}, name: {:?}", self.pid, self.name)));
                 Ok(())

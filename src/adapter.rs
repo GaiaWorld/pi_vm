@@ -197,13 +197,9 @@ pub extern "C" fn js_reply_callback(handler: *const c_void_ptr, status: c_int, e
                 },
                 catcher => {
                     //设置了异常捕获回调
-                    let vm_id = js.id;
-                    let vm_name = (&js.name).to_string();
                     let args = Box::new(move |vm_arg: Arc<JS>| {
-                        vm_arg.new_u32(vm_id as u32);
-                        vm_arg.new_str(vm_name);
                         vm_arg.new_str(error_info);
-                        3
+                        1
                     });
                     JS::push(js.clone(), TaskType::Sync(true), catcher, args, Atom::from("js catch throw task"));
                 }
