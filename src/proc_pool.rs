@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use hash::XHashMap;
 use parking_lot::RwLock;
 
-use handler::{Args, GenType};
+use handler::GenType;
 use atom::Atom;
 
 use proc::{ProcStatus, ProcessFactory};
@@ -61,7 +61,7 @@ pub fn spawn_process(name: Option<String>,
                      factory_name: Atom,
                      module: String,
                      function: String,
-                     args: Args<GenType, GenType, GenType, GenType, GenType, GenType, GenType, GenType>) -> Result<u64, Error> {
+                     args: GenType) -> Result<u64, Error> {
     if let Some(factory) = GLOBAL_PROCESS_POOL.factorys.read().get(&factory_name) {
         let pid = GLOBAL_PROCESS_POOL.alloc_pid();
         if let Err(e) = factory.new_process(pid, name) {
@@ -149,19 +149,55 @@ pub fn set_receiver(pid: u64, receiver: GenType) -> Result<(), Error> {
 }
 
 /*
+* 线程安全的取消指定进程的异步消息接收器
+*/
+pub fn unset_receiver(pid: u64) -> Result<(), Error> {
+    if let Some((_, factory)) = GLOBAL_PROCESS_POOL.processes.read().get(&pid) {
+        factory.unset_receiver(pid)
+    } else {
+        //进程对应的工厂不存在
+        Err(Error::new(ErrorKind::Other, format!("unset receiver failed, pid: {:?}, process factory not exist", pid)))
+    }
+}
+
+/*
+* 线程安全的设置指定进程的异常捕获器
+*/
+pub fn set_catcher(pid: u64, catcher: GenType) -> Result<(), Error> {
+    if let Some((_, factory)) = GLOBAL_PROCESS_POOL.processes.read().get(&pid) {
+        factory.set_catcher(pid, catcher)
+    } else {
+        //进程对应的工厂不存在
+        Err(Error::new(ErrorKind::Other, format!("set catcher failed, pid: {:?}, process factory not exist", pid)))
+    }
+}
+
+/*
+* 线程安全的取消指定进程的异常捕获器
+*/
+pub fn unset_catcher(pid: u64) -> Result<(), Error> {
+    if let Some((_, factory)) = GLOBAL_PROCESS_POOL.processes.read().get(&pid) {
+        factory.unset_catcher(pid)
+    } else {
+        //进程对应的工厂不存在
+        Err(Error::new(ErrorKind::Other, format!("unset catcher failed, pid: {:?}, process factory not exist", pid)))
+    }
+}
+
+/*
 * 线程安全的指定进程发送异步消息，src为0表示未知进程, dst必须大于0
 */
 pub fn pid_send(src: u64, dst: u64, msg: GenType) -> Result<(), Error> {
     if dst == 0 {
         //无效的目标进程
-        return Err(Error::new(ErrorKind::Other, format!("pid send failed, reason: invalid dst, src: {:?}, dst: {:?}", src, dst)));
+        return Err(Error::new(ErrorKind::Other, format!("pid send failed, src: {:?}, dst: {:?}, reason: invalid dst", src, dst)));
     }
 
     if let Some((_, factory)) = GLOBAL_PROCESS_POOL.processes.read().get(&dst) {
         factory.send(src, dst, msg)
     } else {
         //进程对应的工厂不存在
-        Err(Error::new(ErrorKind::Other, format!("pid send failed, src: {:?}, dst: {:?}, process factory not exist", src, dst)))
+        Err(Error::new(ErrorKind::Other, format!("pid send failed, src: {:?}, dst: {:?}, reason: process factory not exist", src, dst)))
     }
 }
 
@@ -171,13 +207,45 @@ pub fn pid_send(src: u64, dst: u64, msg: GenType) -> Result<(), Error> {
 pub fn name_send(src: u64, dst: String, msg: GenType) -> Result<(), Error> {
     if dst == "" {
         //无效的目标进程
-        return Err(Error::new(ErrorKind::Other, format!("name send failed, reason: invalid dst, src: {:?}, dst: {:?}", src, dst)));
+        return Err(Error::new(ErrorKind::Other, format!("name send failed, src: {:?}, dst: {:?}, reason: invalid dst", src, dst)));
     }
 
     if let Some((pid, factory)) = GLOBAL_PROCESS_POOL.names.read().get(&dst) {
         factory.send(src, *pid, msg)
     } else {
         //进程对应的工厂不存在
-        Err(Error::new(ErrorKind::Other, format!("name send failed, src: {:?}, dst: {:?}, process factory not exist", src, dst)))
+        Err(Error::new(ErrorKind::Other, format!("name send failed, src: {:?}, dst: {:?}, reason: process factory not exist", src, dst)))
     }
+}
+
+/*
+* 线程安全的关闭指定进程
+*/
+pub fn close_process(pid: u64, reason: String) -> Result<(), Error> {
+    if pid == 0 {
+        //无效的进程
+        return Err(Error::new(ErrorKind::Other, format!("close process failed, reason: invalid pid")));
+    }
+
+    //从指定工厂中关闭指定进程
+    let result;
+    if let Some((_, factory)) = GLOBAL_PROCESS_POOL.processes.read().get(&pid) {
+        result = factory.close(pid, reason);
+    } else {
+        //进程对应的工厂不存在
+        return Err(Error::new(ErrorKind::Other, format!("close process failed, pid: {:?}, reason: process factory not exist", pid)))
+    }
+
+    //清理进程池中的进程信息
+    match result {
+        Err(e) => return Err(e),
+        Ok(Some(name)) => {
+            //进程有名称，则从进程名称表中移除进程信息
+            GLOBAL_PROCESS_POOL.names.write().remove(&name);
+        },
+        _ => (),
+    }
+    GLOBAL_PROCESS_POOL.processes.write().remove(&pid); //从进程表中移除进程信息
+
+    Ok(())
 }

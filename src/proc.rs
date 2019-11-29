@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::error::Error;
 use std::sync::atomic::{AtomicU8, Ordering};
 
-use handler::{Args, GenType};
+use handler::GenType;
 
 /*
 * 进程运行状态
@@ -151,7 +151,7 @@ pub trait ProcessFactory: 'static {
                pid: u64,
                module: String,
                function: String,
-               args: Args<GenType, GenType, GenType, GenType, GenType, GenType, GenType, GenType>)
+               args: GenType)
         -> Result<(), Self::Error>;
 
     //获取指定进程的消息队列长度
@@ -160,6 +160,18 @@ pub trait ProcessFactory: 'static {
     //设置指定进程的异步消息接收器
     fn set_receiver(&self, pid: u64, receiver: GenType) -> Result<(), Self::Error>;
 
+    //取消指定进程的异步消息接收器
+    fn unset_receiver(&self, pid: u64) -> Result<(), Self::Error>;
+
+    //设置指定进程的异常捕获器
+    fn set_catcher(&self, pid: u64, catcher: GenType) -> Result<(), Self::Error>;
+
+    //取消指定进程的异常捕获器
+    fn unset_catcher(&self, pid: u64) -> Result<(), Self::Error>;
+
     //向指定进程发送消息
     fn send(&self, src: u64, dst: u64, msg: GenType) -> Result<(), Self::Error>;
+
+    //强制关闭指定进程
+    fn close(&self, pid: u64, reason: String) -> Result<Option<String>, Self::Error>;
 }

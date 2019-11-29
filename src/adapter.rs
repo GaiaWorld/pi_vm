@@ -1,6 +1,6 @@
 use libc::{c_void as c_void_ptr, c_uchar, c_char, c_int, size_t, c_double, memcpy};
 use std::slice::{from_raw_parts_mut, from_raw_parts};
-use std::sync::atomic::{Ordering, AtomicUsize, AtomicIsize, AtomicBool};
+use std::sync::atomic::{Ordering, AtomicUsize, AtomicIsize, AtomicI32, AtomicBool};
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::string::FromUtf8Error;
 use std::ffi::{CStr, CString};
@@ -188,8 +188,26 @@ pub extern "C" fn js_reply_callback(handler: *const c_void_ptr, status: c_int, e
             //有异常，则重置虚拟机线程全局变量，保证虚拟机可以继续运行
             VM_RUN_PANIC_COUNT.sum(1);
 
-            warn!("!!!> JS Run Error, vm: {:?}, err: {}",
-                     js, CStr::from_ptr(err as *const c_char).to_string_lossy().into_owned());
+            let error_info = CStr::from_ptr(err as *const c_char).to_string_lossy().into_owned();
+            match js.catcher.load(Ordering::Relaxed) {
+                catcher if catcher < 0 => {
+                    //没有设置异常捕获回调
+                    warn!("!!!> JS Run Error, vm: {:?}, err: {}",
+                          js, error_info);
+                },
+                catcher => {
+                    //设置了异常捕获回调
+                    let vm_id = js.id;
+                    let vm_name = (&js.name).to_string();
+                    let args = Box::new(move |vm_arg: Arc<JS>| {
+                        vm_arg.new_u32(vm_id as u32);
+                        vm_arg.new_str(vm_name);
+                        vm_arg.new_str(error_info);
+                        3
+                    });
+                    JS::push(js.clone(), TaskType::Sync(true), catcher, args, Atom::from("js catch throw task"));
+                }
+            }
         }
 
         js.update_last_heap_size(); //在js当前任务执行完成后，更新虚拟机堆大小和内存占用
@@ -398,6 +416,7 @@ pub struct JS {
     collection:         Option<(Arc<AtomicBool>, Arc<VMFactory>)>,  //虚拟机回收器
     last_time:          Arc<AtomicUsize>,                           //虚拟机最近运行时间
     wait_throw:         Arc<AtomicBool>,                            //虚拟机等待被丢弃，下次运行后丢弃
+    catcher:            Arc<AtomicI32>,                             //虚拟机异常捕获器
 }
 
 /*
@@ -478,6 +497,7 @@ impl JS {
                 collection,
                 last_time: Arc::new(AtomicUsize::new(now_utc())),
                 wait_throw: Arc::new(AtomicBool::new(false)),
+                catcher: Arc::new(AtomicI32::new(-1)),
             });
             unsafe {
                 let handler = Arc::into_raw(arc.clone()) as *const c_void_ptr;
@@ -524,17 +544,31 @@ impl JS {
         }
     }
 
-    //向指定虚拟机的消息队列中推送消息，由指定的回调函数处理，处理后不移除回调函数
-    pub fn push(js: Arc<JS>, task_type: TaskType, callback: u32, args: Box<FnOnce(Arc<JS>) -> usize>, info: Atom) -> Option<isize> {
+    //向指定虚拟机的消息队列中推送消息，由指定的回调函数处理，处理后默认不移除回调函数
+    pub fn push(js: Arc<JS>, task_type: TaskType, callback: i32, args: Box<FnOnce(Arc<JS>) -> usize>, info: Atom) -> Option<isize> {
         let js_copy = js.clone();
         let func = Box::new(move |_lock| {
             let vm: *const c_void_ptr;
             //不需要改变虚拟机状态，以保证当前虚拟机可以线程安全的执行回调函数
             unsafe {
                 vm = js_copy.get_vm();
-                if dukc_get_callback(vm, callback) == 0 {
-                    //当前回调函数不存在，则立即退出当前同步任务，以获取下一个异步消息
-                    return;
+                if callback < 0 {
+                    let index = if callback == i32::min_value() {
+                        0
+                    } else {
+                        callback.abs() as u32
+                    };
+
+                    if dukc_get_callback(vm, index) == 0 {
+                        //当前回调函数不存在，则立即退出当前同步任务，以获取下一个异步消息
+                        return;
+                    }
+                    dukc_remove_callback(vm, index); //移除虚拟机注册的指定回调函数
+                } else {
+                    if dukc_get_callback(vm, callback as u32) == 0 {
+                        //当前回调函数不存在，则立即退出当前同步任务，以获取下一个异步消息
+                        return;
+                    }
                 }
             }
 
@@ -600,6 +634,11 @@ impl JS {
             //有回收器，则解锁
             lock.swap(true, Ordering::SeqCst);
         }
+    }
+
+    //设置虚拟机异常捕获器
+    pub fn set_catcher(&self, catcher: i32) {
+        self.catcher.store(catcher, Ordering::SeqCst);
     }
 
     //为当前虚拟机创建全局环境模板，如果已存在，则忽略

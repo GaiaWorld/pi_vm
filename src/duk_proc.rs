@@ -30,10 +30,11 @@ pub struct DukProcess {
     init_call:  Option<Atom>,   //记录调用入口
     priority:   usize,          //异步虚拟机任务优先级
     vm:         Arc<JS>,        //虚拟机
-    receiver:   u32,            //虚拟机异步接收消息的回调入口
+    receiver:   i32,            //虚拟机异步接收消息的回调入口
+    catcher:    i32,            //虚拟机捕获异常的回调入口
 }
 
-impl Process<(Arc<NativeObjsAuth>, Arc<Vec<Vec<u8>>>), Box<FnOnce(Arc<JS>) -> usize>, (Arc<Vec<u8>>, Vec<usize>)> for DukProcess {
+impl Process<(Arc<NativeObjsAuth>, Arc<Vec<Vec<u8>>>), Box<FnOnce(Arc<JS>) -> usize>, GenType> for DukProcess {
     type Process = Self;
     type Output = ();
     type Error = Error;
@@ -76,6 +77,7 @@ impl Process<(Arc<NativeObjsAuth>, Arc<Vec<Vec<u8>>>), Box<FnOnce(Arc<JS>) -> us
                 priority: DEFAULT_ASYNC_VM_TASK_PRIORITY,
                 vm,
                 receiver: 0,
+                catcher: 0,
             });
         }
 
@@ -120,16 +122,13 @@ impl Process<(Arc<NativeObjsAuth>, Arc<Vec<Vec<u8>>>), Box<FnOnce(Arc<JS>) -> us
         }
     }
 
-    fn info(&self, info: ProcInfo<(Arc<Vec<u8>>, Vec<usize>)>) -> Result<(), Self::Error> {
+    fn info(&self, info: ProcInfo<GenType>) -> Result<(), Self::Error> {
         let running_status: u8 = ProcStatus::Running.into();
         match self.status.load(Ordering::SeqCst) {
             running_status => {
                 //当前进程正在运行
                 let args = Box::new(move |vm: Arc<JS>| {
-                    //TODO 测试代码...
-                    vm.new_u32(info.source() as u32);
-                    vm.new_str(unsafe { String::from_utf8_unchecked(info.payload().0.to_vec()) });
-                    2
+                    gen_args_to_js_args(vm, Some(info.source()), info.payload())
                 });
                 push_msg(self.vm.clone(), self.receiver, args, Atom::from(format!("DukProcess Info Task, pid: {:?}, name: {:?}", self.pid, self.name)));
                 Ok(())
@@ -156,9 +155,65 @@ impl DukProcess {
         cast_js_task(TaskType::Async(false), self.priority, None, func, Atom::from(format!("DukProcess Task, pid: {:?}, name: {:?}", self.pid, self.name)));
     }
 
-    //设置进程虚拟机，接收异步消息的回调入口
-    pub fn set_receiver(&mut self, receiver: u32) {
+    //设置进程虚拟机，接收异步消息的回调入口，设置为正数，虚拟机将无法自动退出
+    pub fn set_receiver(&mut self, receiver: i32) {
         self.receiver = receiver;
+    }
+
+    //取消进程虚拟机，接收异步消息的回调入口，设置为负数，虚拟机将在执行完所有任务后自动退出
+    pub fn unset_receiver(&mut self) {
+        if self.receiver == 0 {
+            self.receiver = i32::min_value();
+            return;
+        }
+
+        self.receiver = -self.receiver;
+    }
+
+    //设置进程虚拟机，捕获异常的回调入口，设置为正数，虚拟机将无法自动退出
+    pub fn set_catcher(&mut self, catcher: i32) {
+        self.catcher = catcher;
+        self.vm.set_catcher(catcher);
+    }
+
+    //取消进程虚拟机，捕获异常的回调入口，设置为负数，虚拟机将在执行完所有任务后自动退出
+    pub fn unset_catcher(&mut self) {
+        if self.catcher == 0 {
+            self.catcher = i32::min_value();
+            return;
+        }
+
+        self.catcher = -self.catcher;
+        self.vm.set_catcher(-1);
+    }
+
+    //在当前进程中抛出一个异常
+    pub fn throw(&self, error: String)
+        -> Result<(), <Self as Process<(Arc<NativeObjsAuth>, Arc<Vec<Vec<u8>>>), Box<FnOnce(Arc<JS>) -> usize>, GenType>>::Error> {
+        let running_status: u8 = ProcStatus::Running.into();
+        match self.status.load(Ordering::SeqCst) {
+            running_status => {
+                //当前进程正在运行
+                let pid = self.pid;
+                let name = self.name.clone();
+                let args = Box::new(move |vm: Arc<JS>| {
+                    vm.new_u32(pid as u32);
+                    if let Some(name) = name {
+                        vm.new_str((&name).to_string());
+                    } else {
+                        vm.new_undefined();
+                    }
+                    vm.new_str(error);
+                    3
+                });
+                push_msg(self.vm.clone(), self.catcher, args, Atom::from(format!("DukProcess Throw Task, pid: {:?}, name: {:?}", self.pid, self.name)));
+                Ok(())
+            },
+            status => {
+                //当前进程未运行
+                Err(Error::new(ErrorKind::Other, format!("duk process not running, pid: {:?}, name: {:?}, status: {:?}", self.pid, self.name, status)))
+            }
+        }
     }
 }
 
@@ -197,11 +252,10 @@ impl ProcessFactory for DukProcessFactory {
                pid: u64,
                module: String,
                function: String,
-               args: Args<GenType, GenType, GenType, GenType, GenType, GenType, GenType, GenType>) -> Result<(), Self::Error> {
+               args: GenType) -> Result<(), Self::Error> {
         if let Some(process) = self.pool.write().get_mut(&(pid as usize)) {
             let vm_args = Box::new(move |vm: Arc<JS>| {
-                //TODO...
-                0
+                gen_args_to_js_args(vm, None, &args)
             });
             return process.call(module, function, vm_args);
         }
@@ -220,7 +274,7 @@ impl ProcessFactory for DukProcessFactory {
     fn set_receiver(&self, pid: u64, receiver: GenType) -> Result<(), Self::Error> {
         if let GenType::U32(callback) = receiver {
             if let Some(process) = self.pool.write().get_mut(&(pid as usize)) {
-                process.set_receiver(callback);
+                process.set_receiver(callback as i32);
                 Ok(())
             } else {
                 Err(Error::new(ErrorKind::Other, format!("duk process set receiver failed, pid: {:?}, reason: process not exists", pid)))
@@ -230,34 +284,73 @@ impl ProcessFactory for DukProcessFactory {
         }
     }
 
+    fn unset_receiver(&self, pid: u64) -> Result<(), Self::Error> {
+        if let Some(process) = self.pool.write().get_mut(&(pid as usize)) {
+            process.unset_receiver();
+            Ok(())
+        } else {
+            Err(Error::new(ErrorKind::Other, format!("duk process unset receiver failed, pid: {:?}, reason: process not exists", pid)))
+        }
+    }
+
+    fn set_catcher(&self, pid: u64, catcher: GenType) -> Result<(), Self::Error> {
+        if let GenType::U32(callback) = catcher {
+            if let Some(process) = self.pool.write().get_mut(&(pid as usize)) {
+                process.set_catcher(callback as i32);
+                Ok(())
+            } else {
+                Err(Error::new(ErrorKind::Other, format!("duk process set catcher failed, pid: {:?}, reason: process not exists", pid)))
+            }
+        } else {
+            Err(Error::new(ErrorKind::Other, format!("duk process set catcher failed, pid: {:?}, reason: invalid receiver", pid)))
+        }
+    }
+
+    fn unset_catcher(&self, pid: u64) -> Result<(), Self::Error> {
+        if let Some(process) = self.pool.write().get_mut(&(pid as usize)) {
+            process.unset_catcher();
+            Ok(())
+        } else {
+            Err(Error::new(ErrorKind::Other, format!("duk process unset catcher failed, pid: {:?}, reason: process not exists", pid)))
+        }
+    }
+
     fn send(&self, src: u64, dst: u64, mut msg: GenType) -> Result<(), Self::Error> {
         if let Some(process) = self.pool.read().get(&(dst as usize)) {
-            if let GenType::Array(array) = &mut msg {
-                if let GenType::ArcBin(bin) = array.remove(0) {
-                    if let GenType::Array(vec) = array.remove(0) {
-                        let mut objs: Vec<usize> = Vec::with_capacity(vec.len());
-                        for val in vec {
-                            if let GenType::USize(index) = val {
-                                objs.push(index);
-                            }
-                        }
-
-                        return process.info(ProcInfo::new(src, dst, (bin, objs)));
-                    } else {
-                        //NativeObject错误，则立即返回错误原因
-                        return Err(Error::new(ErrorKind::Other, format!("send msg to duk process failed, src: {:?}, dst: {:?}, reason: invalid objs", src, dst)));
-                    }
-                } else {
-                    //序列化参数错误，则立即返回错误原因
-                    return Err(Error::new(ErrorKind::Other, format!("send msg to duk process failed, src: {:?}, dst: {:?}, reason: invalid bin", src, dst)));
-                }
-            } else {
-                //无效的消息，则立即返回错误原因
-                return Err(Error::new(ErrorKind::Other, format!("send msg to duk process failed, src: {:?}, dst: {:?}, reason: invalid msg", src, dst)));
-            }
+            return process.info(ProcInfo::new(src, dst, msg));
         }
 
         Err(Error::new(ErrorKind::Other, format!("send msg to duk process failed, src: {:?}, dst: {:?}, reason: process not exists", src, dst)))
+    }
+
+    fn close(&self, pid: u64, reason: String) -> Result<Option<String>, Self::Error> {
+        //移除当前进程的异步消息接收器，并发送关闭消息，以保证进程可以自动回收
+        if let Err(e) = self.unset_receiver(pid) {
+            return Err(e);
+        }
+        if let Err(e) = self.send(pid, pid, GenType::Array(vec![])) {
+            return Err(e);
+        }
+
+        //移除当前进程的异常捕获器，并发送关闭消息，以保证进程可以自动回收
+        if let Err(e) = self.unset_catcher(pid) {
+            return Err(e);
+        }
+        if let Err(e) = self.throw(pid, reason) {
+            return Err(e);
+        }
+
+        //从进程工厂中移除进程，并更新进程状态
+        if let Some(process) = self.pool.write().remove(&(pid as usize)) {
+            process.status.store(ProcStatus::Closed.into(), Ordering::SeqCst);
+            if let Some(name) = process.name {
+                Ok(Some((&name).to_string()))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -271,4 +364,78 @@ impl DukProcessFactory {
             pool: Arc::new(RwLock::new(XHashMap::default())),
         }
     }
+
+    //在指定进程中抛出一个异常
+    pub fn throw(&self, pid: u64, error: String) -> Result<(), <Self as ProcessFactory>::Error> {
+        if let Some(process) = self.pool.read().get(&(pid as usize)) {
+            return process.throw(error);
+        }
+
+        Err(Error::new(ErrorKind::Other, format!("trhow error to duk process failed, pid: {:?}, reason: process not exists", pid)))
+    }
+}
+
+//解析GenType，并构建指定虚拟机的JsType，返回参数数量
+fn gen_args_to_js_args(vm: Arc<JS>, src: Option<u64>, args: &GenType) -> usize {
+    let mut size = 0;
+    if let Some(src) = src {
+        //有源进程唯一id
+        vm.new_u32(src as u32);
+        size += 1;
+    }
+
+    if let GenType::Array(args) = args {
+        for arg in args {
+            match arg {
+                GenType::Nil => {
+                    vm.new_undefined();
+                    size += 1;
+                },
+                GenType::Bool(val) => {
+                    vm.new_boolean(*val);
+                    size += 1;
+                },
+                GenType::F64(val) => {
+                    vm.new_f64(*val);
+                    size += 1;
+                },
+                GenType::Str(val) => {
+                    if let Err(e) = vm.new_str(val.clone()) {
+                        panic!("native string to js string failed, reason: {:?}", e);
+                    }
+                    size += 1;
+                },
+                GenType::Bin(val) => {
+                    let buf = vm.new_uint8_array(val.len() as u32);
+                    buf.from_bytes(val.as_slice());
+                    size += 1;
+                },
+                GenType::Array(array) => {
+                    if let GenType::USize(instance) = array[0] {
+                        if let GenType::USize(x) = array[1] {
+                            let arr = vm.new_array();
+                            let mut obj = vm.new_native_object(instance as usize);
+                            if !vm.set_index(&arr, 0, &mut obj) {
+                                panic!("native object to js native object failed, reason: set array failed");
+                            }
+                            let mut num = vm.new_u32(x as u32);
+                            if !vm.set_index(&arr, 1, &mut num) {
+                                panic!("native number to js number failed, reason: set array failed");
+                            }
+                            size += 1;
+                        } else {
+                            panic!("native object to js native object failed, reason: invalid number");
+                        }
+                    } else {
+                        panic!("native object to js native object failed, reason: invalid instance");
+                    }
+                },
+                _ => {
+                    panic!("parse args failed, reason: invalid gen type");
+                },
+            }
+        }
+    }
+
+    size
 }
