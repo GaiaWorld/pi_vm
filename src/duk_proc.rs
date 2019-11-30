@@ -110,9 +110,9 @@ impl Process<(Arc<NativeObjsAuth>, Arc<Vec<Vec<u8>>>), Box<FnOnce(Arc<JS>) -> us
         match self.status.compare_and_swap(init_status, running_status, Ordering::SeqCst) {
             init_status => {
                 //当前进程可以启动
-                let init_call = Atom::from(module + "." + function.as_str());
+                let init_call = Atom::from(module.clone() + "." + function.as_str());
                 self.init_call = Some(init_call.clone());
-                self.call_init(init_call, args);
+                self.call_init(module, function, args);
                 Ok(())
             },
             status => {
@@ -143,11 +143,17 @@ impl Process<(Arc<NativeObjsAuth>, Arc<Vec<Vec<u8>>>), Box<FnOnce(Arc<JS>) -> us
 
 impl DukProcess {
     //调用进程虚拟机的初始函数
-    pub fn call_init(&self, init_call: Atom, args: Box<FnOnce(Arc<JS>) -> usize>) {
+    pub fn call_init(&self, module: String, function: String, args: Box<FnOnce(Arc<JS>) -> usize>) {
         let vm = self.vm.clone();
 
+        //加载指定模块
+        vm.get_link_function("Module.require".to_string());
+        vm.new_str(module.clone());
+        vm.call(1);
+
+        //调用指定模块的初始函数
         let func = Box::new(move |_lock| {
-            vm.get_link_function((&init_call).to_string());
+            vm.get_link_function("Module.modules[\"".to_string() + &module + "\"].exports." + &function);
             let args_size = args(vm.clone());
             vm.call(args_size);
         });
