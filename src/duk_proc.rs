@@ -142,7 +142,7 @@ impl Process<(Arc<NativeObjsAuth>, Arc<Vec<Vec<u8>>>), Box<FnOnce(Arc<JS>) -> us
 }
 
 impl DukProcess {
-    //调用进程虚拟机的初始函数
+    //调用进程虚拟机的初始函数，将等待函数执行完成后返回
     pub fn call_init(&self, module: String, function: String, args: Box<FnOnce(Arc<JS>) -> usize>) {
         let vm = self.vm.clone();
 
@@ -152,13 +152,18 @@ impl DukProcess {
         vm.call(1);
 
         //调用指定模块的初始函数
+        let vm_copy = vm.clone();
         let func = Box::new(move |_lock| {
-            vm.get_link_function("Module.modules[\"".to_string() + &module + "\"].exports." + &function);
-            let args_size = args(vm.clone());
-            vm.call(args_size);
+            vm_copy.get_link_function("Module.modules[\"".to_string() + &module + "\"].exports." + &function);
+            let args_size = args(vm_copy.clone());
+            vm_copy.call(args_size);
         });
-
         cast_js_task(TaskType::Async(false), self.priority, None, func, Atom::from(format!("DukProcess Task, pid: {:?}, name: {:?}", self.pid, self.name)));
+
+        //等待调用初始函数完成
+        while !vm.is_ran() {
+            pause();
+        }
     }
 
     //设置进程虚拟机，接收异步消息的回调入口，设置为正数，虚拟机将无法自动退出
