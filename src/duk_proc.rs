@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::cell::RefCell;
 use std::io::{Error, ErrorKind};
-use std::sync::atomic::{AtomicU8, AtomicI32, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU32, AtomicI32, Ordering};
 
 use parking_lot::RwLock;
 
@@ -31,7 +31,7 @@ pub struct DukProcess {
     init_call:  RwLock<Option<Atom>>,   //记录调用入口
     priority:   usize,                  //异步虚拟机任务优先级
     vm:         Arc<JS>,                //虚拟机
-    receiver:   AtomicI32,              //虚拟机异步接收消息的回调入口
+    receiver:   AtomicU32,              //虚拟机异步接收消息的回调入口
     catcher:    AtomicI32,              //虚拟机捕获异常的回调入口
 }
 
@@ -77,7 +77,7 @@ impl Process<(Arc<NativeObjsAuth>, Arc<Vec<Vec<u8>>>), Box<FnOnce(Arc<JS>) -> us
                 init_call: RwLock::new(None),
                 priority: DEFAULT_ASYNC_VM_TASK_PRIORITY,
                 vm,
-                receiver: AtomicI32::new(0),
+                receiver: AtomicU32::new(0),
                 catcher: AtomicI32::new(0),
             });
         }
@@ -163,19 +163,13 @@ impl DukProcess {
     }
 
     //设置进程虚拟机，接收异步消息的回调入口，设置为正数，虚拟机将无法自动退出
-    pub fn set_receiver(&self, receiver: i32) {
+    pub fn set_receiver(&self, receiver: u32) {
         self.receiver.store(receiver, Ordering::Relaxed);
     }
 
     //取消进程虚拟机，接收异步消息的回调入口，设置为负数，虚拟机将在执行完所有任务后自动退出
     pub fn unset_receiver(&self) {
-        let receiver = self.receiver.load(Ordering::Relaxed);
-        if receiver == 0 {
-            self.receiver.store(i32::min_value(), Ordering::Relaxed);
-            return;
-        }
-
-        self.receiver.store(-receiver, Ordering::Relaxed);
+        JS::remove_callback(self.vm.clone(), TaskType::Sync(true), self.receiver.load(Ordering::Relaxed), Atom::from(format!("DukProcess Remove Reciver Task, pid: {:?}, name: {:?}", self.pid, self.name)));
     }
 
     //设置进程虚拟机，捕获异常的回调入口，设置为正数，虚拟机将无法自动退出
@@ -186,14 +180,8 @@ impl DukProcess {
 
     //取消进程虚拟机，捕获异常的回调入口，设置为负数，虚拟机将在执行完所有任务后自动退出
     pub fn unset_catcher(&self) {
-        let catcher = self.catcher.load(Ordering::Relaxed);
-        if catcher == 0 {
-            self.catcher.store(i32::min_value(), Ordering::Relaxed);
-            return;
-        }
-
-        self.catcher.store(-catcher, Ordering::Relaxed);
         self.vm.set_catcher(-1);
+        JS::remove_callback(self.vm.clone(), TaskType::Sync(true), self.catcher.load(Ordering::Relaxed) as u32, Atom::from(format!("DukProcess Remove Catcher Task, pid: {:?}, name: {:?}", self.pid, self.name)));
     }
 
     //在当前进程中抛出一个异常
@@ -207,7 +195,7 @@ impl DukProcess {
                     vm.new_str(error);
                     1
                 });
-                push_msg(self.vm.clone(), self.catcher.load(Ordering::Relaxed), args, Atom::from(format!("DukProcess Throw Task, pid: {:?}, name: {:?}", self.pid, self.name)));
+                push_msg(self.vm.clone(), self.catcher.load(Ordering::Relaxed) as u32, args, Atom::from(format!("DukProcess Throw Task, pid: {:?}, name: {:?}", self.pid, self.name)));
                 Ok(())
             },
             status => {
@@ -276,7 +264,7 @@ impl ProcessFactory for DukProcessFactory {
     fn set_receiver(&self, pid: u64, receiver: GenType) -> Result<(), Self::Error> {
         if let GenType::U32(callback) = receiver {
             if let Some(process) = self.pool.read().get(&(pid as usize)).cloned() {
-                process.borrow().set_receiver(callback as i32);
+                process.borrow().set_receiver(callback);
                 Ok(())
             } else {
                 Err(Error::new(ErrorKind::Other, format!("duk process set receiver failed, pid: {:?}, reason: process not exists", pid)))
@@ -330,15 +318,9 @@ impl ProcessFactory for DukProcessFactory {
         if let Err(e) = self.unset_receiver(pid) {
             return Err(e);
         }
-        if let Err(e) = self.send(pid, pid, GenType::Array(vec![])) {
-            return Err(e);
-        }
 
         //移除当前进程的异常捕获器，并发送关闭消息，以保证进程可以自动回收
         if let Err(e) = self.unset_catcher(pid) {
-            return Err(e);
-        }
-        if let Err(e) = self.throw(pid, reason) {
             return Err(e);
         }
 

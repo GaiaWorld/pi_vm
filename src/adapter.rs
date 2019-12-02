@@ -201,7 +201,7 @@ pub extern "C" fn js_reply_callback(handler: *const c_void_ptr, status: c_int, e
                         vm_arg.new_str(error_info);
                         1
                     });
-                    JS::push(js.clone(), TaskType::Sync(true), catcher, args, Atom::from("js catch throw task"));
+                    JS::push(js.clone(), TaskType::Sync(true), catcher as u32, args, Atom::from("js catch throw task"));
                 }
             }
         }
@@ -541,36 +541,42 @@ impl JS {
     }
 
     //向指定虚拟机的消息队列中推送消息，由指定的回调函数处理，处理后默认不移除回调函数
-    pub fn push(js: Arc<JS>, task_type: TaskType, callback: i32, args: Box<FnOnce(Arc<JS>) -> usize>, info: Atom) -> Option<isize> {
+    pub fn push(js: Arc<JS>, task_type: TaskType, callback: u32, args: Box<FnOnce(Arc<JS>) -> usize>, info: Atom) -> Option<isize> {
         let js_copy = js.clone();
         let func = Box::new(move |_lock| {
             let vm: *const c_void_ptr;
             //不需要改变虚拟机状态，以保证当前虚拟机可以线程安全的执行回调函数
             unsafe {
                 vm = js_copy.get_vm();
-                if callback < 0 {
-                    let index = if callback == i32::min_value() {
-                        0
-                    } else {
-                        callback.abs() as u32
-                    };
-
-                    if dukc_get_callback(vm, index) == 0 {
-                        //当前回调函数不存在，则立即退出当前同步任务，以获取下一个异步消息
-                        return;
-                    }
-                    dukc_remove_callback(vm, index); //移除虚拟机注册的指定回调函数
-                } else {
-                    if dukc_get_callback(vm, callback as u32) == 0 {
-                        //当前回调函数不存在，则立即退出当前同步任务，以获取下一个异步消息
-                        return;
-                    }
+                if dukc_get_callback(vm, callback as u32) == 0 {
+                    //当前回调函数不存在，则立即退出当前同步任务，以获取下一个异步消息
+                    return;
                 }
             }
 
             //将回调函数的参数压栈，并执行回调函数
             let args_len = (args)(js_copy.clone());
             unsafe { dukc_call(vm, args_len as u8, js_reply_callback); }
+        });
+        js.queue.size.fetch_add(1, Ordering::SeqCst) + 1; //增加消息队列长度，并返回
+
+        //向指定虚拟机的消息队列推送异步回调任务
+        cast_js_task(task_type, 0, Some(js.get_queue()), func, info)
+    }
+
+    //移除虚拟机注册的指定长驻回调函数
+    pub fn remove_callback(js: Arc<JS>, task_type: TaskType, callback: u32, info: Atom) -> Option<isize> {
+        //向指定虚拟机的消息队列推送异步回调任务
+        let js_copy = js.clone();
+        let func = Box::new(move |_lock| {
+            unsafe {
+                let vm = js_copy.get_vm();
+                dukc_remove_callback(vm, callback); //移除虚拟机注册的指定回调函数
+
+                js_copy.get_link_function("Math.abs".to_string());
+                js_copy.new_u32(0);
+                dukc_call(vm, 1, js_reply_callback);
+            }
         });
         js.queue.size.fetch_add(1, Ordering::SeqCst) + 1; //增加消息队列长度，并返回
 
