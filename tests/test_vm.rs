@@ -670,7 +670,7 @@ fn test_process() {
     let opts = JS::new(1, Atom::from("test vm"), auth, None);
     assert!(opts.is_some());
     let js = opts.unwrap();
-    let opts = js.compile("test_process.js".to_string(), "var pid = NativeObject.call(0x1, [\"duk_proc_factory\", \"test_process\", \"handler\", \"start\", \"start\", [true, 0xffffffff, 9.9999999, \"Hello Process\", new Uint8Array([97, 97, 97])]]); console.log(\"spawn process, pid:\", pid); function test_call() { for(var i = 0; i < 10; i++) { var r = NativeObject.call(0x1000, [pid, [true, i, 9.9999999, \"Hello Process\", new Uint8Array([97, 97, 97])]]); console.log(\"send msg to process, i: \" + i + \", r:\", r); } NativeObject.call(0x10000, [pid]); console.log(\"close process, pid:\", pid); }".to_string());
+    let opts = js.compile("test_process.js".to_string(), "var pid = NativeObject.call(0x1, [\"duk_proc_factory\", \"test_process\", \"handler\", \"start\", \"start\", [true, 0xffffffff, 9.9999999, \"Hello Process\", new Uint8Array([97, 97, 97])]]); console.log(\"spawn process, pid:\", pid); function test_call() { for(var i = 0; i < 10; i++) { var r = NativeObject.call(0x1000, [pid, [true, i, 9.9999999, \"Hello Process\", new Uint8Array([97, 97, 97])]]); console.log(\"send msg to process, i: \" + i + \", r:\", r); }  } NativeObject.call(0x10000, [pid]); console.log(\"close process, pid:\", pid);".to_string());
     assert!(opts.is_some());
     let code = opts.unwrap();
 

@@ -4,6 +4,7 @@ use std::io::{Error, ErrorKind};
 use std::sync::atomic::{AtomicU8, AtomicU32, AtomicI32, Ordering};
 
 use parking_lot::RwLock;
+use crossbeam_channel::bounded;
 
 use atom::Atom;
 use worker::{impls::cast_js_task, task::TaskType};
@@ -146,6 +147,7 @@ impl DukProcess {
     //调用进程虚拟机的初始函数，将等待函数执行完成后返回
     pub fn call_init(&self, init: String, args: Box<FnOnce(Arc<JS>) -> usize>) {
         let vm = self.vm.clone();
+        let (sender, receiver) = bounded(0);
 
         //调用指定模块的初始函数
         let vm_copy = vm.clone();
@@ -153,13 +155,17 @@ impl DukProcess {
             vm_copy.get_js_function(init);
             let args_size = args(vm_copy.clone());
             vm_copy.call(args_size);
+
+            //等待调用初始函数完成，并通知
+            while !vm_copy.is_wait_callback() {
+                pause();
+            }
+            sender.send(());
         });
         cast_js_task(TaskType::Async(false), self.priority, None, func, Atom::from(format!("DukProcess Task, pid: {:?}, name: {:?}", self.pid, self.name)));
 
         //等待调用初始函数完成
-        while !vm.is_ran() {
-            pause();
-        }
+        receiver.recv();
     }
 
     //设置进程虚拟机，接收异步消息的回调入口，设置为正数，虚拟机将无法自动退出

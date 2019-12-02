@@ -573,6 +573,7 @@ impl JS {
                 let vm = js_copy.get_vm();
                 dukc_remove_callback(vm, callback); //移除虚拟机注册的指定回调函数
 
+                //调用一定存在的函数，保证虚拟机可以自动退出
                 js_copy.get_link_function("Math.abs".to_string());
                 js_copy.new_u32(0);
                 dukc_call(vm, 1, js_reply_callback);
@@ -776,6 +777,11 @@ impl JS {
     //判断js虚拟机是否完成运行
     pub fn is_ran(&self) -> bool {
         unsafe { dukc_vm_status_check(self.vm as *const c_void_ptr, JSStatus::NoTask as i8) > 0 }
+    }
+
+    //判断js虚拟机是否正在等待异步回调
+    pub fn is_wait_callback(&self) -> bool {
+        unsafe { dukc_vm_status_check(self.vm as *const c_void_ptr, JSStatus::WaitCallBack as i8) > 0 }
     }
 
     //编译指定脚本
