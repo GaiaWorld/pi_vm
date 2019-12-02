@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::cell::RefCell;
 use std::io::{Error, ErrorKind};
-use std::sync::atomic::{AtomicU8, AtomicU32, AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicI32, Ordering};
 
 use parking_lot::RwLock;
 use crossbeam_channel::bounded;
@@ -147,10 +147,11 @@ impl DukProcess {
     //调用进程虚拟机的初始函数，将等待函数执行完成后返回
     pub fn call_init(&self, init: String, args: Box<FnOnce(Arc<JS>) -> usize>) {
         let vm = self.vm.clone();
-        let (sender, receiver) = bounded(0);
+        let call_ok = Arc::new(AtomicBool::new(false));
 
         //调用指定模块的初始函数
         let vm_copy = vm.clone();
+        let call_ok_copy = call_ok.clone();
         let func = Box::new(move |_lock| {
             vm_copy.get_js_function(init);
             let args_size = args(vm_copy.clone());
@@ -160,12 +161,14 @@ impl DukProcess {
             while !vm_copy.is_wait_callback() {
                 pause();
             }
-            sender.send(());
+            call_ok_copy.store(true, Ordering::Relaxed);
         });
         cast_js_task(TaskType::Async(false), self.priority, None, func, Atom::from(format!("DukProcess Task, pid: {:?}, name: {:?}", self.pid, self.name)));
 
-        //等待调用初始函数完成
-        receiver.recv();
+        //等待调用初始函数完成，并返回
+        while !call_ok.load(Ordering::Relaxed) {
+            pause();
+        }
     }
 
     //设置进程虚拟机，接收异步消息的回调入口，设置为正数，虚拟机将无法自动退出
