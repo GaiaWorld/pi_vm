@@ -704,7 +704,7 @@ fn js_test_process_spawn(js: Arc<JS>, args: Vec<JSType>) -> Option<CallResult> {
     let str = array.get_index(3).get_str();
     let bin = array.get_index(4).into_vec();
 
-    let natobj = GenType::Array(vec![GenType::USize(0xffff), GenType::USize(0xffff)]);
+    let natobj = GenType::Array(vec![GenType::USize(0xffff), GenType::USize(0xffff), GenType::USize(0xffff)]);
     let args1 = GenType::Array(vec![GenType::Bool(b), GenType::F64(x), GenType::F64(y), GenType::Str(str), GenType::Bin(bin), natobj]);
 
     match spawn_process(Some(process_name), Atom::from(factory_name), module, function, init, args1) {
@@ -722,7 +722,6 @@ fn js_test_process_register_receiver(js: Arc<JS>, args: Vec<JSType>) -> Option<C
     let pid = args[0].get_u32() as u64;
     let callback = args[1].get_u32();
 
-    println!("!!!!!!pid: {}, callback: {}", pid, callback);
     if let Err(e) = set_receiver(pid, GenType::U32(callback)) {
         return Some(CallResult::Err(e.to_string()));
     }
@@ -752,7 +751,7 @@ fn js_test_process_send(js: Arc<JS>, args: Vec<JSType>) -> Option<CallResult> {
     let str = array.get_index(3).get_str();
     let bin = array.get_index(4).into_vec();
 
-    let natobj = GenType::Array(vec![GenType::USize(0xffff), GenType::USize(0xffff)]);
+    let natobj = GenType::Array(vec![GenType::USize(0xffff), GenType::USize(0xffff), GenType::USize(0xffff)]);
     let args1 = GenType::Array(vec![GenType::Bool(b), GenType::F64(x), GenType::F64(y), GenType::Str(str), GenType::Bin(bin), natobj]);
 
     if let Err(e) = pid_send(0, pid, args1) {

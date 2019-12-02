@@ -12,7 +12,7 @@ use hash::XHashMap;
 
 use adapter::{pause, JS};
 use pi_vm_impl::push_msg;
-use bonmgr::NativeObjsAuth;
+use bonmgr::{NativeObjsAuth, ptr_jstype};
 use proc::{ProcStatus, ProcInfo, Process, ProcessFactory};
 use proc_pool::register_process;
 
@@ -419,19 +419,27 @@ fn gen_args_to_js_args(vm: Arc<JS>, src: Option<u64>, args: &GenType) -> usize {
                 },
                 GenType::Array(array) => {
                     if let GenType::USize(instance) = array[0] {
-                        if let GenType::USize(x) = array[1] {
-                            let arr = vm.new_array();
-                            let mut obj = vm.new_native_object(instance as usize);
-                            if !vm.set_index(&arr, 0, &mut obj) {
-                                panic!("native object to js native object failed, reason: set array failed");
+                        if let GenType::USize(constructor) = array[1] {
+                            if let GenType::USize(type_meta) = array[2] {
+                                //将NativeObject实例，移动到指定虚拟机
+                                ptr_jstype(vm.get_objs(), vm.clone(), instance, type_meta as u32);
+
+                                //构建参数
+                                let arr = vm.new_array();
+                                let mut obj = vm.new_native_object(instance as usize);
+                                if !vm.set_index(&arr, 0, &mut obj) {
+                                    panic!("native object to js native object failed, reason: set array failed");
+                                }
+                                let mut con = vm.new_u32(constructor as u32);
+                                if !vm.set_index(&arr, 1, &mut con) {
+                                    panic!("native number to js number failed, reason: set array failed");
+                                }
+                                size += 1;
+                            } else {
+                                panic!("native object to js native object failed, reason: invalid type meta");
                             }
-                            let mut num = vm.new_u32(x as u32);
-                            if !vm.set_index(&arr, 1, &mut num) {
-                                panic!("native number to js number failed, reason: set array failed");
-                            }
-                            size += 1;
                         } else {
-                            panic!("native object to js native object failed, reason: invalid number");
+                            panic!("native object to js native object failed, reason: invalid constructor");
                         }
                     } else {
                         panic!("native object to js native object failed, reason: invalid instance");
