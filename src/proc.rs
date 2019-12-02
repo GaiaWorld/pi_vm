@@ -128,7 +128,7 @@ pub trait Process<Options: 'static, Args: 'static, Payload: 'static>: 'static {
     fn queue_len(&self) -> usize;
 
     //启动进程，并调用指定脚本，执行完成则返回执行结果
-    fn call(&mut self, module: String, function: String, args: Args) -> Result<Self::Output, Self::Error>;
+    fn call(&self, module: String, function: String, init: String, args: Args) -> Result<Self::Output, Self::Error>;
 
     //当前进程接收到的消息
     fn info(&self, info: ProcInfo<Payload>) -> Result<(), Self::Error>;
@@ -151,6 +151,7 @@ pub trait ProcessFactory: 'static {
                pid: u64,
                module: String,
                function: String,
+               init: String,
                args: GenType)
         -> Result<(), Self::Error>;
 

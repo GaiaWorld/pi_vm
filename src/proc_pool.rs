@@ -61,6 +61,7 @@ pub fn spawn_process(name: Option<String>,
                      factory_name: Atom,
                      module: String,
                      function: String,
+                     init: String,
                      args: GenType) -> Result<u64, Error> {
     if let Some(factory) = GLOBAL_PROCESS_POOL.factorys.read().get(&factory_name) {
         let pid = GLOBAL_PROCESS_POOL.alloc_pid();
@@ -69,7 +70,7 @@ pub fn spawn_process(name: Option<String>,
             return Err(e);
         }
 
-        if let Err(e) = factory.startup(pid, module, function, args) {
+        if let Err(e) = factory.startup(pid, module, function, init, args) {
             //启动进程错误，则立即返回错误原因
             return Err(e);
         }

@@ -651,7 +651,7 @@ fn test_process() {
     let opts = JS::new(1, Atom::from("test vm"), auth.clone(), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
-    let opts = js.compile("test_process_base.js".to_string(), "Module = {}; Module.modules = {}; Module.require = function(mod) { Module.modules[mod] = {}; Module.modules[mod].exports = {}; Module.modules[mod].exports.start = function(b, x, y, str, bin, natobj) { var index0 = callbacks.register(onmessage); var r0 = NativeObject.call(0x10, [_$pid, index0]); var index1 = callbacks.register(onerror); var r1 = NativeObject.call(0x100, [_$pid, index1]); console.log(\"start process ok, b:\" + b + \", x:\" + x + \", y:\" + y + \", str:\" + str + \", bin:\" + bin + \", natobj:\" + natobj + \", r0:\", r0 + \", r1:\" + r1); }; }; onmessage = function(src, b, x, y, str, bin, natobj) { if(x > 3 && x < 5) { throw(new Error(\"test throw\")); } console.log(\"receive ok, src:\", src + \", b:\" + b + \", x:\" + x + \", y:\" + y + \", str:\" + str + \", bin:\" + bin + \", natobj:\" + natobj); }; onerror = function(e) { console.log(\"process handle error, e:\", e); };".to_string());
+    let opts = js.compile("test_process_base.js".to_string(), "start = function(b, x, y, str, bin, natobj) { onmessage = function(src, b, x, y, str, bin, natobj) { if(x > 3 && x < 5) { throw(new Error(\"test throw\")); } console.log(\"receive ok, src:\", src + \", b:\" + b + \", x:\" + x + \", y:\" + y + \", str:\" + str + \", bin:\" + bin + \", natobj:\" + natobj); }; onerror = function(e) { console.log(\"process handle error, e:\", e); }; var index0 = callbacks.register(onmessage); var r0 = NativeObject.call(0x10, [_$pid, index0]); var index1 = callbacks.register(onerror); var r1 = NativeObject.call(0x100, [_$pid, index1]); console.log(\"register onmessage and onerror ok\"); console.log(\"start process ok, b:\" + b + \", x:\" + x + \", y:\" + y + \", str:\" + str + \", bin:\" + bin + \", natobj:\" + natobj); };".to_string());
     assert!(opts.is_some());
     let code = opts.unwrap();
 
@@ -670,7 +670,7 @@ fn test_process() {
     let opts = JS::new(1, Atom::from("test vm"), auth, None);
     assert!(opts.is_some());
     let js = opts.unwrap();
-    let opts = js.compile("test_process.js".to_string(), "var pid = NativeObject.call(0x1, [\"duk_proc_factory\", \"test_process\", \"./app/handler\", \"start\", [true, 0xffffffff, 9.9999999, \"Hello Process\", new Uint8Array([97, 97, 97])]]); console.log(\"spawn process, pid:\", pid); function test_call() { for(var i = 0; i < 10; i++) { var r = NativeObject.call(0x1000, [pid, [true, i, 9.9999999, \"Hello Process\", new Uint8Array([97, 97, 97])]]); console.log(\"send msg to process, i: \" + i + \", r:\", r); } NativeObject.call(0x10000, [pid]); console.log(\"close process, pid:\", pid); }".to_string());
+    let opts = js.compile("test_process.js".to_string(), "var pid = NativeObject.call(0x1, [\"duk_proc_factory\", \"test_process\", \"handler\", \"start\", \"start\", [true, 0xffffffff, 9.9999999, \"Hello Process\", new Uint8Array([97, 97, 97])]]); console.log(\"spawn process, pid:\", pid); function test_call() { for(var i = 0; i < 10; i++) { var r = NativeObject.call(0x1000, [pid, [true, i, 9.9999999, \"Hello Process\", new Uint8Array([97, 97, 97])]]); console.log(\"send msg to process, i: \" + i + \", r:\", r); } NativeObject.call(0x10000, [pid]); console.log(\"close process, pid:\", pid); }".to_string());
     assert!(opts.is_some());
     let code = opts.unwrap();
 
@@ -696,7 +696,8 @@ fn js_test_process_spawn(js: Arc<JS>, args: Vec<JSType>) -> Option<CallResult> {
     let process_name = args[1].get_str();
     let module = args[2].get_str();
     let function = args[3].get_str();
-    let array = &args[4];
+    let init = args[4].get_str();
+    let array = &args[5];
     let b = array.get_index(0).get_boolean();
     let x = array.get_index(1).get_f64();
     let y = array.get_index(2).get_f64();
@@ -706,7 +707,7 @@ fn js_test_process_spawn(js: Arc<JS>, args: Vec<JSType>) -> Option<CallResult> {
     let natobj = GenType::Array(vec![GenType::USize(0xffff), GenType::USize(0xffff)]);
     let args1 = GenType::Array(vec![GenType::Bool(b), GenType::F64(x), GenType::F64(y), GenType::Str(str), GenType::Bin(bin), natobj]);
 
-    match spawn_process(Some(process_name), Atom::from(factory_name), module, function, args1) {
+    match spawn_process(Some(process_name), Atom::from(factory_name), module, function, init, args1) {
         Err(e) => {
             Some(CallResult::Err(e.to_string()))
         },
@@ -721,6 +722,7 @@ fn js_test_process_register_receiver(js: Arc<JS>, args: Vec<JSType>) -> Option<C
     let pid = args[0].get_u32() as u64;
     let callback = args[1].get_u32();
 
+    println!("!!!!!!pid: {}, callback: {}", pid, callback);
     if let Err(e) = set_receiver(pid, GenType::U32(callback)) {
         return Some(CallResult::Err(e.to_string()));
     }
