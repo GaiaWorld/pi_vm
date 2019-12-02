@@ -421,12 +421,8 @@ fn gen_args_to_js_args(vm: Arc<JS>, src: Option<u64>, args: &GenType) -> usize {
                     if let GenType::USize(instance) = array[0] {
                         if let GenType::USize(constructor) = array[1] {
                             if let GenType::USize(type_meta) = array[2] {
-                                //将NativeObject实例，移动到指定虚拟机
-                                ptr_jstype(vm.get_objs(), vm.clone(), instance, type_meta as u32);
-
-                                //构建参数
                                 let arr = vm.new_array();
-                                let mut obj = vm.new_native_object(instance as usize);
+                                let mut obj = ptr_jstype(vm.get_objs(), vm.clone(), instance, type_meta as u32); //将NativeObject实例，移动到指定虚拟机
                                 if !vm.set_index(&arr, 0, &mut obj) {
                                     panic!("native object to js native object failed, reason: set array failed");
                                 }
