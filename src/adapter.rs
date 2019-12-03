@@ -249,7 +249,7 @@ pub unsafe fn handle_async_callback(js: Arc<JS>, vm: *const c_void_ptr) {
             if !unlock_js_task_queue(queue) {
                 warn!("!!!> Handle Callback Error, unlock js task queue failed, queue: {:?}", queue);
             }
-        } else if js.is_wait_callback() {
+        } else if dukc_callback_count(vm) == 0 && js.is_wait_callback() {
             //没有已注册的异步回调函数，且当前状态为等待异步回调，则需要改变状态, 保证虚拟机回收
             dukc_vm_status_sub(vm, 4);
             is_collect = true;
