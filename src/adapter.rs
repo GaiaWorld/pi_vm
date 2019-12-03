@@ -222,6 +222,9 @@ pub extern "C" fn js_reply_callback(handler: *const c_void_ptr, status: c_int, e
             handle_async_callback(js.clone(), vm);
 
             VM_FINISH_TASK_COUNT.sum(1);
+        } else if dukc_vm_status_check(vm, JSStatus::WaitCallBack as i8) > 0 {
+            //当前虚拟机任务已执行完成且当前虚拟机状态是等待回调状态，则处理消息队列
+            handle_async_callback(js.clone(), vm);
         }
     }
     Arc::into_raw(js);
@@ -239,9 +242,17 @@ pub unsafe fn handle_async_callback(js: Arc<JS>, vm: *const c_void_ptr) {
             //没有已注册的异步回调函数且当前异步任务已完成，则需要将执行结果弹出值栈并改变状态, 保证虚拟机回收
             dukc_vm_status_sub(vm, 1);
             is_collect = true;
-        } else {
-            //有已注册的异步回调函数，则需要等待消息异步推送到消息队列，保证虚拟机异步回调函数被执行
+        } else if dukc_callback_count(vm) > 0 {
+            //有已注册的异步回调函数，则需要等待消息异步推送到消息队列，并释放锁，保证虚拟机异步回调函数被执行
             dukc_vm_status_switch(vm, JSStatus::SingleTask as i8, JSStatus::WaitCallBack as i8);
+            let queue = js.get_queue();
+            if !unlock_js_task_queue(queue) {
+                warn!("!!!> Handle Callback Error, unlock js task queue failed, queue: {:?}", queue);
+            }
+        } else if js.is_wait_callback() {
+            //没有已注册的异步回调函数，且当前状态为等待异步回调，则需要改变状态, 保证虚拟机回收
+            dukc_vm_status_sub(vm, 4);
+            is_collect = true;
         }
     } else if dukc_callback_count(vm) > 0 {
         //消息队列不为空、有已注册的异步回调函数、且消息队列被锁，则释放锁，以保证开始执行消息队列中的异步任务或异步回调任务
@@ -529,7 +540,7 @@ impl JS {
             let args_len = (args)(js_copy.clone());
             unsafe { dukc_call(vm, args_len as u8, js_reply_callback); }
         });
-        js.queue.size.fetch_add(1, Ordering::SeqCst) + 1; //增加消息队列长度，并返回
+        js.queue.size.fetch_add(1, Ordering::SeqCst); //增加消息队列长度，并返回
 
         if let Some(time) = timeout {
             //向指定虚拟机的消息队列推送延迟异步回调任务
@@ -558,7 +569,7 @@ impl JS {
             let args_len = (args)(js_copy.clone());
             unsafe { dukc_call(vm, args_len as u8, js_reply_callback); }
         });
-        js.queue.size.fetch_add(1, Ordering::SeqCst) + 1; //增加消息队列长度，并返回
+        js.queue.size.fetch_add(1, Ordering::SeqCst); //增加消息队列长度，并返回
 
         //向指定虚拟机的消息队列推送异步回调任务
         cast_js_task(task_type, 0, Some(js.get_queue()), func, info)
