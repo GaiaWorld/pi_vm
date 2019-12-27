@@ -96,6 +96,7 @@ pub struct VMFactory {
     heap_size:          usize,                                                                  //虚拟机堆大小
     max_heap_size:      usize,                                                                  //虚拟机最大堆大小，当达到限制后释放可回收的内存
     codes:              Arc<Vec<Arc<Vec<u8>>>>,                                                 //字节码列表
+    mods:               Arc<Vec<String>>,                                                       //虚拟机工厂依赖的模块名列表
     pool:               Arc<LFStack<Arc<JS>>>,                                                  //虚拟机池
     scheduling_count:   Arc<AtomicUsize>,                                                       //虚拟机工厂调度次数，调度包括任务队列等待和虚拟机执行
     auth:               Arc<NativeObjsAuth>,                                                    //虚拟机工厂本地对象授权
@@ -135,6 +136,7 @@ impl VMFactory {
             heap_size,
             max_heap_size,
             codes: Arc::new(Vec::new()),
+            mods: Arc::new(Vec::new()),
             pool: Arc::new(LFStack::new()),
             scheduling_count: Arc::new(AtomicUsize::new(0)),
             auth: auth.clone(),
@@ -150,11 +152,33 @@ impl VMFactory {
     pub fn append(mut self, code: Arc<Vec<u8>>) -> Self {
         match Arc::get_mut(&mut self.codes) {
             None => (),
-            Some(ref mut vec) => {
+            Some(vec) => {
                 vec.push(code);
             }
         }
         self
+    }
+
+    //为指定虚拟机工厂增加指定模块的代码，必须使用所有权，以保证运行时不会不安全的增加代码，复制对象将无法增加代码
+    pub fn append_module(mut self, module: String, code: Arc<Vec<u8>>) -> Self {
+        match Arc::get_mut(&mut self.mods) {
+            None => (),
+            Some(mods) => {
+                match Arc::get_mut(&mut self.codes) {
+                    None => (),
+                    Some(codes) => {
+                        codes.push(code);
+                        mods.push(module);
+                    }
+                }
+            },
+        }
+        self
+    }
+
+    //判断虚拟机工厂是否依赖指定模块
+    pub fn is_depend(&self, module: &String) -> bool {
+        self.mods.contains(module)
     }
 
     //获取虚拟机工厂名
