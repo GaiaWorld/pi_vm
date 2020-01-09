@@ -160,17 +160,11 @@ impl VMFactory {
     }
 
     //为指定虚拟机工厂增加指定模块的代码，必须使用所有权，以保证运行时不会不安全的增加代码，复制对象将无法增加代码
-    pub fn append_module(mut self, module: String, code: Arc<Vec<u8>>) -> Self {
+    pub fn append_depend(mut self, module: String) -> Self {
         match Arc::get_mut(&mut self.mods) {
             None => (),
             Some(mods) => {
-                match Arc::get_mut(&mut self.codes) {
-                    None => (),
-                    Some(codes) => {
-                        codes.push(code);
-                        mods.push(module);
-                    }
-                }
+                mods.push(module);
             },
         }
         self
