@@ -774,6 +774,34 @@ fn js_test_process_close(js: Arc<JS>, args: Vec<JSType>) -> Option<CallResult> {
 }
 
 #[test]
+fn test_catch_execption() {
+    env_logger::builder()
+        .format_timestamp_millis()
+        .init();
+    TIMER.run();
+    TASK_POOL_TIMER.run();
+    let worker_pool = Box::new(WorkerPool::new("js test".to_string(), WorkerType::Js, 8, 1024 * 1024, 30000, JS_WORKER_WALKER.clone()));
+    worker_pool.run(JS_TASK_POOL.clone());
+    set_max_alloced_limit(1073741824);
+    set_vm_timeout(30000);
+
+    let auth = Arc::new(NativeObjsAuth::new(None, None));
+    let opts = JS::new(1, Atom::from("test vm"), auth.clone(), None);
+    assert!(opts.is_some());
+    let js = opts.unwrap();
+    let opts = js.compile("test_catch_execption.js".to_string(), "try { throw new Error(\"test execption\"); } catch(e) { console.log(\"e:\", e.stack);  throw e;}".to_string());
+    assert!(opts.is_some());
+    let code = opts.unwrap();
+
+    if let Some(vm) = JS::new(3, Atom::from("test catch execption"), auth.clone(), None) {
+        if vm.load(&code) {
+            println!("!!!!!!vm load ok");
+            thread::sleep(Duration::from_millis(3000));
+        }
+    }
+}
+
+#[test]
 fn test_vm_collect() {
     let mut rng = SmallRng::from_entropy();
 
