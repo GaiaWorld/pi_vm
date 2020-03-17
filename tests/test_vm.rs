@@ -584,7 +584,7 @@ fn test_vm_async_load_mod() {
     let opts = JS::new(1, Atom::from("test vm"), Arc::new(NativeObjsAuth::new(None, None)), None);
     assert!(opts.is_some());
     let js = opts.unwrap();
-    let opts = js.compile("test_vm_load_mod.js".to_string(), "function onload(path, wait_load) { var loaded = wait_load({}); console.log(\"load module ok,\", path, \", \", loaded); var mod0_test0 = loaded.test0(); console.log(\"bind module function ok, function:\", mod0_test0); x = 10000000000; y = 999999999; function test_call() { console.log(\"!!!!!!local:\", mod0_test0); }; }; var index = callbacks.register(onload); NativeObject.call(0x1, [index, \"./test/mod\"]); ".to_string());
+    let opts = js.compile("test_vm_load_mod.js".to_string(), "function onload(path, wait_load) { var loaded = wait_load({}); console.log(\"load module ok,\", path, \", \", loaded); var mod0_test0 = loaded.test0(); console.log(\"bind module function ok, function:\", mod0_test0); x = 10000000000; y = 999999999; }; function test_call() { console.log(\"!!!!!!local:\", mod0_test0); }; var index = callbacks.register(onload); NativeObject.call(0x1, [index, \"./test/mod\"]); ".to_string());
     assert!(opts.is_some());
     let code = opts.unwrap();
 

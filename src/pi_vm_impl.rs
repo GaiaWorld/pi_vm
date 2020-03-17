@@ -3,6 +3,7 @@ use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, AtomicIsize, Ordering};
 
+use libc::c_char;
 use crossbeam_channel::{Sender, Receiver, unbounded};
 
 use worker::task::TaskType;
@@ -635,9 +636,11 @@ pub fn block_throw(js: Arc<JS>, reason: String, info: Atom) {
                 let status = dukc_vm_status_switch(copy_js.get_vm(), JSStatus::MultiTask as i8, JSStatus::SingleTask as i8);
                 if status == JSStatus::MultiTask as i8 {
                     //同步任务已阻塞虚拟机，则抛出指定原因的错误，并唤醒虚拟机继续同步执行
+                    let reason_ptr = CString::into_raw(CString::new(reason).unwrap());
                     dukc_wakeup(copy_js.get_vm(), 1);
-                    dukc_new_error(copy_js.get_vm(), CString::new(reason).unwrap().as_ptr());
+                    dukc_new_error(copy_js.get_vm(), reason_ptr as *const c_char);
                     dukc_continue(copy_js.get_vm(), js_reply_callback);
+                    CString::from_raw(reason_ptr);
                 } else {
                     //再次检查同步任务还未阻塞虚拟机，重新投递当前异步任务，并等待同步任务阻塞虚拟机
                     block_throw(copy_js, reason, copy_info);

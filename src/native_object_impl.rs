@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::ffi::CString;
 
-use libc::{c_void as c_void_ptr, c_int};
+use libc::{c_void as c_void_ptr, c_char, c_int};
 
 use atom::Atom;
 use apm::counter::{GLOBAL_PREF_COLLECT, PrefCounter, PrefTimer};
@@ -41,8 +41,10 @@ pub extern "C" fn native_object_function_call(
                 VM_SYNC_CALL_COUNT.sum(1);
 
                 unsafe {
+                    let reason_ptr = CString::into_raw(CString::new(reason).unwrap());
                     dukc_switch_context(vm); //必须先切换上下文，再抛出异常
-                    dukc_throw(vm, CString::new(reason).unwrap().as_ptr());
+                    dukc_throw(vm, reason_ptr as *const c_char);
+                    CString::from_raw(reason_ptr);
                 }
                 Arc::into_raw(js);
                 return 0;

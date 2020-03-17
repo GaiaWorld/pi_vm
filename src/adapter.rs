@@ -380,7 +380,11 @@ pub fn dukc_test_main() {
 */
 #[cfg(not(unix))]
 pub fn load_lib_backtrace() {
-    unsafe { kernel32::LoadLibraryA(CString::new("backtrace").unwrap().as_ptr()); }
+    let file_ptr = CString::into_raw(CString::new("backtrace").unwrap());
+    unsafe {
+        kernel32::LoadLibraryA(file_ptr as *const c_char);
+        CString::from_raw(file_ptr);
+    }
 }
 
 /*
@@ -806,7 +810,11 @@ impl JS {
                 None
             } else {
                 self.add_queue_len(); //增加当前虚拟机消息队列长度
-                let bytes = dukc_compile_script(self.vm as *const c_void_ptr, CString::new(file).unwrap().as_ptr(), CString::new(script).unwrap().as_ptr(), size, js_reply_callback);
+                let file_ptr = CString::into_raw(CString::new(file).unwrap());
+                let script_ptr = CString::into_raw(CString::new(script).unwrap());
+                let bytes = dukc_compile_script(self.vm as *const c_void_ptr, file_ptr as *const c_char, script_ptr as *const c_char, size, js_reply_callback);
+                CString::from_raw(file_ptr);
+                CString::from_raw(script_ptr);
                 if bytes.is_null() {
                     return None;
                 }
@@ -1035,7 +1043,11 @@ impl JS {
             },
             Ok(cstring) => {
                 let ptr: u32;
-                unsafe { ptr = dukc_new_string(self.vm as *const c_void_ptr, cstring.as_ptr()) }
+                let str_ptr = CString::into_raw(cstring);
+                unsafe {
+                    ptr = dukc_new_string(self.vm as *const c_void_ptr, str_ptr as *const c_char);
+                    CString::from_raw(str_ptr);
+                }
                 Ok(JSType {
                     type_id: JSValueType::String as u8,
                     is_drop: false,
@@ -1060,7 +1072,12 @@ impl JS {
 
     //获取指定类型
     pub fn get_type(&self, name: String) -> bool {
-        unsafe { dukc_get_type(self.vm as *const c_void_ptr, CString::new(name).unwrap().as_ptr()) != 0 }
+        let name_ptr = CString::into_raw(CString::new(name).unwrap());
+        unsafe {
+            let r = dukc_get_type(self.vm as *const c_void_ptr, name_ptr as *const c_char) != 0;
+            CString::from_raw(name_ptr);
+            r
+        }
     }
 
     //构建指定类型的对象，构建失败返回undefined
@@ -1092,10 +1109,14 @@ impl JS {
             return false;
         }
         unsafe {
-            if dukc_set_object_field(self.vm as *const c_void_ptr, object.value as u32, CString::new(key).unwrap().as_ptr(),
+            let key_ptr = CString::into_raw(CString::new(key).unwrap());
+            if dukc_set_object_field(self.vm as *const c_void_ptr, object.value as u32, key_ptr as *const c_char,
                 value.value as u32) == 0 {
-                    return false;
+                CString::from_raw(key_ptr);
+                return false;
             }
+            CString::from_raw(key_ptr);
+
             if value.is_drop {
                 //已使用，则设置为不自动释放
                 value.is_drop = false;
@@ -1170,26 +1191,44 @@ impl JS {
 
     //获取指定函数
     pub fn get_js_function(&self, func: String) -> bool {
-        unsafe { if dukc_get_js_function(self.vm as *const c_void_ptr, CString::new(func).unwrap().as_ptr()) == 0 {
-            return false;
-        }}
-        true
+        let func_ptr = CString::into_raw(CString::new(func).unwrap());
+        unsafe {
+            if dukc_get_js_function(self.vm as *const c_void_ptr, func_ptr as *const c_char) == 0 {
+                CString::from_raw(func_ptr);
+                return false;
+            }
+
+            CString::from_raw(func_ptr);
+            true
+        }
     }
 
     //链式获取指定函数
     pub fn get_link_function(&self, func: String) -> bool {
-        unsafe { if dukc_link_js_function(self.vm as *const c_void_ptr, CString::new(func).unwrap().as_ptr()) == 0 {
-            return false;
-        }}
-        true
+        let func_ptr = CString::into_raw(CString::new(func).unwrap());
+        unsafe {
+            if dukc_link_js_function(self.vm as *const c_void_ptr, func_ptr as *const c_char) == 0 {
+                CString::from_raw(func_ptr);
+                return false;
+            }
+
+            CString::from_raw(func_ptr);
+            true
+        }
     }
 
     //链式检查指定函数
     pub fn check_function(&self, func: String) -> bool {
-        unsafe { if dukc_check_js_function(self.vm as *const c_void_ptr, CString::new(func).unwrap().as_ptr()) == 0 {
-            return false;
-        }}
-        true
+        let func_ptr = CString::into_raw(CString::new(func).unwrap());
+        unsafe {
+            if dukc_check_js_function(self.vm as *const c_void_ptr, func_ptr as *const c_char) == 0 {
+                CString::from_raw(func_ptr);
+                return false;
+            }
+
+            CString::from_raw(func_ptr);
+            true
+        }
     }
 
     //调用指定函数
@@ -1211,9 +1250,13 @@ impl JS {
     //设置指定全局变量的值，需要传递值的所有权，所以只读的值不允许设置为全局变量
     pub fn set_global_var(&self, key: String, value: JSType) -> bool {
         unsafe {
-            if dukc_set_global_var(self.vm as *const c_void_ptr, CString::new(key).unwrap().as_ptr()) == 0 {
+            let key_ptr = CString::into_raw(CString::new(key).unwrap());
+            if dukc_set_global_var(self.vm as *const c_void_ptr, key_ptr as *const c_char) == 0 {
+                CString::from_raw(key_ptr);
                 return false;
             }
+            CString::from_raw(key_ptr);
+
             if value.is_drop {
                 //已使用，则设置为不自动释放
                 let mut value_mut = value;
@@ -1253,9 +1296,10 @@ impl JS {
         let ptr: i32;
         let vm = self.vm as *const c_void_ptr;
         unsafe {
-            ptr = dukc_eval(vm, CString::new(script).unwrap().as_ptr());
+            let script_ptr = CString::into_raw(CString::new(script).unwrap());
+            ptr = dukc_eval(vm, script_ptr as *const c_char);
             if ptr <= 0 {
-                println!("{:?}, {:?}", ptr, self.dump_stack());
+                CString::from_raw(script_ptr);
                 Arc::new(JSType {
                     type_id: JSValueType::None as u8,
                     is_drop: false, //执行脚本失败没有返回值，不需要回收
@@ -1263,8 +1307,8 @@ impl JS {
                     value: 0,
                 })
             } else {
-                println!("{:?}, {:?}", ptr, self.dump_stack());
                 let t = dukc_get_value_type(vm, ptr as u32);
+                CString::from_raw(script_ptr);
                 Arc::new(JSType {
                     type_id: t,
                     is_drop: true, //执行脚本成功的返回值，需要被回收
@@ -1621,7 +1665,11 @@ impl JSType {
     //获取对象指定域的值，注意获取的值在读取后需要立即调用dukc_remove_value函数移除掉
 	pub fn get_field(&self, key: String) -> JSType {
         let ptr: u32;
-        unsafe { ptr = dukc_get_object_field(self.vm as *const c_void_ptr, self.value as u32, CString::new(key).unwrap().as_ptr()) }
+        let key_ptr = CString::into_raw(CString::new(key).unwrap());
+        unsafe {
+            ptr = dukc_get_object_field(self.vm as *const c_void_ptr, self.value as u32, key_ptr as *const c_char);
+            CString::from_raw(key_ptr);
+        }
         let is_drop = if self.get_type_id(ptr) == JSValueType::None as u8 {
             false //无值则不需要自运drop
         } else {
