@@ -4,6 +4,7 @@
 extern crate test;
 
 extern crate pi_vm;
+extern crate atom;
 
 use std::sync::Arc;
 use std::fs::File;
@@ -13,6 +14,7 @@ use test::Bencher;
 
 use pi_vm::bonmgr::NativeObjsAuth;
 use pi_vm::adapter::{register_native_object, JS};
+use atom::Atom;
 
 //test-add-fastint
 #[bench]
@@ -2062,7 +2064,7 @@ fn try_finally_throw(b: &mut Bencher) {
 
 //创建虚拟机
 fn create_js() -> Arc<JS> {
-    if let Some(js) = JS::new(Arc::new(NativeObjsAuth::new(None, None))) {
+    if let Some(js) = JS::new(1, Atom::from("test_shell"), Arc::new(NativeObjsAuth::new(None, None)), None) {
         load_js(js.clone(), "benches/core.js");
         return js;
     }

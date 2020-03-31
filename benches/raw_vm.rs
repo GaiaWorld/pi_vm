@@ -4,6 +4,7 @@
 extern crate test;
 
 extern crate pi_vm;
+extern crate atom;
 
 use std::sync::Arc;
 use std::fs::File;
@@ -13,6 +14,7 @@ use test::Bencher;
 
 use pi_vm::bonmgr::NativeObjsAuth;
 use pi_vm::adapter::{register_native_object, JS};
+use atom::Atom;
 
 //虚拟机创建
 #[bench]
@@ -20,7 +22,7 @@ fn create_vm(b: &mut Bencher) {
     register_native_object();
 
     b.iter(|| {
-        if let None = JS::new(Arc::new(NativeObjsAuth::new(None, None))) {
+        if let None = JS::new(1, Atom::from("test_shell"), Arc::new(NativeObjsAuth::new(None, None)), None) {
             panic!("!!!> Create Vm Error");
         }
     });
@@ -35,7 +37,7 @@ fn vm_compile_small(b: &mut Bencher) {
     if let Ok(mut file) = File::open("benches/first.js") {
         let mut contents = String::new();
         if let Ok(_) = file.read_to_string(&mut contents) {
-            if let Some(ref js) = JS::new(Arc::new(NativeObjsAuth::new(None, None))) {
+            if let Some(ref js) = JS::new(1, Atom::from("test_shell"), Arc::new(NativeObjsAuth::new(None, None)), None) {
                 b.iter(|| {
                     if let None = js.compile(file_name.clone(), (&contents).clone()) {
                         panic!("!!!> Vm Compile Error");
@@ -55,7 +57,7 @@ fn vm_compile_big(b: &mut Bencher) {
     if let Ok(mut file) = File::open("benches/core.js") {
         let mut contents = String::new();
         if let Ok(_) = file.read_to_string(&mut contents) {
-            if let Some(ref js) = JS::new(Arc::new(NativeObjsAuth::new(None, None))) {
+            if let Some(ref js) = JS::new(1, Atom::from("test_shell"), Arc::new(NativeObjsAuth::new(None, None)), None) {
                 b.iter(|| {
                     if let None = js.compile(file_name.clone(), (&contents).clone()) {
                         panic!("!!!> Vm Compile Error");
@@ -75,7 +77,7 @@ fn vm_load_small(b: &mut Bencher) {
     if let Ok(mut file) = File::open("benches/first.js") {
         let mut contents = String::new();
         if let Ok(_) = file.read_to_string(&mut contents) {
-            if let Some(ref js) = JS::new(Arc::new(NativeObjsAuth::new(None, None))) {
+            if let Some(ref js) = JS::new(1, Atom::from("test_shell"), Arc::new(NativeObjsAuth::new(None, None)), None) {
                 if let Some(ref code) = js.compile(file_name.clone(), (&contents).clone()) {
                     b.iter(|| {
                        js.load(code);
@@ -95,7 +97,7 @@ fn vm_load_big(b: &mut Bencher) {
     if let Ok(mut file) = File::open("benches/core.js") {
         let mut contents = String::new();
         if let Ok(_) = file.read_to_string(&mut contents) {
-            if let Some(ref js) = JS::new(Arc::new(NativeObjsAuth::new(None, None))) {
+            if let Some(ref js) = JS::new(1, Atom::from("test_shell"), Arc::new(NativeObjsAuth::new(None, None)), None) {
                 if let Some(ref code) = js.compile(file_name.clone(), (&contents).clone()) {
                     b.iter(|| {
                         js.load(code);
