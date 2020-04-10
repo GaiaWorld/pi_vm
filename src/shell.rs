@@ -113,7 +113,7 @@ struct ShellGlobalEnv(HashMap<String, ShellEnvValue>);
 */
 pub struct ShellManager {
     id: usize,                                          //shell分配id
-    factory: Option<Arc<VMFactory>>,                         //shell虚拟机工厂
+    factory: Option<Arc<VMFactory>>,                    //shell虚拟机工厂
     shells: HashMap<usize, (ShellStatus, Shell)>,       //shell表
     env: ShellGlobalEnv,                                //shell全局环境
 }
@@ -325,9 +325,9 @@ impl ShellManager {
 pub struct Shell {
     src: usize,                                                                     //shell源
     vm: Arc<JS>,                                                                    //shell虚拟机
-    resp: Option<Arc<Fn(Result<Arc<Vec<u8>>>, Option<Box<FnOnce(Arc<Vec<u8>>)>>)>>,  //响应回调，参数包括执行结果和下次请求回调
+    resp: Option<Arc<Fn(Result<Arc<Vec<u8>>>, Option<Box<FnOnce(Arc<Vec<u8>>)>>)>>, //响应回调，参数包括执行结果和下次请求回调
     is_accept: Arc<AtomicBool>,                                                     //是否接受对端请求
-    complied: Arc<RefCell<HashMap<u64, String>>>,                                //已编译脚本缓存
+    complied: Arc<RefCell<HashMap<u64, String>>>,                                   //已编译脚本缓存
 }
 
 impl Shell {
