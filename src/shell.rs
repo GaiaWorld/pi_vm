@@ -113,7 +113,7 @@ struct ShellGlobalEnv(HashMap<String, ShellEnvValue>);
 */
 pub struct ShellManager {
     id: usize,                                          //shell分配id
-    factory: Option<VMFactory>,                         //shell虚拟机工厂
+    factory: Option<Arc<VMFactory>>,                         //shell虚拟机工厂
     shells: HashMap<usize, (ShellStatus, Shell)>,       //shell表
     env: ShellGlobalEnv,                                //shell全局环境
 }
@@ -130,6 +130,10 @@ impl ShellManager {
             shells: HashMap::new(),
             env: ShellGlobalEnv(HashMap::new()),
         }
+    }
+
+    pub fn set_factory(&mut self, factory: Arc<VMFactory>) {
+        self.factory = Some(factory);
     }
 
     //初始化shell管理器
@@ -152,7 +156,7 @@ impl ShellManager {
             }
         }
 
-        self.factory = Some(factory);
+        self.factory = Some(Arc::new(factory));
     }
 
     //获取全局环境数量

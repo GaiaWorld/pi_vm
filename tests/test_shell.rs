@@ -71,7 +71,7 @@ fn test_shell() {
     register_native_function(0x100, shell_async_callback);
 
     //初始化shell管理器
-    let tmp = JS::new(Arc::new(NativeObjsAuth::new(None, None))).unwrap();
+    let tmp = JS::new(1, Atom::from("test_shell"), Arc::new(NativeObjsAuth::new(None, None)), None).unwrap();
     let test_code = Arc::new(tmp.compile("test.js".to_string(), TEST_SHELL_CODE.to_string()).unwrap());
     SHELL_MANAGER.write().unwrap().init(Some(vec![test_code]));
     SHELL_MANAGER.write().unwrap().add_string_env("_$root", "test_shell");
