@@ -156,12 +156,11 @@ impl DukProcess {
             vm_copy.get_js_function(init);
             let args_size = args(vm_copy.clone());
             vm_copy.call(args_size);
-
-            //等待调用初始函数完成，并通知
-            while vm_copy.is_wait_callback() {
-                pause();
+            
+            if !vm_copy.is_ran() {
+                //检查进程虚拟机已准备好，则通知
+                call_ok_copy.store(true, Ordering::Relaxed);
             }
-            call_ok_copy.store(true, Ordering::Relaxed);
         });
         cast_js_task(TaskType::Async(false), self.priority, None, func, Atom::from(format!("DukProcess Task, pid: {:?}, name: {:?}", self.pid, self.name)));
 
