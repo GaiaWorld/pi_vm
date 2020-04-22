@@ -158,7 +158,7 @@ impl DukProcess {
             vm_copy.call(args_size);
 
             //等待调用初始函数完成，并通知
-            while !vm_copy.is_wait_callback() {
+            while vm_copy.is_wait_callback() {
                 pause();
             }
             call_ok_copy.store(true, Ordering::Relaxed);
