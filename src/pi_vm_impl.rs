@@ -113,8 +113,10 @@ unsafe impl Sync for VMFactory {}
 
 impl Drop for VMFactory {
     fn drop(&mut self) {
-        self.pool.clear(); //清空虚拟机池
-        self.vm_buf_recv.try_iter().collect::<Vec<(Option<usize>, Atom, Box<FnOnce(Arc<JS>) -> usize>, Atom)>>(); //清空等待调度的任务队列
+        //清空虚拟机池
+        self.pool.clear();
+        //清空等待调度的任务队列
+        for _ in self.vm_buf_recv.try_iter() {}
     }
 }
 
