@@ -114,7 +114,7 @@ unsafe impl Sync for VMFactory {}
 impl Drop for VMFactory {
     fn drop(&mut self) {
         //清空虚拟机池
-        self.pool.clear();
+        while let Ok(_) = self.pool.try_pop() {}
         //清空等待调度的任务队列
         for _ in self.vm_buf_recv.try_iter() {}
     }
