@@ -14,7 +14,7 @@ use apm::allocator::{get_max_alloced_limit, is_alloced_limit, all_alloced_size};
 use apm::counter::{GLOBAL_PREF_COLLECT, PrefCounter, PrefTimer};
 use lfstack::{CollectResult, LFStack};
 
-use adapter::{VM_FACTORY_REGISTERS, JSStatus, JS, JSType, pause, js_reply_callback, handle_async_callback, try_js_destroy, dukc_vm_status_check, dukc_vm_status_switch, dukc_new_error, dukc_wakeup, dukc_continue, now_utc};
+use adapter::{VM_FACTORY_REGISTERS, JSStatus, JS, JSType, pause, js_reply_callback, handle_async_callback, dukc_vm_status_check, dukc_vm_status_switch, dukc_new_error, dukc_wakeup, dukc_continue, now_utc};
 use channel_map::VMChannelMap;
 use bonmgr::NativeObjsAuth;
 use std::sync::atomic::Ordering::SeqCst;
