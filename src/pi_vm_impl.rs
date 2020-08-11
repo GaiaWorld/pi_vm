@@ -111,6 +111,13 @@ pub struct VMFactory {
 unsafe impl Send for VMFactory {}
 unsafe impl Sync for VMFactory {}
 
+impl Drop for VMFactory {
+    fn drop(&mut self) {
+        self.pool.clear(); //清空虚拟机池
+        self.vm_buf_recv.try_iter().collect::<Vec<(Option<usize>, Atom, Box<FnOnce(Arc<JS>) -> usize>, Atom)>>(); //清空等待调度的任务队列
+    }
+}
+
 impl VMFactory {
     //构建一个虚拟机工厂
     pub fn new(name: &str,
