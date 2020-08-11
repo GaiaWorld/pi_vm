@@ -438,24 +438,16 @@ pub unsafe fn try_js_destroy(js: &JS) {
         return;
     }
 
-    let mut try_count = 1;
-    while try_count < 6 {
-        for _ in 0..(1 << try_count) {
-            let old_status = dukc_vm_status_switch(js.vm as *const c_void_ptr, JSStatus::NoTask as i8, JSStatus::Destroy as i8);
-            if old_status == JSStatus::NoTask as i8 {
-                //当前js虚拟机无任务，则可以destroy
-                info!("===> Vm Destroy Ok, vm: {:?}", js);
-                VM_ALLOCATED.fetch_sub(js.last_heap_size.load(Ordering::Relaxed), Ordering::Relaxed); //减少虚拟机占用内存
-                dukc_vm_destroy(js.vm as *const c_void_ptr);
-                return;
-            }
-
-            pause();
-        }
-        try_count += 1;
+    let old_status = dukc_vm_status_switch(js.vm as *const c_void_ptr, JSStatus::NoTask as i8, JSStatus::Destroy as i8);
+    if old_status == JSStatus::NoTask as i8 {
+        //当前js虚拟机无任务，则可以destroy
+        info!("===> Vm Destroy Ok, vm: {:?}", js);
+        VM_ALLOCATED.fetch_sub(js.last_heap_size.load(Ordering::Relaxed), Ordering::Relaxed); //减少虚拟机占用内存
+        dukc_vm_destroy(js.vm as *const c_void_ptr);
+        return;
     }
 
-    warn!("===> Vm Destroy Failed, vm: {:?}", js);
+    warn!("!!!> Vm Failed Ok, vm: {:?}", js);
 }
 
 unsafe impl Send for JS {}
