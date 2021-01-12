@@ -465,6 +465,7 @@ impl VMFactory {
                 }
 
                 vm.update_last_heap_size(); //更新初始化后虚拟机的堆大小和内存占用
+                vm.update_last_time(); //更新虚拟机初始运行时间
 
                 info!("===> Vm Factory Create Vm Ok, factory: {:?}, vm: {:?}",
                          (&self.name).to_string(), vm);
