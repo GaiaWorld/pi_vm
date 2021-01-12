@@ -2203,7 +2203,6 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
 
                         factory.collect(Arc::new(move |vm: &mut Arc<JS>| {
                             //整理当前虚拟机工厂内，尾部的一个超时虚拟机
-                            println!("!!!!!!Test Vm Timeout, timeout: {}, now: {}, last_time: {}", vm_timeout, now, vm.last_time());
                             if (factory_copy.size() > 1)
                                 && (vm_timeout > 0)
                                 && (now - vm.last_time()) >= vm_timeout {
@@ -2220,7 +2219,7 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
 
                         if timeout_count.load(Ordering::Relaxed) > 0 {
                             //非阻塞的清空超时的虚拟机
-                            factory.clear_collected();
+                            // factory.clear_collected(); //TODO 临时禁止清空超时的虚拟机
                         }
 
                         factory_pool_free_vm_count = factory.free_pool_size();
@@ -2335,7 +2334,6 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
                     let timeout_count_copy = timeout_count.clone();
                     factory.collect(Arc::new(move |vm: &mut Arc<JS>| {
                         //整理当前虚拟机工厂内，所有超时虚拟机
-                        println!("!!!!!!Test Vm Timeout, timeout: {}, now: {}, last_time: {}", vm_timeout, now, vm.last_time());
                         if (factory_copy.size() > 1)
                             && (vm_timeout > 0)
                             && (now - vm.last_time()) >= vm_timeout {
