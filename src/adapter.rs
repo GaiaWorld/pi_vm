@@ -2211,6 +2211,7 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
                             if (factory_copy.size() > 1)
                                 && (vm_timeout > 0)
                                 && (now - vm.last_time()) >= vm_timeout {
+                                println!("!!!!!!vm factory collect timeout0, name: {}, len: {}", factory_copy.name(), factory_copy.queue_len());
                                 //虚拟机已超时，且当前虚拟机工厂虚拟机数量大于最少虚拟机数量，则将超时虚拟机放入被整理队列
                                 factory_copy.throw(1);
                                 timeout_count_copy.fetch_add(1, Ordering::Relaxed);
@@ -2225,6 +2226,7 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
                         if timeout_count.load(Ordering::Relaxed) > 0 {
                             //非阻塞的清空超时的虚拟机
                             factory.clear_collected();
+                            println!("!!!!!!clear_collected0, name: {}, len: {}", factory.name(), factory.queue_len());
                         }
 
                         factory_pool_free_vm_count = factory.free_pool_size();
@@ -2342,6 +2344,7 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
                         if (factory_copy.size() > 1)
                             && (vm_timeout > 0)
                             && (now - vm.last_time()) >= vm_timeout {
+                            println!("!!!!!!vm factory collect timeout1, name: {}, len: {}", factory_copy.name(), factory_copy.queue_len());
                             //虚拟机已超时，且当前虚拟机工厂虚拟机数量大于最少虚拟机数量，则将超时虚拟机放入被整理队列
                             factory_copy.throw(1);
                             timeout_count_copy.fetch_add(1, Ordering::Relaxed);
@@ -2356,6 +2359,7 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
                         //非阻塞的清空超时的虚拟机
                         timeout_total += tmp_count;
                         factory.clear_collected();
+                        println!("!!!!!!clear_collected1, name: {}, len: {}", factory.name(), factory.queue_len());
                     }
                 }
             }
