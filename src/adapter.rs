@@ -357,6 +357,10 @@ fn collect_vm(js: Arc<JS>) {
                     }
                 }
             }
+        } else {
+            //当前虚拟机刚初始化，则忽略整理，并复用
+            js.queue.size.store(0, Ordering::Relaxed); //重置虚拟机当前消息队列
+            factory.reuse(js); //复用当前虚拟机
         }
     }
 }
