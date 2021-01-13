@@ -280,6 +280,7 @@ pub unsafe fn handle_async_callback(js: Arc<JS>, vm: *const c_void_ptr) {
     //更新当前虚拟机最近运行时间
     js.update_last_time();
 
+    println!("!!!!!!is_collect: {}, vm: {:?}", is_collect, js);
     if is_collect {
         //当前虚拟机可以整理
         collect_vm(js);
@@ -312,7 +313,9 @@ fn collect_vm(js: Arc<JS>) {
     }
 
     if let Some((lock, factory)) = js.collection.clone() {
+        println!("!!!!!!collect start0, vm: {:?}", js);
         if lock.load(Ordering::SeqCst) {
+            println!("!!!!!!collect start1, vm: {:?}", js);
             //回收器已解锁，则检查是否需要复用
             match js.check_reuse() {
                 0 => {
@@ -354,8 +357,6 @@ fn collect_vm(js: Arc<JS>) {
                     }
                 }
             }
-        } else {
-            println!("!!!!!!Vm Collection Unlocked, vm: {:?}", js);
         }
     }
 }
@@ -653,7 +654,9 @@ impl JS {
 
     //解锁虚拟机回收器
     pub fn unlock_collection(&self) {
+        println!("!!!!!!unlock_collection start");
         if let Some((lock, _)) = &self.collection {
+            println!("!!!!!!unlock_collection finish");
             //有回收器，则解锁
             lock.swap(true, Ordering::SeqCst);
         }
