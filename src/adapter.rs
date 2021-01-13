@@ -354,6 +354,8 @@ fn collect_vm(js: Arc<JS>) {
                     }
                 }
             }
+        } else {
+            println!("!!!!!!Vm Collection Unlocked, vm: {:?}", js);
         }
     }
 }
@@ -2219,7 +2221,7 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
 
                         if timeout_count.load(Ordering::Relaxed) > 0 {
                             //非阻塞的清空超时的虚拟机
-                            // factory.clear_collected(); //TODO 临时禁止清空超时的虚拟机
+                            factory.clear_collected();
                         }
 
                         factory_pool_free_vm_count = factory.free_pool_size();
