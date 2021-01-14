@@ -274,7 +274,7 @@ impl VMFactory {
         let factory_name = (&self.name).to_string();
         if !VM_FACTORY_REGISTERS.read().unwrap().contains_key(&factory_name) {
             //注册虚拟机工厂
-            VM_FACTORY_REGISTERS.write().unwrap().insert(factory_name, self.clone());
+            VM_FACTORY_REGISTERS.write().unwrap().insert(factory_name, Arc::new(self.clone()));
         }
 
         if count == 0 {

@@ -51,7 +51,7 @@ lazy_static! {
     //虚拟机超时时长，单位us, 默认5分钟
     static ref VM_TIMEOUT: AtomicUsize = AtomicUsize::new(300000000);
     //虚拟机工厂注册表
-    pub static ref VM_FACTORY_REGISTERS: Arc<RwLock<HashMap<String, VMFactory>>> = Arc::new(RwLock::new(HashMap::new()));
+    pub static ref VM_FACTORY_REGISTERS: Arc<RwLock<HashMap<String, Arc<VMFactory>>>> = Arc::new(RwLock::new(HashMap::new()));
     //虚拟机整理队列
     pub static ref VM_COLLECT_QUEUE: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
 }
