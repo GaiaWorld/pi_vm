@@ -133,7 +133,6 @@ impl VMFactory {
             //设置为不可复用
             is_reused = false;
         }
-        println!("!!!!!!name: {}, size: {}, is_reused: {}", name, size, is_reused);
 
         let (vm_buf_sent, vm_buf_recv) = unbounded();
         let (queue_sent, queue_recv) = unbounded();
