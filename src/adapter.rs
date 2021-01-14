@@ -449,6 +449,9 @@ pub unsafe fn try_js_destroy(js: &JS) {
     if old_status == JSStatus::NoTask as i8 {
         //当前js虚拟机无任务，则可以destroy
         info!("===> Vm Destroy Ok, vm: {:?}", js);
+        if js.name.as_str() == "app_a/user/server/login" {
+            panic!("vm: {:?}", js);
+        }
         VM_ALLOCATED.fetch_sub(js.last_heap_size.load(Ordering::Relaxed), Ordering::Relaxed); //减少虚拟机占用内存
         dukc_vm_destroy(js.vm as *const c_void_ptr);
         return;
