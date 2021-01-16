@@ -2205,6 +2205,7 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
                         let start_factory_collect_time = Instant::now();
 
                         factory.collect(Arc::new(move |vm: &mut Arc<JS>| {
+                            println!("!!!!!!factory collect0, name: {}, vm_timeout: {}, now: {}, last_time: {}", factory_copy.name(), vm_timeout, now, vm.last_time());
                             //整理当前虚拟机工厂内，尾部的一个超时虚拟机
                             if (factory_copy.size() > 1)
                                 && (vm_timeout > 0)
@@ -2336,6 +2337,7 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
                     let factory_copy = factory.clone();
                     let timeout_count_copy = timeout_count.clone();
                     factory.collect(Arc::new(move |vm: &mut Arc<JS>| {
+                        println!("!!!!!!factory collect1, name: {}, vm_timeout: {}, now: {}, last_time: {}", factory_copy.name(), vm_timeout, now, vm.last_time());
                         //整理当前虚拟机工厂内，所有超时虚拟机
                         if (factory_copy.size() > 1)
                             && (vm_timeout > 0)
