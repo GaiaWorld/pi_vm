@@ -2223,7 +2223,7 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
 
                         if timeout_count.load(Ordering::Relaxed) > 0 {
                             //非阻塞的清空超时的虚拟机
-                            factory.clear_collected();
+                            // factory.clear_collected();
                         }
 
                         factory_pool_free_vm_count = factory.free_pool_size();
@@ -2355,7 +2355,7 @@ pub fn register_global_vm_heap_collect_timer(collect_timeout: usize) {
                     if tmp_count > 0 {
                         //非阻塞的清空超时的虚拟机
                         timeout_total += tmp_count;
-                        factory.clear_collected();
+                        // factory.clear_collected();
                     }
                 }
             }
